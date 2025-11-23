@@ -99,6 +99,7 @@
 ## Key Features Explained
 
 ### AEMO Spike Detection
+This option is disabled by default and is primarily intended for use with VPPs that offer AEMO Spike exports (GLOBIRD,AGL,ENGIE) and where Tesla Batteries are not natively supported.
 Automatically monitors AEMO NEM wholesale electricity prices for your region (NSW1, QLD1, VIC1, SA1, TAS1). When prices exceed your configured threshold (e.g., $300/MWh), the system:
 - Saves your current tariff configuration
 - **Saves your current Powerwall operation mode** (self_consumption, autonomous, or backup)
@@ -110,7 +111,7 @@ Automatically monitors AEMO NEM wholesale electricity prices for your region (NS
 
 Perfect for maximizing revenue during extreme price events! Works seamlessly regardless of your normal Powerwall mode.
 
-**Monitoring Frequency:** Checks AEMO prices every 1 minute for responsive spike detection (reduced from 5 minutes to minimize detection lag).
+**Monitoring Frequency:** Checks AEMO prices every 1 minute for responsive spike detection.
 
 ### Solar Curtailment
 Prevents paying to export solar during negative pricing periods common with Amber Electric. The system monitors feed-in prices every minute and:
