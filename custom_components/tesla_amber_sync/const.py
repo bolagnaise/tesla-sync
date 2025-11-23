@@ -12,6 +12,7 @@ CONF_TESLA_ENERGY_SITE_ID = "tesla_energy_site_id"
 CONF_AUTO_SYNC_ENABLED = "auto_sync_enabled"
 CONF_TIMEZONE = "timezone"
 CONF_AMBER_FORECAST_TYPE = "amber_forecast_type"
+CONF_SOLAR_CURTAILMENT_ENABLED = "solar_curtailment_enabled"
 
 # Demand charge configuration
 CONF_DEMAND_CHARGE_ENABLED = "demand_charge_enabled"

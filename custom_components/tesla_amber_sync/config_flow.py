@@ -17,6 +17,7 @@ from .const import (
     CONF_AMBER_API_TOKEN,
     CONF_AMBER_SITE_ID,
     CONF_AMBER_FORECAST_TYPE,
+    CONF_SOLAR_CURTAILMENT_ENABLED,
     CONF_TESLEMETRY_API_TOKEN,
     CONF_TESLA_ENERGY_SITE_ID,
     CONF_AUTO_SYNC_ENABLED,
@@ -222,6 +223,7 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_TESLA_ENERGY_SITE_ID: user_input[CONF_TESLA_ENERGY_SITE_ID],
                 CONF_AUTO_SYNC_ENABLED: user_input.get(CONF_AUTO_SYNC_ENABLED, True),
                 CONF_AMBER_FORECAST_TYPE: user_input.get(CONF_AMBER_FORECAST_TYPE, "predicted"),
+                CONF_SOLAR_CURTAILMENT_ENABLED: user_input.get(CONF_SOLAR_CURTAILMENT_ENABLED, False),
             }
 
             # Go to optional demand charge configuration
@@ -261,6 +263,7 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "low": "Low (Conservative)",
             "high": "High (Optimistic)"
         })
+        data_schema_dict[vol.Optional(CONF_SOLAR_CURTAILMENT_ENABLED, default=False)] = bool
 
         data_schema = vol.Schema(data_schema_dict)
 
@@ -384,6 +387,10 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
             CONF_DEMAND_CHARGE_APPLY_TO,
             self.config_entry.data.get(CONF_DEMAND_CHARGE_APPLY_TO, "Buy Only")
         )
+        current_solar_curtailment = self.config_entry.options.get(
+            CONF_SOLAR_CURTAILMENT_ENABLED,
+            self.config_entry.data.get(CONF_SOLAR_CURTAILMENT_ENABLED, False)
+        )
 
         return self.async_show_form(
             step_id="init",
@@ -401,6 +408,10 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                         "low": "Low (Conservative)",
                         "high": "High (Optimistic)"
                     }),
+                    vol.Optional(
+                        CONF_SOLAR_CURTAILMENT_ENABLED,
+                        default=current_solar_curtailment,
+                    ): bool,
                     vol.Optional(
                         CONF_DEMAND_CHARGE_ENABLED,
                         default=current_demand_enabled,
