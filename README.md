@@ -79,7 +79,8 @@
 - 🌏 **Timezone Support** - Configure your local timezone for accurate time display across all Australian states
 
 ### Advanced Features
-- ⚡ **AEMO Spike Detection** - Automatically monitors Australian wholesale electricity prices and switches to spike tariff during extreme price events (configurable threshold)
+- ⚡ **AEMO Spike Detection** - Automatically monitors Australian wholesale electricity prices and switches to spike tariff during extreme price events (configurable threshold). Includes intelligent operation mode switching - automatically saves your current Powerwall mode and switches to autonomous (TOU) mode during spikes, then restores your original mode when prices normalize
+- 🌞 **Solar Curtailment** - Automatically prevents solar export during negative pricing periods (≤0c/kWh). When Amber feed-in prices go negative, the system sets Powerwall export to "never" to avoid paying to export, then restores to "battery_ok" when prices return to positive
 - 🎯 **Custom TOU Schedules** - Create and manage custom time-of-use schedules for any electricity provider (not just Amber)
 - 💾 **Saved TOU Profiles** - Backup, restore, and manage multiple tariff configurations
 - 📈 **Demand Charge Tracking** - Monitor and track peak demand for electricity plans with capacity-based fees
@@ -98,13 +99,37 @@
 ## Key Features Explained
 
 ### AEMO Spike Detection
-Automatically monitors AEMO NEM wholesale electricity prices for your region (NSW1, QLD1, VIC1, SA1, TAS1). When prices exceed your configured threshold (e.g., $3000/MWh), the system:
+Automatically monitors AEMO NEM wholesale electricity prices for your region (NSW1, QLD1, VIC1, SA1, TAS1). When prices exceed your configured threshold (e.g., $300/MWh), the system:
 - Saves your current tariff configuration
+- **Saves your current Powerwall operation mode** (self_consumption, autonomous, or backup)
+- **Automatically switches to autonomous (TOU) mode** (required for TOU tariffs to work)
 - Uploads a spike tariff with very high sell rates to encourage battery export
 - Tesla Powerwall responds by exporting to grid during the spike
-- Automatically restores your normal tariff when prices return to normal
+- **Automatically restores your original operation mode** when spike ends
+- Restores your normal tariff when prices return to normal
 
-Perfect for maximizing revenue during extreme price events!
+Perfect for maximizing revenue during extreme price events! Works seamlessly regardless of your normal Powerwall mode.
+
+**Monitoring Frequency:** Checks AEMO prices every 1 minute for responsive spike detection (reduced from 5 minutes to minimize detection lag).
+
+### Solar Curtailment
+Prevents paying to export solar during negative pricing periods common with Amber Electric. The system monitors feed-in prices every minute and:
+
+**During Negative Prices (≤0c/kWh):**
+- Sets Powerwall export rule to "never" to prevent grid export
+- Implements Tesla API bug workaround: if already set to "never", toggles to "pv_only" then back to "never" to force the setting to apply
+- Protects you from financial penalties during negative price events
+
+**During Positive Prices (>0c/kWh):**
+- Restores export rule to "battery_ok" to allow both solar and battery export
+- Enables normal revenue generation from grid export
+
+**Configuration:**
+- Enable/disable in Amber Settings (Flask web interface)
+- Enable/disable during Home Assistant integration setup
+- Default: Disabled (opt-in feature)
+
+This feature is particularly useful with Amber's wholesale pricing to avoid paying to export your solar during oversupply periods.
 
 ### Custom TOU Schedules
 Not using Amber Electric? No problem! Create custom time-of-use schedules for any Australian electricity provider:
