@@ -32,6 +32,26 @@
                 </details>
             </fieldset>
 
+            <fieldset>
+                <legend>Solar Curtailment</legend>
+                <label for="solar_curtailment_enabled">
+                    {{ form.solar_curtailment_enabled() }}
+                    {{ form.solar_curtailment_enabled.label }}
+                    <small>{{ form.solar_curtailment_enabled.description }}</small>
+                </label>
+                <details style="margin-top: 0.5em;">
+                    <summary style="font-size: 0.85em;">How does solar curtailment work?</summary>
+                    <div style="font-size: 0.8em; margin-top: 0.5em; padding: 0.5em; background: rgba(100, 150, 200, 0.05); border-radius: 0.3em;">
+                        <p style="margin: 0.3em 0;">When enabled, this feature monitors Amber feed-in prices every minute and automatically:</p>
+                        <ul style="margin: 0.3em 0 0 1.2em; padding: 0;">
+                            <li style="margin: 0.5em 0;"><strong>During negative prices (≤0c/kWh):</strong> Sets Powerwall export to "never" to prevent paying to export your solar to the grid.</li>
+                            <li style="margin: 0.5em 0;"><strong>During positive prices (>0c/kWh):</strong> Restores export to "pv_only" to allow normal solar export.</li>
+                        </ul>
+                        <p style="margin: 0.5em 0 0 0; font-style: italic;">This is particularly useful with Amber's wholesale pricing to avoid financial penalties during negative price events.</p>
+                    </div>
+                </details>
+            </fieldset>
+
             <div style="margin-top: 1.5em;">
                 {{ form.submit(style="width: 100%;") }}
             </div>

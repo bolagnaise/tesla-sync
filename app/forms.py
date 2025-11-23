@@ -93,6 +93,10 @@ class AmberSettingsForm(FlaskForm):
     ], default='predicted', validators=[DataRequired()],
     description='Select which Amber forecast to use for TOU tariff: Low (conservative), Predicted (default), or High (optimistic)')
 
+    # Solar curtailment toggle
+    solar_curtailment_enabled = BooleanField('Enable Solar Curtailment',
+    description='Prevent solar export when Amber feed-in price is 0c or negative. Automatically sets Powerwall export to "never" during negative pricing periods to avoid paying to export.')
+
     submit = SubmitField('Save Amber Settings')
 
 
