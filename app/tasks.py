@@ -934,3 +934,157 @@ def create_spike_tariff(current_aemo_price_mwh):
     }
 
     return tariff
+
+
+def solar_curtailment_check():
+    """
+    Monitor Amber export prices and curtail solar export when price is 0c or negative
+
+    Flow:
+    1. Check Amber feed-in price for users with solar curtailment enabled
+    2. If export price <= 0c:
+       - Set grid export rule to 'never' to prevent exporting at negative prices
+       - Workaround for Tesla API bug: Toggle to 'pv_only' then back to 'never' to force apply
+    3. If export price > 0c:
+       - Restore normal export (pv_only or battery_ok based on user preferences)
+    """
+    from app import db
+    from app.api_clients import get_amber_client, get_tesla_client
+
+    logger.info("=== Starting solar curtailment check ===")
+
+    users = User.query.filter_by(solar_curtailment_enabled=True).all()
+
+    if not users:
+        logger.debug("No users with solar curtailment enabled")
+        return
+
+    success_count = 0
+    error_count = 0
+
+    for user in users:
+        try:
+            # Validate user configuration
+            if not user.amber_api_token_encrypted:
+                logger.warning(f"User {user.email} has curtailment enabled but no Amber API token")
+                continue
+
+            if not user.tesla_energy_site_id or not user.teslemetry_api_key_encrypted:
+                logger.warning(f"User {user.email} has curtailment enabled but missing Tesla configuration")
+                continue
+
+            logger.info(f"Checking export price for user: {user.email}")
+
+            # Get Amber client and fetch current prices
+            amber_client = get_amber_client(user)
+            if not amber_client:
+                logger.error(f"Failed to get Amber client for {user.email}")
+                error_count += 1
+                continue
+
+            current_prices = amber_client.get_current_prices()
+            if not current_prices:
+                logger.error(f"Failed to fetch Amber prices for {user.email}")
+                error_count += 1
+                continue
+
+            # Get feed-in (export) price
+            feedin_price = None
+            for price_data in current_prices:
+                if price_data.get('channelType') == 'feedIn':
+                    feedin_price = price_data.get('perKwh', 0)
+                    break
+
+            if feedin_price is None:
+                logger.warning(f"No feed-in price found for {user.email}")
+                error_count += 1
+                continue
+
+            logger.info(f"Current export price for {user.email}: {feedin_price}c/kWh")
+
+            # Get Tesla client
+            tesla_client = get_tesla_client(user)
+            if not tesla_client:
+                logger.error(f"Failed to get Tesla client for {user.email}")
+                error_count += 1
+                continue
+
+            # Get current grid export settings
+            current_settings = tesla_client.get_grid_import_export(user.tesla_energy_site_id)
+            if not current_settings:
+                logger.error(f"Failed to get grid export settings for {user.email}")
+                error_count += 1
+                continue
+
+            current_export_rule = current_settings.get('customer_preferred_export_rule')
+            logger.info(f"Current export rule for {user.email}: {current_export_rule}")
+
+            # CURTAILMENT LOGIC: Export price is 0c or negative
+            if feedin_price <= 0:
+                logger.warning(f"🚫 Export price is {feedin_price}c/kWh - applying curtailment for {user.email}")
+
+                # If already set to 'never', toggle to force apply (workaround for Tesla API bug)
+                if current_export_rule == 'never':
+                    logger.info(f"Export already set to 'never' - toggling to force apply for {user.email}")
+
+                    # Toggle to pv_only
+                    logger.info(f"Step 1: Setting export to 'pv_only' for {user.email}")
+                    result = tesla_client.set_grid_export_rule(user.tesla_energy_site_id, 'pv_only')
+                    if not result:
+                        logger.error(f"Failed to toggle export to 'pv_only' for {user.email}")
+                        error_count += 1
+                        continue
+
+                    # Wait a moment for the change to register
+                    import time
+                    time.sleep(2)
+
+                    # Toggle back to never
+                    logger.info(f"Step 2: Setting export back to 'never' for {user.email}")
+                    result = tesla_client.set_grid_export_rule(user.tesla_energy_site_id, 'never')
+                    if not result:
+                        logger.error(f"Failed to set export to 'never' for {user.email}")
+                        error_count += 1
+                        continue
+
+                    logger.info(f"✅ Toggled export rule to force curtailment for {user.email}")
+
+                else:
+                    # Not already 'never', so just set it
+                    logger.info(f"Setting export to 'never' for {user.email}")
+                    result = tesla_client.set_grid_export_rule(user.tesla_energy_site_id, 'never')
+                    if not result:
+                        logger.error(f"Failed to set export to 'never' for {user.email}")
+                        error_count += 1
+                        continue
+
+                    logger.info(f"✅ Applied solar curtailment (export=never) for {user.email}")
+
+                success_count += 1
+
+            # NORMAL MODE: Export price is positive
+            else:
+                logger.info(f"✅ Export price is positive ({feedin_price}c/kWh) - normal operation for {user.email}")
+
+                # If currently curtailed, restore to pv_only (default safe mode)
+                if current_export_rule == 'never':
+                    logger.info(f"Restoring export from curtailment for {user.email}")
+                    result = tesla_client.set_grid_export_rule(user.tesla_energy_site_id, 'pv_only')
+                    if not result:
+                        logger.error(f"Failed to restore export to 'pv_only' for {user.email}")
+                        error_count += 1
+                        continue
+
+                    logger.info(f"✅ Restored export to 'pv_only' for {user.email}")
+                    success_count += 1
+                else:
+                    logger.debug(f"Export rule is already '{current_export_rule}' - no action needed for {user.email}")
+                    success_count += 1
+
+        except Exception as e:
+            logger.error(f"Error checking solar curtailment for {user.email}: {e}", exc_info=True)
+            error_count += 1
+            continue
+
+    logger.info(f"=== Solar curtailment check complete: {success_count} successful, {error_count} errors ===")
+

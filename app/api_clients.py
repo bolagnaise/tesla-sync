@@ -702,6 +702,84 @@ class TeslemetryAPIClient:
                 logger.error(f"Error response: {e.response.text}")
             return None
 
+    def get_grid_import_export(self, site_id):
+        """
+        Get current grid import/export settings for the Powerwall
+
+        Args:
+            site_id: Energy site ID
+
+        Returns:
+            dict: Grid import/export settings including customer_preferred_export_rule, or None on error
+            Example: {
+                'customer_preferred_export_rule': 'pv_only',  # 'never', 'pv_only', or 'battery_ok'
+                'disallow_charge_from_grid_with_solar_installed': True
+            }
+        """
+        try:
+            logger.info(f"Getting grid import/export settings for site {site_id}")
+            site_info = self.get_site_info(site_id)
+
+            if site_info:
+                # Extract relevant fields from site_info
+                export_rule = site_info.get('customer_preferred_export_rule')
+                disallow_charge = site_info.get('disallow_charge_from_grid_with_solar_installed')
+
+                settings = {
+                    'customer_preferred_export_rule': export_rule,
+                    'disallow_charge_from_grid_with_solar_installed': disallow_charge
+                }
+                logger.info(f"Current grid export settings: {settings}")
+                return settings
+            else:
+                logger.error(f"Failed to get site_info for {site_id}")
+                return None
+        except Exception as e:
+            logger.error(f"Error getting grid import/export settings: {e}")
+            return None
+
+    def set_grid_export_rule(self, site_id, export_rule):
+        """
+        Set the grid export rule for the Powerwall
+
+        Args:
+            site_id: Energy site ID
+            export_rule: Export mode - 'never', 'pv_only', or 'battery_ok'
+                - 'never': No export to grid (Permanent Non Export)
+                - 'pv_only': Only solar can export (Solar Only Export)
+                - 'battery_ok': Both battery and solar can export
+
+        Returns:
+            dict: Response data or None on error
+        """
+        valid_rules = ['never', 'pv_only', 'battery_ok']
+        if export_rule not in valid_rules:
+            logger.error(f"Invalid export rule: {export_rule}. Must be one of {valid_rules}")
+            return None
+
+        try:
+            logger.info(f"Setting grid export rule to '{export_rule}' for site {site_id}")
+            response = requests.post(
+                f"{self.base_url}/api/1/energy_sites/{site_id}/grid_import_export",
+                headers=self.headers,
+                json={"customer_preferred_export_rule": export_rule},
+                timeout=10
+            )
+
+            logger.info(f"Set grid export rule response status: {response.status_code}")
+            if response.status_code not in [200, 201, 202]:
+                logger.error(f"Error response: {response.text}")
+
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"Successfully set grid export rule to '{export_rule}'")
+            return data
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error setting grid export rule via Teslemetry: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Error response: {e.response.text}")
+            return None
+
 
 def get_amber_client(user):
     """Get an Amber API client for the user"""

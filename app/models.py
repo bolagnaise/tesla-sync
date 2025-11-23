@@ -28,6 +28,7 @@ class User(UserMixin, db.Model):
 
     # Amber Electric Preferences
     amber_forecast_type = db.Column(db.String(20), default='predicted')  # 'low', 'predicted', 'high'
+    solar_curtailment_enabled = db.Column(db.Boolean, default=False)  # Enable solar curtailment when export price <= 0
 
     # Demand Charge Configuration
     enable_demand_charges = db.Column(db.Boolean, default=False)

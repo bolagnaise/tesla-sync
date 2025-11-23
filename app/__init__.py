@@ -93,7 +93,7 @@ def create_app(config_class=Config):
         scheduler = BackgroundScheduler()
 
         # Add job to sync all users' TOU schedules every 5 minutes (aligned with Amber's update cycle)
-        from app.tasks import sync_all_users, save_price_history, save_energy_usage, monitor_aemo_prices
+        from app.tasks import sync_all_users, save_price_history, save_energy_usage, monitor_aemo_prices, solar_curtailment_check
 
         # Wrapper functions to run tasks within app context
         def run_sync_all_users():
@@ -111,6 +111,10 @@ def create_app(config_class=Config):
         def run_monitor_aemo_prices():
             with app.app_context():
                 monitor_aemo_prices()
+
+        def run_solar_curtailment_check():
+            with app.app_context():
+                solar_curtailment_check()
 
         scheduler.add_job(
             func=run_sync_all_users,
@@ -147,12 +151,22 @@ def create_app(config_class=Config):
             replace_existing=True
         )
 
+        # Add job to check solar curtailment every minute (prevent export at negative prices)
+        scheduler.add_job(
+            func=run_solar_curtailment_check,
+            trigger=CronTrigger(minute='*'),
+            id='solar_curtailment_check',
+            name='Check Amber export prices for solar curtailment',
+            replace_existing=True
+        )
+
         # Start the scheduler
         scheduler.start()
         logger.info("✅ Background scheduler started:")
         logger.info("  - TOU sync will run every 5 minutes at :35 seconds (ensures AEMO ActualInterval data is available)")
         logger.info("  - Price history collection will run every 5 minutes at :35 seconds")
         logger.info("  - Energy usage logging will run every minute (Teslemetry allows 1/min)")
+        logger.info("  - Solar curtailment check will run every minute")
         logger.info("  - AEMO price monitoring will run every 1 minute at :35 seconds for spike detection")
 
         # Shut down the scheduler and release lock when exiting the app
