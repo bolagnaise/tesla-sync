@@ -223,7 +223,7 @@ The easiest way to use Tesla Sync if you're already running Home Assistant.
 - Amber Electric account with API token (https://app.amber.com.au/developers)
 - **Tesla API access (choose one):**
   - **Option 1 (Recommended):** Teslemetry account with API token (https://teslemetry.com) - ~$3/month
-  - **Option 2 (Free alternative):** Home Assistant Tesla Fleet Integration - Completely free
+  - **Option 2 (Free alternative):** Tesla Fleet API (direct OAuth with Tesla) - Completely free
 
 ### Tesla API Options
 
@@ -235,6 +235,7 @@ Tesla Sync supports two methods for accessing your Tesla Powerwall. Choose which
 - ✅ Simple API key authentication
 - ✅ No OAuth setup required
 - ✅ Works with both Docker and Home Assistant deployments
+- ✅ Configurable via web GUI (Flask) or integration setup (HA)
 - ✅ Reliable and well-maintained proxy service
 - ✅ Fastest setup (2 minutes)
 
@@ -246,21 +247,20 @@ Tesla Sync supports two methods for accessing your Tesla Powerwall. Choose which
 
 **Best for:** Users who want a simple, reliable setup and don't mind a small monthly fee.
 
-#### Option 2: Tesla Fleet Integration (FREE - Home Assistant Only)
+#### Option 2: Tesla Fleet API (FREE)
 
 **Pros:**
 - ✅ Completely free (no monthly costs)
-- ✅ Official Home Assistant integration
 - ✅ Direct Tesla API access via OAuth
-- ✅ Automatic token management and refresh
-- ✅ Zero additional configuration needed in Tesla Sync
+- ✅ Works with both Docker and Home Assistant deployments
+- ✅ Automatic token refresh
 
 **Cons:**
-- ⚠️ Only available when using Home Assistant (not available for Docker deployment)
-- ⚠️ Requires OAuth setup with Tesla
-- ⚠️ More complex initial configuration
+- ⚠️ Requires OAuth app registration with Tesla
+- ⚠️ More complex initial setup
+- ⚠️ Different configuration method for each deployment type
 
-**Setup:**
+**Setup - Home Assistant:**
 1. Install the official "Tesla Fleet" integration in Home Assistant
    - Go to Settings → Devices & Services → Add Integration
    - Search for "Tesla Fleet"
@@ -269,9 +269,13 @@ Tesla Sync supports two methods for accessing your Tesla Powerwall. Choose which
 3. During Tesla Sync setup, **leave the Teslemetry token field empty**
 4. The integration will display: "Tesla Fleet integration detected! You can leave this field empty to use your existing Tesla Fleet OAuth tokens (free)"
 
-**Important:** The Tesla Fleet integration must be fully configured and loaded in Home Assistant before installing Tesla Sync. This option is **only available when using the Home Assistant integration** - the Docker deployment always requires Teslemetry.
+**Setup - Docker/Flask:**
+1. Register an OAuth application at https://developer.tesla.com
+2. Configure OAuth credentials via environment variables (see `.env.example`)
+3. Tesla Fleet API is not configurable via the Flask web GUI
+4. See [TESLA_FLEET_SETUP.md](docs/TESLA_FLEET_SETUP.md) for detailed setup instructions
 
-**Best for:** Home Assistant users who want to avoid recurring costs and already have or are willing to set up Tesla Fleet OAuth.
+**Best for:** Users who want to avoid recurring costs and are comfortable with OAuth setup.
 
 ### Installation Steps
 
