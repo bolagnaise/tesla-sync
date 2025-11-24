@@ -220,8 +220,58 @@ The easiest way to use Tesla Sync if you're already running Home Assistant.
 
 - Home Assistant installed and running
 - HACS (Home Assistant Community Store) installed
-- Teslemetry account with API token (https://teslemetry.com)
 - Amber Electric account with API token (https://app.amber.com.au/developers)
+- **Tesla API access (choose one):**
+  - **Option 1 (Recommended):** Teslemetry account with API token (https://teslemetry.com) - ~$3/month
+  - **Option 2 (Free alternative):** Home Assistant Tesla Fleet Integration - Completely free
+
+### Tesla API Options
+
+Tesla Sync supports two methods for accessing your Tesla Powerwall. Choose whichever works best for you.
+
+#### Option 1: Teslemetry (Recommended - ~$3/month)
+
+**Pros:**
+- ✅ Simple API key authentication
+- ✅ No OAuth setup required
+- ✅ Works with both Docker and Home Assistant deployments
+- ✅ Reliable and well-maintained proxy service
+- ✅ Fastest setup (2 minutes)
+
+**Setup:**
+1. Sign up at https://teslemetry.com
+2. Connect your Tesla account
+3. Copy your API key
+4. Enter it during Tesla Sync setup
+
+**Best for:** Users who want a simple, reliable setup and don't mind a small monthly fee.
+
+#### Option 2: Tesla Fleet Integration (FREE - Home Assistant Only)
+
+**Pros:**
+- ✅ Completely free (no monthly costs)
+- ✅ Official Home Assistant integration
+- ✅ Direct Tesla API access via OAuth
+- ✅ Automatic token management and refresh
+- ✅ Zero additional configuration needed in Tesla Sync
+
+**Cons:**
+- ⚠️ Only available when using Home Assistant (not available for Docker deployment)
+- ⚠️ Requires OAuth setup with Tesla
+- ⚠️ More complex initial configuration
+
+**Setup:**
+1. Install the official "Tesla Fleet" integration in Home Assistant
+   - Go to Settings → Devices & Services → Add Integration
+   - Search for "Tesla Fleet"
+   - Follow the OAuth login flow
+2. Tesla Sync will automatically detect and use your Tesla Fleet credentials
+3. During Tesla Sync setup, **leave the Teslemetry token field empty**
+4. The integration will display: "Tesla Fleet integration detected! You can leave this field empty to use your existing Tesla Fleet OAuth tokens (free)"
+
+**Important:** The Tesla Fleet integration must be fully configured and loaded in Home Assistant before installing Tesla Sync. This option is **only available when using the Home Assistant integration** - the Docker deployment always requires Teslemetry.
+
+**Best for:** Home Assistant users who want to avoid recurring costs and already have or are willing to set up Tesla Fleet OAuth.
 
 ### Installation Steps
 
@@ -246,9 +296,13 @@ The easiest way to use Tesla Sync if you're already running Home Assistant.
      - Enter your Amber API token
      - Get token from: https://app.amber.com.au/developers
 
-   - **Step 2: Teslemetry**
-     - Enter your Teslemetry API token
-     - Get token from: https://teslemetry.com
+   - **Step 2: Tesla API**
+     - **Using Teslemetry (Recommended):** Enter your Teslemetry API token
+       - Get token from: https://teslemetry.com
+     - **Using Tesla Fleet (Optional):** Leave the Teslemetry token field empty
+       - If you have Tesla Fleet configured, the integration will automatically detect it
+       - You'll see: "Tesla Fleet integration detected! You can leave this field empty to use your existing Tesla Fleet OAuth tokens (free)"
+       - Your existing Tesla Fleet OAuth tokens will be used automatically
 
    - **Step 3: Site Selection**
      - Select your Tesla energy site from the dropdown
@@ -337,9 +391,15 @@ automation:
 ### Troubleshooting
 
 - **No sensors appearing**: Check that the integration is enabled in Settings → Devices & Services
-- **Invalid API token**: Verify tokens at Amber and Teslemetry websites
-- **No Tesla sites found**: Ensure your Tesla account is linked in Teslemetry
+- **Invalid API token**: Verify tokens at Amber and Teslemetry/Tesla Fleet
+- **No Tesla sites found**:
+  - If using Tesla Fleet: Ensure the Tesla Fleet integration is loaded and working
+  - If using Teslemetry: Ensure your Tesla account is linked in Teslemetry
 - **TOU sync failing**: Check Home Assistant logs for detailed error messages
+- **Tesla Fleet not detected**:
+  - Verify Tesla Fleet integration is installed and loaded (green status)
+  - Restart Home Assistant after installing Tesla Fleet
+  - Check Settings → Devices & Services to ensure Tesla Fleet shows "Loaded"
 
 ---
 
