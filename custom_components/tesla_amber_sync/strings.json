@@ -12,6 +12,13 @@
           "amber_api_token": "Amber API Token"
         }
       },
+      "tesla_provider": {
+        "title": "Choose Tesla API Provider",
+        "description": "{fleet_detected}\n\nSelect how you want to access your Tesla Powerwall. Tesla Fleet API is free but requires the Tesla Fleet integration to be installed. Teslemetry is a paid proxy service (~$3/month) that's easier to set up.",
+        "data": {
+          "tesla_api_provider": "Tesla API Provider"
+        }
+      },
       "teslemetry": {
         "title": "Teslemetry Configuration",
         "description": "Enter your Teslemetry API token. You can get this from {teslemetry_url}",
@@ -43,7 +50,8 @@
       "invalid_auth": "Invalid API token. Please check your token and try again.",
       "cannot_connect": "Unable to connect to API. Please check your internet connection.",
       "no_sites": "No Amber Electric sites found for this account.",
-      "no_energy_sites": "No Tesla energy sites found in your Teslemetry account.",
+      "no_energy_sites": "No Tesla energy sites found in your account.",
+      "no_token_provided": "Please provide a Teslemetry API token.",
       "unknown": "An unexpected error occurred. Please try again."
     },
     "abort": {

@@ -177,6 +177,9 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._teslemetry_data: dict[str, Any] = {}
         self._tesla_sites: list[dict[str, Any]] = []
         self._site_data: dict[str, Any] = {}
+        self._tesla_fleet_available: bool = False
+        self._tesla_fleet_token: str | None = None
+        self._selected_provider: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -203,7 +206,7 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if validation_result["success"]:
                 self._amber_data = user_input
                 self._amber_sites = validation_result.get("sites", [])
-                return await self.async_step_teslemetry()
+                return await self.async_step_tesla_provider()
             else:
                 errors["base"] = validation_result.get("error", "unknown")
 
@@ -222,15 +225,13 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_step_teslemetry(
+    async def async_step_tesla_provider(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle Teslemetry API token entry or Tesla Fleet detection."""
-        errors: dict[str, str] = {}
-
+        """Let user choose between Tesla Fleet and Teslemetry."""
         # Check if Tesla Fleet integration is configured and loaded
-        tesla_fleet_available = False
-        tesla_fleet_token = None
+        self._tesla_fleet_available = False
+        self._tesla_fleet_token = None
 
         tesla_fleet_entries = self.hass.config_entries.async_entries("tesla_fleet")
         if tesla_fleet_entries:
@@ -240,21 +241,27 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         if CONF_TOKEN in tesla_entry.data:
                             token_data = tesla_entry.data[CONF_TOKEN]
                             if CONF_ACCESS_TOKEN in token_data:
-                                tesla_fleet_token = token_data[CONF_ACCESS_TOKEN]
-                                tesla_fleet_available = True
+                                self._tesla_fleet_token = token_data[CONF_ACCESS_TOKEN]
+                                self._tesla_fleet_available = True
                                 _LOGGER.info("Tesla Fleet integration detected and available")
                                 break
                     except Exception as e:
                         _LOGGER.warning("Failed to extract tokens from Tesla Fleet integration: %s", e)
 
-        if user_input is not None:
-            teslemetry_token = user_input.get(CONF_TESLEMETRY_API_TOKEN, "").strip()
+        # If Tesla Fleet is not available, skip provider selection and go to Teslemetry (required)
+        if not self._tesla_fleet_available:
+            _LOGGER.info("Tesla Fleet not available - Teslemetry required")
+            return await self.async_step_teslemetry()
 
-            # If Tesla Fleet is available and user left Teslemetry token empty, use Fleet API
-            if tesla_fleet_available and not teslemetry_token:
-                _LOGGER.info("Using Tesla Fleet API (no Teslemetry token provided)")
+        # Tesla Fleet is available - let user choose
+        if user_input is not None:
+            self._selected_provider = user_input[CONF_TESLA_API_PROVIDER]
+
+            if self._selected_provider == TESLA_PROVIDER_FLEET_API:
+                # User chose Fleet API - validate and get sites
+                _LOGGER.info("User selected Tesla Fleet API")
                 validation_result = await validate_fleet_api_token(
-                    self.hass, tesla_fleet_token
+                    self.hass, self._tesla_fleet_token
                 )
 
                 if validation_result["success"]:
@@ -263,10 +270,47 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._tesla_sites = validation_result.get("sites", [])
                     return await self.async_step_site_selection()
                 else:
-                    errors["base"] = validation_result.get("error", "unknown")
+                    # Fleet API validation failed - show error
+                    errors = {"base": validation_result.get("error", "unknown")}
+                    return self.async_show_form(
+                        step_id="tesla_provider",
+                        data_schema=vol.Schema({
+                            vol.Required(CONF_TESLA_API_PROVIDER, default=TESLA_PROVIDER_TESLEMETRY): vol.In({
+                                TESLA_PROVIDER_FLEET_API: "Tesla Fleet API (Free - uses existing Tesla Fleet integration)",
+                                TESLA_PROVIDER_TESLEMETRY: "Teslemetry (~$3/month - proxy service)",
+                            }),
+                        }),
+                        errors=errors,
+                    )
+            else:
+                # User chose Teslemetry
+                _LOGGER.info("User selected Teslemetry")
+                return await self.async_step_teslemetry()
 
-            # If Teslemetry token provided, validate it
-            elif teslemetry_token:
+        # Show provider selection form
+        return self.async_show_form(
+            step_id="tesla_provider",
+            data_schema=vol.Schema({
+                vol.Required(CONF_TESLA_API_PROVIDER, default=TESLA_PROVIDER_FLEET_API): vol.In({
+                    TESLA_PROVIDER_FLEET_API: "Tesla Fleet API (Free - uses existing Tesla Fleet integration)",
+                    TESLA_PROVIDER_TESLEMETRY: "Teslemetry (~$3/month - proxy service)",
+                }),
+            }),
+            description_placeholders={
+                "fleet_detected": "✓ Tesla Fleet integration detected!",
+            },
+        )
+
+    async def async_step_teslemetry(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle Teslemetry API token entry."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            teslemetry_token = user_input.get(CONF_TESLEMETRY_API_TOKEN, "").strip()
+
+            if teslemetry_token:
                 validation_result = await validate_teslemetry_token(
                     self.hass, teslemetry_token
                 )
@@ -277,30 +321,14 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return await self.async_step_site_selection()
                 else:
                     errors["base"] = validation_result.get("error", "unknown")
-
-            # No token provided and no Fleet API available
             else:
                 errors["base"] = "no_token_provided"
 
-        # Build schema - make Teslemetry token optional if Fleet API is available
-        if tesla_fleet_available:
-            data_schema = vol.Schema(
-                {
-                    vol.Optional(CONF_TESLEMETRY_API_TOKEN, default=""): str,
-                }
-            )
-            description = (
-                "Tesla Fleet integration detected! You can leave this field empty to use "
-                "your existing Tesla Fleet OAuth tokens (free), or enter a Teslemetry API "
-                "token if you prefer to use Teslemetry (~$3/month)."
-            )
-        else:
-            data_schema = vol.Schema(
-                {
-                    vol.Required(CONF_TESLEMETRY_API_TOKEN): str,
-                }
-            )
-            description = None
+        data_schema = vol.Schema(
+            {
+                vol.Required(CONF_TESLEMETRY_API_TOKEN): str,
+            }
+        )
 
         return self.async_show_form(
             step_id="teslemetry",
@@ -308,7 +336,6 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "teslemetry_url": "https://teslemetry.com",
-                "fleet_info": description or "",
             },
         )
 
