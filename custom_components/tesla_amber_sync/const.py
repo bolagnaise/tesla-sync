@@ -14,6 +14,18 @@ CONF_TIMEZONE = "timezone"
 CONF_AMBER_FORECAST_TYPE = "amber_forecast_type"
 CONF_SOLAR_CURTAILMENT_ENABLED = "solar_curtailment_enabled"
 
+# Tesla API Provider selection
+CONF_TESLA_API_PROVIDER = "tesla_api_provider"
+TESLA_PROVIDER_TESLEMETRY = "teslemetry"
+TESLA_PROVIDER_FLEET_API = "fleet_api"
+
+# Fleet API configuration (direct Tesla API)
+CONF_FLEET_API_ACCESS_TOKEN = "fleet_api_access_token"
+CONF_FLEET_API_REFRESH_TOKEN = "fleet_api_refresh_token"
+CONF_FLEET_API_TOKEN_EXPIRES_AT = "fleet_api_token_expires_at"
+CONF_FLEET_API_CLIENT_ID = "fleet_api_client_id"
+CONF_FLEET_API_CLIENT_SECRET = "fleet_api_client_secret"
+
 # Demand charge configuration
 CONF_DEMAND_CHARGE_ENABLED = "demand_charge_enabled"
 CONF_DEMAND_CHARGE_RATE = "demand_charge_rate"
@@ -32,6 +44,11 @@ AMBER_API_BASE_URL = "https://api.amber.com.au/v1"
 
 # Teslemetry API
 TESLEMETRY_API_BASE_URL = "https://api.teslemetry.com"
+
+# Tesla Fleet API (direct)
+FLEET_API_BASE_URL = "https://fleet-api.prd.na.vn.cloud.tesla.com"
+FLEET_API_AUTH_URL = "https://auth.tesla.com/oauth2/v3"
+FLEET_API_TOKEN_URL = "https://auth.tesla.com/oauth2/v3/token"
 
 # Services
 SERVICE_SYNC_TOU = "sync_tou_schedule"
