@@ -4,6 +4,7 @@
   "codeowners": ["@benboller"],
   "config_flow": true,
   "dependencies": [],
+  "after_dependencies": ["tesla_fleet"],
   "documentation": "https://github.com/bolagnaise/tesla-sync",
   "integration_type": "hub",
   "iot_class": "cloud_polling",

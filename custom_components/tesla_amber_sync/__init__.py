@@ -6,8 +6,8 @@ import asyncio
 import logging
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.const import Platform, CONF_ACCESS_TOKEN, CONF_TOKEN
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
@@ -28,9 +28,14 @@ from .const import (
     CONF_DEMAND_CHARGE_DAYS,
     CONF_DEMAND_CHARGE_BILLING_DAY,
     CONF_DEMAND_CHARGE_APPLY_TO,
+    CONF_TESLA_API_PROVIDER,
+    CONF_FLEET_API_ACCESS_TOKEN,
+    TESLA_PROVIDER_TESLEMETRY,
+    TESLA_PROVIDER_FLEET_API,
     SERVICE_SYNC_TOU,
     SERVICE_SYNC_NOW,
     TESLEMETRY_API_BASE_URL,
+    FLEET_API_BASE_URL,
 )
 from .coordinator import (
     AmberPriceCoordinator,
@@ -229,10 +234,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ws_client=ws_client,  # Pass WebSocket client to coordinator
     )
 
+    # Check if Tesla Fleet integration is configured and available
+    tesla_api_token = None
+    tesla_api_provider = TESLA_PROVIDER_TESLEMETRY  # Default to Teslemetry
+
+    tesla_fleet_entries = hass.config_entries.async_entries("tesla_fleet")
+    if tesla_fleet_entries:
+        for tesla_entry in tesla_fleet_entries:
+            if tesla_entry.state == ConfigEntryState.LOADED:
+                # Tesla Fleet integration is loaded, try to use its tokens
+                try:
+                    if CONF_TOKEN in tesla_entry.data:
+                        token_data = tesla_entry.data[CONF_TOKEN]
+                        if CONF_ACCESS_TOKEN in token_data:
+                            tesla_api_token = token_data[CONF_ACCESS_TOKEN]
+                            tesla_api_provider = TESLA_PROVIDER_FLEET_API
+                            _LOGGER.info(
+                                "Detected Tesla Fleet integration - using Fleet API tokens for site %s",
+                                entry.data[CONF_TESLA_ENERGY_SITE_ID]
+                            )
+                            break
+                except Exception as e:
+                    _LOGGER.warning(
+                        "Failed to extract tokens from Tesla Fleet integration: %s",
+                        e
+                    )
+
+    # Fall back to Teslemetry if Tesla Fleet not available or failed
+    if not tesla_api_token:
+        if CONF_TESLEMETRY_API_TOKEN in entry.data:
+            tesla_api_token = entry.data[CONF_TESLEMETRY_API_TOKEN]
+            tesla_api_provider = TESLA_PROVIDER_TESLEMETRY
+            _LOGGER.info("Using Teslemetry API for site %s", entry.data[CONF_TESLA_ENERGY_SITE_ID])
+        else:
+            _LOGGER.error("No Tesla API credentials available (neither Fleet API nor Teslemetry)")
+            raise ConfigEntryNotReady("No Tesla API credentials configured")
+
     tesla_coordinator = TeslaEnergyCoordinator(
         hass,
         entry.data[CONF_TESLA_ENERGY_SITE_ID],
-        entry.data[CONF_TESLEMETRY_API_TOKEN],
+        tesla_api_token,
+        api_provider=tesla_api_provider,
     )
 
     # Fetch initial data
