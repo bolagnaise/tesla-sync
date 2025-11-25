@@ -2,20 +2,22 @@
 
 {% block settings_content %}
     <hgroup>
-        <h1>Demand Charges</h1>
-        <h2>Configure time-of-use demand charge periods and rates</h2>
+        <h1>Demand Charges & Daily Supply Charges</h1>
+        <h2>Configure demand charge periods and fixed daily charges</h2>
     </hgroup>
 
     <!-- Explanation Article -->
     <article>
-        <header><strong>About Demand Charges</strong></header>
+        <header><strong>About These Charges</strong></header>
         <p style="font-size: 0.9em;">
-            Demand charges are fees based on your peak power usage (measured in kW) during specific time periods.
-            These are separate from energy charges (which are based on total kWh consumed).
+            <strong>Demand charges</strong> are fees based on your peak power usage (measured in kW) during specific time periods.
+            These are separate from energy charges (which are based on total kWh consumed). Configure demand charges
+            to help Tesla optimize when to charge and discharge your battery.
         </p>
         <p style="font-size: 0.9em;">
-            Configure your utility's demand charge periods below to help Tesla optimize when to charge and discharge
-            your battery to minimize demand charges.
+            <strong>Daily supply charges</strong> are fixed daily and monthly fees that appear on your electricity bill.
+            These include network access charges, metering fees, and monthly account fees. Configure these for
+            accurate cost tracking in Home Assistant.
         </p>
     </article>
 
@@ -140,30 +142,30 @@
                         {{ form.offpeak_rate(placeholder="0.0000") }}
                     </label>
                 </fieldset>
-
-                <!-- Daily Supply Charges (Optional) -->
-                <fieldset style="margin-top: 1em; padding: 1em; background: rgba(100, 200, 255, 0.05); border-radius: 0.5em;">
-                    <legend><strong>Daily Supply Charges (Optional)</strong></legend>
-
-                    <div role="alert" style="background: rgba(100, 200, 255, 0.1); padding: 0.75em; border-radius: 0.25em; margin-bottom: 1em; border-left: 4px solid #2196F3;">
-                        <p style="font-size: 0.9em; margin: 0;">
-                            <strong>Note for Amber users:</strong> Enter your daily supply charge here. While Amber's per-kWh rates include network usage fees, the fixed daily supply charges (network access + metering) are separate. Find your rate in the Amber app or on your bill.
-                        </p>
-                    </div>
-
-                    <label for="daily_supply_charge">
-                        {{ form.daily_supply_charge.label }}
-                        <small>{{ form.daily_supply_charge.description }}</small>
-                        {{ form.daily_supply_charge(placeholder="1.1770") }}
-                    </label>
-
-                    <label for="monthly_supply_charge" style="margin-top: 0.5em;">
-                        {{ form.monthly_supply_charge.label }}
-                        <small>{{ form.monthly_supply_charge.description }}</small>
-                        {{ form.monthly_supply_charge(placeholder="0.00") }}
-                    </label>
-                </fieldset>
             </div>
+
+            <!-- Daily Supply Charges (Optional) - Always visible -->
+            <fieldset style="margin-top: 1em; padding: 1em; background: rgba(100, 200, 255, 0.05); border-radius: 0.5em;">
+                <legend><strong>Daily Supply Charges (Optional)</strong></legend>
+
+                <div role="alert" style="background: rgba(100, 200, 255, 0.1); padding: 0.75em; border-radius: 0.25em; margin-bottom: 1em; border-left: 4px solid #2196F3;">
+                    <p style="font-size: 0.9em; margin: 0;">
+                        <strong>Note for Amber users:</strong> Enter your daily supply charge here. While Amber's per-kWh rates include network usage fees, the fixed daily supply charges (network access + metering) are separate. Find your rate in the Amber app or on your bill.
+                    </p>
+                </div>
+
+                <label for="daily_supply_charge">
+                    {{ form.daily_supply_charge.label }}
+                    <small>{{ form.daily_supply_charge.description }}</small>
+                    {{ form.daily_supply_charge(placeholder="1.1770") }}
+                </label>
+
+                <label for="monthly_supply_charge" style="margin-top: 0.5em;">
+                    {{ form.monthly_supply_charge.label }}
+                    <small>{{ form.monthly_supply_charge.description }}</small>
+                    {{ form.monthly_supply_charge(placeholder="0.00") }}
+                </label>
+            </fieldset>
 
             {{ form.submit(class_="primary", style="margin-top: 1em;") }}
         </form>
@@ -172,7 +174,7 @@
     <!-- Current Configuration Display -->
     {% if current_user.enable_demand_charges %}
     <article>
-        <header><strong>Current Configuration</strong></header>
+        <header><strong>Current Demand Charge Configuration</strong></header>
 
         <p style="font-size: 0.9em;">
             <strong>Applies to:</strong>
@@ -219,20 +221,21 @@
                 </tr>
             </tbody>
         </table>
+    </article>
+    {% endif %}
 
-        {% if current_user.daily_supply_charge and current_user.daily_supply_charge > 0 or current_user.monthly_supply_charge and current_user.monthly_supply_charge > 0 %}
-        <div style="margin-top: 1em; padding: 0.75em; background: rgba(100, 200, 255, 0.05); border-radius: 0.25em;">
-            <strong>Daily Supply Charges:</strong>
-            <ul style="margin: 0.5em 0 0 0; padding-left: 1.5em;">
-                {% if current_user.daily_supply_charge and current_user.daily_supply_charge > 0 %}
-                <li>Daily Charge: ${{ "%.4f"|format(current_user.daily_supply_charge) }}/day</li>
-                {% endif %}
-                {% if current_user.monthly_supply_charge and current_user.monthly_supply_charge > 0 %}
-                <li>Monthly Charge: ${{ "%.2f"|format(current_user.monthly_supply_charge) }}/month</li>
-                {% endif %}
-            </ul>
-        </div>
-        {% endif %}
+    <!-- Daily Supply Charges Display - Always visible when configured -->
+    {% if current_user.daily_supply_charge and current_user.daily_supply_charge > 0 or current_user.monthly_supply_charge and current_user.monthly_supply_charge > 0 %}
+    <article>
+        <header><strong>Current Daily Supply Charges</strong></header>
+        <ul style="margin: 0.5em 0 0 0; padding-left: 1.5em;">
+            {% if current_user.daily_supply_charge and current_user.daily_supply_charge > 0 %}
+            <li>Daily Charge: ${{ "%.4f"|format(current_user.daily_supply_charge) }}/day</li>
+            {% endif %}
+            {% if current_user.monthly_supply_charge and current_user.monthly_supply_charge > 0 %}
+            <li>Monthly Charge: ${{ "%.2f"|format(current_user.monthly_supply_charge) }}/month</li>
+            {% endif %}
+        </ul>
     </article>
     {% endif %}
 
