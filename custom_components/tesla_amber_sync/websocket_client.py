@@ -109,7 +109,7 @@ class AmberWebSocketClient:
                 # Connect to WebSocket
                 async with websockets.connect(
                     self.WS_URL,
-                    extra_headers=headers,
+                    additional_headers=headers,
                     ping_interval=30,  # Send ping every 30 seconds
                     ping_timeout=10,   # Wait 10 seconds for pong
                 ) as websocket:
