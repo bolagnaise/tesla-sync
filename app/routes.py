@@ -565,11 +565,12 @@ def amber_5min_forecast():
     result = {
         'fetch_time': datetime.utcnow().isoformat(),
         'total_intervals': len(forecast),
+        'forecast_type': current_user.amber_forecast_type or 'predicted',
         'general': general_intervals,
         'feedIn': feedin_intervals
     }
 
-    logger.info(f"5-min forecast: {len(general_intervals)} general, {len(feedin_intervals)} feedIn intervals")
+    logger.info(f"5-min forecast: {len(general_intervals)} general, {len(feedin_intervals)} feedIn intervals (using {result['forecast_type']} prices)")
     return jsonify(result)
 
 

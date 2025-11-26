@@ -1,6 +1,7 @@
 # app/tasks.py
 """Background tasks for automatic syncing"""
 import logging
+import threading
 from datetime import datetime, timezone
 from app.models import User, PriceRecord, EnergyRecord, SavedTOUProfile
 from app.api_clients import get_amber_client, get_tesla_client, AEMOAPIClient
@@ -8,6 +9,11 @@ from app.tariff_converter import AmberTariffConverter
 import json
 
 logger = logging.getLogger(__name__)
+
+# Global sync deduplication (prevents overlapping syncs from WebSocket + scheduled triggers)
+_last_sync_lock = threading.Lock()
+_last_sync_time = None
+_min_sync_interval_seconds = 30  # Prevent syncs closer than 30 seconds apart
 
 
 def extract_most_recent_actual_interval(forecast_data, timezone_str=None):
@@ -126,6 +132,17 @@ def sync_all_users():
     This runs periodically in the background
     """
     from app import db
+    global _last_sync_time
+
+    # Deduplication check to prevent overlapping syncs
+    with _last_sync_lock:
+        if _last_sync_time is not None:
+            elapsed = (datetime.now(timezone.utc) - _last_sync_time).total_seconds()
+            if elapsed < _min_sync_interval_seconds:
+                logger.info(f"⏭️  Skipping sync - last sync was {elapsed:.0f}s ago (min interval: {_min_sync_interval_seconds}s)")
+                return
+
+        _last_sync_time = datetime.now(timezone.utc)
 
     logger.info("=== Starting automatic TOU sync for all users ===")
 

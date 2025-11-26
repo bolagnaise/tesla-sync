@@ -510,6 +510,16 @@
                 const data = await response.json();
                 const generalIntervals = data.general || [];
                 const feedinIntervals = data.feedIn || [];
+                const forecastType = data.forecast_type || 'predicted';
+
+                // Helper function to get the correct price from an interval
+                // Uses advancedPrice[forecast_type] for ForecastInterval, falls back to perKwh
+                function getDisplayPrice(interval) {
+                    if (interval.advancedPrice && interval.advancedPrice[forecastType] !== undefined) {
+                        return interval.advancedPrice[forecastType];
+                    }
+                    return interval.perKwh;
+                }
 
                 // Select intervals based on selected channel
                 const sourceIntervals = selectedChannel === 'general' ? generalIntervals : feedinIntervals;
@@ -590,7 +600,7 @@
 
                     // Determine circle color based on price and channel type
                     let circleColor;
-                    const absPrice = Math.abs(displayInterval.perKwh);
+                    const absPrice = Math.abs(getDisplayPrice(displayInterval));
 
                     if (selectedChannel === 'general') {
                         // Import prices - 4-color scale (green/yellow/orange/red)

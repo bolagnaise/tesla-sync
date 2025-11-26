@@ -210,8 +210,14 @@ def create_app(config_class=Config):
                         logger.info(f"Using first Amber site: {site_id}")
 
                 if site_id:
-                    # Initialize and start WebSocket client
-                    ws_client = AmberWebSocketClient(decrypted_token, site_id)
+                    # Create callback function for WebSocket-triggered sync
+                    def websocket_sync_callback():
+                        """Callback to trigger Tesla sync when WebSocket receives price update"""
+                        with app.app_context():
+                            sync_all_users()
+
+                    # Initialize and start WebSocket client with sync callback
+                    ws_client = AmberWebSocketClient(decrypted_token, site_id, sync_callback=websocket_sync_callback)
                     ws_client.start()
 
                     # Store in app config for access by routes and tasks

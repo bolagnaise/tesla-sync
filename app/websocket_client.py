@@ -25,13 +25,14 @@ class AmberWebSocketClient:
 
     WS_URL = "wss://api-ws.amber.com.au"
 
-    def __init__(self, api_token: str, site_id: str):
+    def __init__(self, api_token: str, site_id: str, sync_callback=None):
         """
         Initialize WebSocket client.
 
         Args:
             api_token: Amber API token (PSK key)
             site_id: Amber site ID to subscribe to
+            sync_callback: Optional callback function to trigger Tesla sync on price updates
         """
         self.api_token = api_token
         self.site_id = site_id
@@ -56,6 +57,11 @@ class AmberWebSocketClient:
         # Reconnection settings
         self._reconnect_delay = 1  # Start with 1 second
         self._max_reconnect_delay = 60  # Max 60 seconds
+
+        # Tesla sync triggering
+        self._sync_callback = sync_callback
+        self._last_sync_trigger: Optional[datetime] = None
+        self._sync_cooldown_seconds = 60  # Minimum 60s between sync triggers
 
         logger.info(f"AmberWebSocketClient initialized for site {site_id}")
 
@@ -243,6 +249,10 @@ class AmberWebSocketClient:
                     if general_price is not None and feedin_price is not None:
                         logger.info(f"💰 Price update: buy={general_price:.2f}¢/kWh, sell={feedin_price:.2f}¢/kWh")
 
+                # Trigger immediate Tesla sync if callback configured
+                if self._should_trigger_sync():
+                    self._trigger_sync()
+
             elif data.get("type") == "subscription-success":
                 logger.info("✅ Subscription confirmed by server")
 
@@ -264,6 +274,49 @@ class AmberWebSocketClient:
             logger.error(f"Error processing WebSocket message: {e}", exc_info=True)
             self._error_count += 1
             self._last_error = str(e)
+
+    def _should_trigger_sync(self) -> bool:
+        """
+        Check if enough time has passed since last sync trigger.
+
+        Implements cooldown to prevent rapid re-syncs from WebSocket message bursts.
+
+        Returns:
+            bool: True if sync should be triggered, False if in cooldown period
+        """
+        if self._last_sync_trigger is None:
+            return True
+
+        elapsed = (datetime.now(timezone.utc) - self._last_sync_trigger).total_seconds()
+        if elapsed < self._sync_cooldown_seconds:
+            logger.debug(f"Sync cooldown active ({elapsed:.0f}s < {self._sync_cooldown_seconds}s)")
+            return False
+
+        return True
+
+    def _trigger_sync(self):
+        """
+        Trigger Tesla sync callback in thread-safe manner.
+
+        Runs callback in thread pool executor to avoid blocking WebSocket event loop.
+        Updates last trigger time to implement cooldown.
+        """
+        if not self._sync_callback:
+            return
+
+        try:
+            self._last_sync_trigger = datetime.now(timezone.utc)
+
+            # Run callback in separate thread to avoid blocking WebSocket
+            from concurrent.futures import ThreadPoolExecutor
+            executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="WS-Sync")
+            future = executor.submit(self._sync_callback)
+
+            # Don't wait for completion - fire and forget
+            logger.info("🚀 Triggered immediate Tesla sync from WebSocket price update")
+
+        except Exception as e:
+            logger.error(f"Error triggering sync callback: {e}", exc_info=True)
 
     def get_latest_prices(self, max_age_seconds: int = 10) -> Optional[Dict[str, Any]]:
         """
