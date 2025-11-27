@@ -132,14 +132,33 @@ class AmberPriceCoordinator(DataUpdateCoordinator):
             # Try WebSocket first for current prices (real-time, low latency)
             current_prices = None
             if self.ws_client:
-                current_prices = self.ws_client.get_latest_prices(max_age_seconds=360)
-                if current_prices:
-                    _LOGGER.debug("Using WebSocket prices (fresh)")
-                else:
-                    _LOGGER.debug("WebSocket prices unavailable or stale, falling back to REST API")
+                # Retry logic: Try for 10 seconds with 2-second intervals (5 attempts)
+                max_age_seconds = 60  # Reduced from 360s to 60s for fresher data
+                retry_attempts = 5
+                retry_interval = 2  # seconds
+
+                for attempt in range(retry_attempts):
+                    current_prices = self.ws_client.get_latest_prices(max_age_seconds=max_age_seconds)
+
+                    if current_prices:
+                        # Get health status to log data age
+                        health = self.ws_client.get_health_status()
+                        age = health.get('age_seconds', 'unknown')
+                        _LOGGER.info(f"✓ Using WebSocket prices (age: {age}s, attempt: {attempt + 1}/{retry_attempts})")
+                        break
+
+                    # If not last attempt, wait before retry
+                    if attempt < retry_attempts - 1:
+                        _LOGGER.debug(f"WebSocket data unavailable/stale, retrying in {retry_interval}s (attempt {attempt + 1}/{retry_attempts})")
+                        await asyncio.sleep(retry_interval)
+
+                # All retries exhausted
+                if not current_prices:
+                    _LOGGER.warning(f"WebSocket prices unavailable after {retry_attempts} attempts ({max_age_seconds}s staleness threshold), falling back to REST API")
 
             # Fall back to REST API if WebSocket unavailable
             if not current_prices:
+                _LOGGER.info("⚠ Using REST API for current prices (WebSocket unavailable)")
                 current_prices = await _fetch_with_retry(
                     self.session,
                     f"{AMBER_API_BASE_URL}/sites/{self.site_id}/prices/current",

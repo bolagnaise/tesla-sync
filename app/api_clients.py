@@ -116,8 +116,8 @@ class AmberAPIClient:
         """
         Get current electricity prices with WebSocket-first approach.
 
-        Checks WebSocket cache first for real-time prices, falls back to
-        REST API if WebSocket data is unavailable or stale.
+        Checks WebSocket cache first for real-time prices with retry logic,
+        falls back to REST API only as last resort if WebSocket unavailable.
 
         Args:
             site_id: Site ID (defaults to first site)
@@ -126,21 +126,39 @@ class AmberAPIClient:
         Returns:
             List of price data (same format as get_current_prices)
         """
+        import time
+
         # Try WebSocket first if client provided
         if ws_client:
             try:
-                # Amber sends updates every ~5 minutes, so allow 6-minute staleness
-                ws_prices = ws_client.get_latest_prices(max_age_seconds=360)
-                if ws_prices:
-                    logger.debug("Using WebSocket prices (fresh)")
-                    return ws_prices
-                else:
-                    logger.debug("WebSocket prices unavailable or stale, falling back to REST API")
-            except Exception as e:
-                logger.warning(f"Error getting WebSocket prices: {e}")
+                # Retry logic: Try for 10 seconds with 2-second intervals (5 attempts)
+                max_age_seconds = 60  # Reduced from 360s to 60s for fresher data
+                retry_attempts = 5
+                retry_interval = 2  # seconds
 
-        # Fall back to REST API
-        logger.debug("Using REST API for current prices")
+                for attempt in range(retry_attempts):
+                    ws_prices = ws_client.get_latest_prices(max_age_seconds=max_age_seconds)
+
+                    if ws_prices:
+                        # Get health status to log data age
+                        health = ws_client.get_health_status()
+                        age = health.get('age_seconds', 'unknown')
+                        logger.info(f"✓ Using WebSocket prices (age: {age}s, attempt: {attempt + 1}/{retry_attempts})")
+                        return ws_prices
+
+                    # If not last attempt, wait before retry
+                    if attempt < retry_attempts - 1:
+                        logger.debug(f"WebSocket data unavailable/stale, retrying in {retry_interval}s (attempt {attempt + 1}/{retry_attempts})")
+                        time.sleep(retry_interval)
+
+                # All retries exhausted
+                logger.warning(f"WebSocket prices unavailable after {retry_attempts} attempts ({max_age_seconds}s staleness threshold), falling back to REST API")
+
+            except Exception as e:
+                logger.warning(f"Error getting WebSocket prices: {e}, falling back to REST API")
+
+        # Fall back to REST API (only if WebSocket unavailable or failed)
+        logger.info("⚠ Using REST API for current prices (WebSocket unavailable)")
         return self.get_current_prices(site_id=site_id)
 
     def get_sites(self):
