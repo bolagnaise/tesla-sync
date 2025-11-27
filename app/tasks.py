@@ -341,7 +341,6 @@ def sync_all_users():
                 logger.info(f"✅ Successfully synced schedule for user {user.email}")
 
                 # Update user's last_update timestamp
-                from datetime import datetime
                 user.last_update_time = datetime.now(timezone.utc)
                 user.last_update_status = "Auto-sync successful"
                 db.session.commit()
@@ -910,7 +909,6 @@ def create_spike_tariff(current_aemo_price_mwh):
     tou_periods = {}
 
     # Get current time to determine spike window
-    from datetime import datetime
     now = datetime.now()
     current_period_index = (now.hour * 2) + (1 if now.minute >= 30 else 0)
 
