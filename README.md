@@ -16,59 +16,34 @@
 
 <div align="center">
 
-### API Configuration
-<img src="https://i.imgur.com/Lrk87Ti.png" alt="API Configuration - Amber and Teslemetry" width="80%"/>
+### Dashboard Overview
+<img src="https://i.imgur.com/E500MNw.jpeg" alt="Tesla Sync Dashboard" width="80%"/>
 
-*Configure Amber Electric and Teslemetry API credentials with secure encrypted storage*
+*Complete dashboard showing real-time energy monitoring, Amber Electric pricing, Tesla Powerwall status, and 24-hour tariff schedule*
 
-### AEMO Wholesale Price Dashboard
-<img src="https://i.imgur.com/dTksjzx.png" alt="AEMO Wholesale Price Dashboard" width="80%"/>
-
-*Real-time AEMO wholesale electricity price monitoring with current price and threshold display*
-
-### Amber Live 5 Min Price
-<img src="https://i.imgur.com/TurU9f1.jpeg" alt="Amber Live 5 Min Price" width="80%"/>
-
-*Live Amber Electric pricing with 5-minute rolling window showing current and upcoming rates*
-
-### Tesla Powerwall Status Dashboard
-<img src="https://i.imgur.com/ZxU4bgw.png" alt="Tesla Powerwall Status Dashboard" width="80%"/>
+### Tesla Powerwall Status
+<img src="https://i.imgur.com/I7F6C7Z.png" alt="Tesla Powerwall Status" width="80%"/>
 
 *Real-time Tesla Powerwall monitoring showing battery level, solar generation, battery power, grid power, and firmware version*
 
-### Amber Electricity Tariff Schedule (24H)
-<img src="https://i.imgur.com/PgkfMwH.png" alt="Amber Electricity Tariff Schedule" width="80%"/>
+### Electricity Tariff Schedule (24H)
+<img src="https://i.imgur.com/wEsczbz.png" alt="Electricity Tariff Schedule" width="80%"/>
 
-*Rolling 24-hour tariff schedule with hourly buy/sell rates and auto-sync to Tesla Powerwall*
+*Rolling 24-hour tariff schedule with 30-minute intervals, buy/sell rates, and auto-sync to Tesla Powerwall*
 
-### Price History (Last 24 Hours)
-<img src="https://i.imgur.com/1fCrMsW.png" alt="Price History Chart" width="80%"/>
+### Price History
+<img src="https://i.imgur.com/LtylkNH.png" alt="Price History Chart" width="80%"/>
 
-*Historical electricity price chart showing the last 24 hours of pricing data*
+*Historical electricity price chart showing import and export prices with day selector*
 
 ### Energy Usage History
-<img src="https://i.imgur.com/1BEp6s7.png" alt="Energy Usage History Charts" width="80%"/>
+<img src="https://i.imgur.com/cOlnp2D.png" alt="Energy Usage History" width="80%"/>
 
-*Comprehensive energy usage charts tracking solar generation, grid power, battery power, and home consumption*
-
-### Energy Summaries
-<img src="https://i.imgur.com/dskv5Os.png" alt="Energy Summaries" width="80%"/>
-
-*Daily energy summaries showing total generation, consumption, grid import/export, and battery charge/discharge totals*
-
-### AEMO Price Spike Settings
-<img src="https://i.imgur.com/bpobhtd.png" alt="AEMO Price Spike Detection Settings" width="80%"/>
-
-*Configure AEMO wholesale price monitoring with customizable thresholds and regional settings*
-
-### AEMO Price Spike Detection Testing
-<img src="https://i.imgur.com/MpLmELt.png" alt="AEMO Price Spike Detection Testing" width="80%"/>
-
-*Test spike detection functionality with manual spike simulation*
+*Comprehensive energy usage charts tracking solar generation, grid power, battery power, and home consumption with real-time updates*
 
 ---
 
-**[View Full Screenshot Gallery →](https://imgur.com/a/TdzIgYT)**
+**[View Full Screenshot Gallery →](https://imgur.com/a/zjyTqsE)**
 
 </div>
 
