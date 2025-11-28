@@ -709,21 +709,21 @@ def price_history():
     start_of_day_local = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_day_local = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-    # Convert to naive datetime for database query (nem_time is stored as naive local time)
-    start_of_day_naive = start_of_day_local.replace(tzinfo=None)
-    end_of_day_naive = end_of_day_local.replace(tzinfo=None)
+    # Convert to UTC for database query
+    start_of_day_utc = start_of_day_local.astimezone(timezone.utc)
+    end_of_day_utc = end_of_day_local.astimezone(timezone.utc)
 
-    logger.info(f"Fetching price history for {day}: {start_of_day_local.date()} (local range: {start_of_day_naive} to {end_of_day_naive})")
+    logger.info(f"Fetching price history for {day}: {start_of_day_local.date()} (UTC range: {start_of_day_utc} to {end_of_day_utc})")
 
     # Get import price data for target day (general channel, only actual prices, not forecasts)
     import_records = PriceRecord.query.filter(
         PriceRecord.user_id == current_user.id,
         PriceRecord.channel_type == 'general',
         PriceRecord.forecast == False,
-        PriceRecord.nem_time >= start_of_day_naive,
-        PriceRecord.nem_time <= end_of_day_naive
+        PriceRecord.timestamp >= start_of_day_utc,
+        PriceRecord.timestamp <= end_of_day_utc
     ).order_by(
-        PriceRecord.nem_time.asc()
+        PriceRecord.timestamp.asc()
     ).all()
 
     # Get export price data for target day (feedIn channel, only actual prices, not forecasts)
@@ -731,20 +731,22 @@ def price_history():
         PriceRecord.user_id == current_user.id,
         PriceRecord.channel_type == 'feedIn',
         PriceRecord.forecast == False,
-        PriceRecord.nem_time >= start_of_day_naive,
-        PriceRecord.nem_time <= end_of_day_naive
+        PriceRecord.timestamp >= start_of_day_utc,
+        PriceRecord.timestamp <= end_of_day_utc
     ).order_by(
-        PriceRecord.nem_time.asc()
+        PriceRecord.timestamp.asc()
     ).all()
 
     import_data = []
     for record in import_records:
-        # nem_time is stored as naive datetime in local timezone
-        if record.nem_time.tzinfo is None:
-            # Treat as local time and make it timezone-aware
-            local_time = user_tz.localize(record.nem_time)
+        # Convert UTC timestamp to user's timezone
+        if record.timestamp.tzinfo is None:
+            # Assume UTC if no timezone info
+            utc_time = record.timestamp.replace(tzinfo=timezone.utc)
         else:
-            local_time = record.nem_time.astimezone(user_tz)
+            utc_time = record.timestamp
+
+        local_time = utc_time.astimezone(user_tz)
 
         import_data.append({
             'timestamp': local_time.isoformat(),
@@ -755,12 +757,14 @@ def price_history():
 
     export_data = []
     for record in export_records:
-        # nem_time is stored as naive datetime in local timezone
-        if record.nem_time.tzinfo is None:
-            # Treat as local time and make it timezone-aware
-            local_time = user_tz.localize(record.nem_time)
+        # Convert UTC timestamp to user's timezone
+        if record.timestamp.tzinfo is None:
+            # Assume UTC if no timezone info
+            utc_time = record.timestamp.replace(tzinfo=timezone.utc)
         else:
-            local_time = record.nem_time.astimezone(user_tz)
+            utc_time = record.timestamp
+
+        local_time = utc_time.astimezone(user_tz)
 
         export_data.append({
             'timestamp': local_time.isoformat(),
