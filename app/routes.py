@@ -720,10 +720,10 @@ def price_history():
         PriceRecord.user_id == current_user.id,
         PriceRecord.channel_type == 'general',
         PriceRecord.forecast == False,
-        PriceRecord.timestamp >= start_of_day_utc,
-        PriceRecord.timestamp <= end_of_day_utc
+        PriceRecord.nem_time >= start_of_day_utc,
+        PriceRecord.nem_time <= end_of_day_utc
     ).order_by(
-        PriceRecord.timestamp.asc()
+        PriceRecord.nem_time.asc()
     ).all()
 
     # Get export price data for target day (feedIn channel, only actual prices, not forecasts)
@@ -731,20 +731,20 @@ def price_history():
         PriceRecord.user_id == current_user.id,
         PriceRecord.channel_type == 'feedIn',
         PriceRecord.forecast == False,
-        PriceRecord.timestamp >= start_of_day_utc,
-        PriceRecord.timestamp <= end_of_day_utc
+        PriceRecord.nem_time >= start_of_day_utc,
+        PriceRecord.nem_time <= end_of_day_utc
     ).order_by(
-        PriceRecord.timestamp.asc()
+        PriceRecord.nem_time.asc()
     ).all()
 
     import_data = []
     for record in import_records:
-        # Convert UTC timestamp to user's timezone
-        if record.timestamp.tzinfo is None:
+        # Convert UTC nem_time to user's timezone
+        if record.nem_time.tzinfo is None:
             # Assume UTC if no timezone info
-            utc_time = record.timestamp.replace(tzinfo=timezone.utc)
+            utc_time = record.nem_time.replace(tzinfo=timezone.utc)
         else:
-            utc_time = record.timestamp
+            utc_time = record.nem_time
 
         local_time = utc_time.astimezone(user_tz)
 
@@ -757,12 +757,12 @@ def price_history():
 
     export_data = []
     for record in export_records:
-        # Convert UTC timestamp to user's timezone
-        if record.timestamp.tzinfo is None:
+        # Convert UTC nem_time to user's timezone
+        if record.nem_time.tzinfo is None:
             # Assume UTC if no timezone info
-            utc_time = record.timestamp.replace(tzinfo=timezone.utc)
+            utc_time = record.nem_time.replace(tzinfo=timezone.utc)
         else:
-            utc_time = record.timestamp
+            utc_time = record.nem_time
 
         local_time = utc_time.astimezone(user_tz)
 
