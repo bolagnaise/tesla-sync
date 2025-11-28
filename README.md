@@ -7,6 +7,8 @@
 
   <a href="https://paypal.me/benboller" target="_blank"><img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" alt="Buy Me A Coffee" style="height: 41px !important;width: 174px !important;box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;-webkit-box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;" ></a>
 
+  [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/eaWDWxEWE3)
+
   [![Docker Hub](https://img.shields.io/docker/v/bolagnaise/tesla-sync?label=docker%20hub&logo=docker)](https://hub.docker.com/r/bolagnaise/tesla-sync)
   [![Docker Pulls](https://img.shields.io/docker/pulls/bolagnaise/tesla-sync)](https://hub.docker.com/r/bolagnaise/tesla-sync)
   [![Build Status](https://github.com/bolagnaise/tesla-sync/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/bolagnaise/tesla-sync/actions)
