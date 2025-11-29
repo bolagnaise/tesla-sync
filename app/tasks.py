@@ -268,30 +268,32 @@ def sync_all_users():
                 error_count += 1
                 continue
 
-            # Step 1: Get current prices from WebSocket (real-time) with REST API fallback
-            # This captures short-term price spikes for the current period
-            from flask import current_app
-            try:
-                ws_client = current_app.config.get('AMBER_WEBSOCKET_CLIENT')
-            except RuntimeError:
-                # current_app not available outside request context (should not happen in scheduler)
-                ws_client = None
-
-            # Get live prices using WebSocket-first approach
-            current_prices = amber_client.get_live_prices(ws_client=ws_client)
-
-            # Convert to current_actual_interval format for tariff converter
+            # Step 1: Get current interval price from WebSocket (real-time) or REST API fallback
+            # WebSocket is PRIMARY source for current price, REST API is fallback if timeout
             current_actual_interval = None
-            if current_prices:
-                current_actual_interval = {'general': None, 'feedIn': None}
-                for price in current_prices:
-                    channel = price.get('channelType')
-                    if channel in ['general', 'feedIn']:
-                        current_actual_interval[channel] = price
 
-                logger.info(f"Live prices from WebSocket for TOU sync: general={current_actual_interval.get('general', {}).get('perKwh')}¢/kWh")
+            if websocket_data:
+                # WebSocket data received within 60s - use it directly as primary source
+                current_actual_interval = websocket_data
+                general_price = current_actual_interval.get('general', {}).get('perKwh') if current_actual_interval.get('general') else None
+                feedin_price = current_actual_interval.get('feedIn', {}).get('perKwh') if current_actual_interval.get('feedIn') else None
+                logger.info(f"✅ Using WebSocket price for current interval: general={general_price}¢/kWh, feedIn={feedin_price}¢/kWh")
             else:
-                logger.warning(f"No live price data available for {user.email}, proceeding with 30-min forecast only")
+                # WebSocket timeout - fallback to REST API for current price
+                logger.warning(f"⏰ WebSocket timeout - using REST API fallback for current price")
+                current_prices = amber_client.get_current_prices()
+
+                if current_prices:
+                    current_actual_interval = {'general': None, 'feedIn': None}
+                    for price in current_prices:
+                        channel = price.get('channelType')
+                        if channel in ['general', 'feedIn']:
+                            current_actual_interval[channel] = price
+
+                    general_price = current_actual_interval.get('general', {}).get('perKwh') if current_actual_interval.get('general') else None
+                    logger.info(f"📡 Using REST API price for current interval: general={general_price}¢/kWh")
+                else:
+                    logger.warning(f"No current price data available for {user.email}, proceeding with 30-min forecast only")
 
             # Step 2: Fetch 48-hour forecast with 30-min resolution for TOU schedule building
             # (The Amber API doesn't provide 48 hours of 5-min data, so we must use 30-min)
