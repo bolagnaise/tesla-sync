@@ -1252,3 +1252,112 @@ def solar_curtailment_check():
 
     logger.info(f"=== ✅ Solar curtailment check complete: {success_count} users processed successfully, {error_count} errors ===")
 
+
+def solar_curtailment_with_websocket_data(prices_data):
+    """
+    EVENT-DRIVEN: Check solar curtailment using WebSocket price data.
+
+    This is the primary trigger - called immediately when WebSocket receives prices.
+    The cron job is just a fallback.
+
+    Args:
+        prices_data: Dict with 'general' and/or 'feedIn' price data from WebSocket
+    """
+    from app import db
+    from app.api_clients import get_tesla_client
+
+    logger.info("=== 🌞 Solar curtailment check (WebSocket-triggered) ===")
+
+    # Extract feed-in price from WebSocket data
+    feedin_data = prices_data.get('feedIn', {})
+    feedin_price = feedin_data.get('perKwh')
+
+    if feedin_price is None:
+        logger.warning("No feed-in price in WebSocket data, skipping curtailment check")
+        return
+
+    logger.info(f"WebSocket feed-in price: {feedin_price}c/kWh")
+
+    users = User.query.filter_by(solar_curtailment_enabled=True).all()
+
+    if not users:
+        logger.debug("No users with solar curtailment enabled")
+        return
+
+    success_count = 0
+    error_count = 0
+
+    for user in users:
+        try:
+            # Validate user configuration
+            if not user.tesla_energy_site_id or not user.teslemetry_api_key_encrypted:
+                logger.warning(f"User {user.email} has curtailment enabled but missing Tesla configuration")
+                continue
+
+            logger.info(f"Checking curtailment for user: {user.email}")
+
+            # Get Tesla client
+            tesla_client = get_tesla_client(user)
+            if not tesla_client:
+                logger.error(f"Failed to get Tesla client for {user.email}")
+                error_count += 1
+                continue
+
+            # Get current grid export settings
+            current_settings = tesla_client.get_grid_import_export(user.tesla_energy_site_id)
+            if not current_settings:
+                logger.error(f"Failed to get grid export settings for {user.email}")
+                error_count += 1
+                continue
+
+            current_export_rule = current_settings.get('customer_preferred_export_rule')
+            logger.info(f"Current export rule for {user.email}: {current_export_rule}")
+
+            # CURTAILMENT LOGIC: Export price is 0c or negative
+            if feedin_price <= 0:
+                logger.warning(f"🚫 CURTAILMENT TRIGGERED: Export price is {feedin_price}c/kWh (≤0) for {user.email}")
+
+                if current_export_rule == 'never':
+                    logger.info(f"Already curtailed - toggling to force re-apply for {user.email}")
+
+                    # Toggle to pv_only then back to never
+                    tesla_client.set_grid_export_rule(user.tesla_energy_site_id, 'pv_only')
+                    import time
+                    time.sleep(2)
+                    result = tesla_client.set_grid_export_rule(user.tesla_energy_site_id, 'never')
+
+                    if result:
+                        logger.info(f"✅ CURTAILMENT MAINTAINED for {user.email}")
+                        success_count += 1
+                    else:
+                        logger.error(f"Failed to maintain curtailment for {user.email}")
+                        error_count += 1
+                else:
+                    result = tesla_client.set_grid_export_rule(user.tesla_energy_site_id, 'never')
+                    if result:
+                        logger.info(f"✅ CURTAILMENT APPLIED: '{current_export_rule}' → 'never' for {user.email}")
+                        success_count += 1
+                    else:
+                        logger.error(f"Failed to apply curtailment for {user.email}")
+                        error_count += 1
+
+            # NORMAL MODE: Export price is positive
+            else:
+                if current_export_rule == 'never':
+                    result = tesla_client.set_grid_export_rule(user.tesla_energy_site_id, 'battery_ok')
+                    if result:
+                        logger.info(f"✅ CURTAILMENT REMOVED: 'never' → 'battery_ok' for {user.email}")
+                        success_count += 1
+                    else:
+                        logger.error(f"Failed to restore from curtailment for {user.email}")
+                        error_count += 1
+                else:
+                    logger.debug(f"Normal mode, no action needed for {user.email}")
+                    success_count += 1
+
+        except Exception as e:
+            logger.error(f"Error in curtailment check for {user.email}: {e}", exc_info=True)
+            error_count += 1
+
+    logger.info(f"=== ✅ Solar curtailment (WebSocket) complete: {success_count} OK, {error_count} errors ===")
+

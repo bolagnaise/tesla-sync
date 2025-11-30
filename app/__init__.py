@@ -179,11 +179,11 @@ def create_app(config_class=Config):
         # Start the scheduler
         scheduler.start()
         logger.info("✅ Background scheduler started:")
-        logger.info("  - TOU sync: WebSocket event-driven (primary) + REST API fallback every 5 minutes at :01 (60s after Amber updates, no wait)")
-        logger.info("  - Price history collection will run every 5 minutes at :35 seconds")
-        logger.info("  - Energy usage logging will run every minute (Teslemetry allows 1/min)")
-        logger.info("  - Solar curtailment check will run every 5 minutes at :35 seconds (aligned with WebSocket prices)")
-        logger.info("  - AEMO price monitoring will run every 1 minute at :35 seconds for spike detection")
+        logger.info("  - TOU sync: WebSocket event-driven (primary) + REST API fallback every 5 minutes at :01")
+        logger.info("  - Price history: WebSocket event-driven (primary) + REST API fallback every 5 minutes at :35")
+        logger.info("  - Solar curtailment: WebSocket event-driven (primary) + REST API fallback every 5 minutes at :35")
+        logger.info("  - Energy usage logging: every minute (Teslemetry allows 1/min)")
+        logger.info("  - AEMO price monitoring: every 1 minute at :35 seconds for spike detection")
 
         # Shut down the scheduler and release lock when exiting the app
         def cleanup():
@@ -211,7 +211,7 @@ def create_app(config_class=Config):
             EVENT-DRIVEN SYNC: WebSocket price arrival triggers immediate sync.
             This is the primary trigger - cron jobs are just fallback.
             """
-            from app.tasks import get_sync_coordinator, sync_all_users_with_websocket_data, save_price_history_with_websocket_data
+            from app.tasks import get_sync_coordinator, sync_all_users_with_websocket_data, save_price_history_with_websocket_data, solar_curtailment_with_websocket_data
 
             # Notify coordinator (for period deduplication)
             coordinator = get_sync_coordinator()
@@ -233,6 +233,9 @@ def create_app(config_class=Config):
 
                     # 2. Save price history with WebSocket price
                     save_price_history_with_websocket_data(prices_data)
+
+                    # 3. Check solar curtailment with WebSocket price
+                    solar_curtailment_with_websocket_data(prices_data)
 
                     logger.info("✅ Event-driven sync completed successfully")
                 except Exception as e:
