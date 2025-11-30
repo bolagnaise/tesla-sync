@@ -315,9 +315,9 @@ def convert_amber_to_tesla_tariff(
             # For ForecastInterval: REQUIRE advancedPrice (no fallback)
             if interval_type == "ForecastInterval":
                 if not advanced_price:
-                    error_msg = f"Missing advancedPrice for ForecastInterval at {nem_time}. Amber API may be incomplete."
-                    _LOGGER.error(error_msg)
-                    raise ValueError(error_msg)
+                    # Expected for far-future forecasts (>36h) - Amber API doesn't provide advancedPrice
+                    _LOGGER.debug("Skipping ForecastInterval at %s - no advancedPrice (expected for far-future forecasts)", nem_time)
+                    continue
 
                 # Handle dict format (standard: {predicted, low, high})
                 if isinstance(advanced_price, dict):

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import logging
+import re
 from typing import Any
 import asyncio
 
@@ -24,7 +25,71 @@ from .const import (
     TESLA_PROVIDER_FLEET_API,
 )
 
+
+class SensitiveDataFilter(logging.Filter):
+    """
+    Logging filter that obfuscates sensitive data like API keys and tokens.
+    Shows first 4 and last 4 characters with asterisks in between.
+    """
+
+    @staticmethod
+    def obfuscate(value: str, show_chars: int = 4) -> str:
+        """Obfuscate a string showing only first and last N characters."""
+        if len(value) <= show_chars * 2:
+            return '*' * len(value)
+        return f"{value[:show_chars]}{'*' * (len(value) - show_chars * 2)}{value[-show_chars:]}"
+
+    def _obfuscate_string(self, text: str) -> str:
+        """Apply all obfuscation patterns to a string."""
+        if not text:
+            return text
+
+        # Handle Bearer tokens
+        text = re.sub(
+            r'(Bearer\s+)([a-zA-Z0-9_-]{20,})',
+            lambda m: m.group(1) + self.obfuscate(m.group(2)),
+            text,
+            flags=re.IGNORECASE
+        )
+
+        # Handle psk_ tokens (Amber API keys)
+        text = re.sub(
+            r'(psk_)([a-zA-Z0-9]{20,})',
+            lambda m: m.group(1) + self.obfuscate(m.group(2)),
+            text,
+            flags=re.IGNORECASE
+        )
+
+        # Handle authorization headers in websocket/API logs
+        text = re.sub(
+            r'(authorization:\s*Bearer\s+)([a-zA-Z0-9_-]{20,})',
+            lambda m: m.group(1) + self.obfuscate(m.group(2)),
+            text,
+            flags=re.IGNORECASE
+        )
+
+        return text
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Filter log record to obfuscate sensitive data."""
+        # Handle the message
+        if record.msg:
+            record.msg = self._obfuscate_string(str(record.msg))
+
+        # Handle args if present (for %-style formatting)
+        if record.args:
+            if isinstance(record.args, dict):
+                record.args = {k: self._obfuscate_string(str(v)) if isinstance(v, str) else v
+                              for k, v in record.args.items()}
+            elif isinstance(record.args, tuple):
+                record.args = tuple(self._obfuscate_string(str(a)) if isinstance(a, str) else a
+                                   for a in record.args)
+
+        return True
+
+
 _LOGGER = logging.getLogger(__name__)
+_LOGGER.addFilter(SensitiveDataFilter())
 
 
 async def _fetch_with_retry(
