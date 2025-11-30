@@ -1,9 +1,27 @@
 # config.py
 import os
+import subprocess
 from dotenv import load_dotenv
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '.env'))
+
+def get_version():
+    """Get the current git commit hash as version identifier."""
+    try:
+        # Get short commit hash (first 7 characters)
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short=7', 'HEAD'],
+            cwd=basedir,
+            capture_output=True,
+            text=True,
+            timeout=1
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return 'unknown'
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-please-change-in-production'

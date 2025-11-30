@@ -76,6 +76,13 @@ def create_app(config_class=Config):
         # Convert to user's timezone
         return dt.astimezone(user_tz)
 
+    # Add context processor to inject version into all templates
+    @app.context_processor
+    def inject_version():
+        """Make version available to all templates"""
+        from config import get_version
+        return {'app_version': get_version()}
+
     # Add request logging
     @app.before_request
     def log_request():
