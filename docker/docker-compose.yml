@@ -2,7 +2,11 @@ version: '3.8'
 
 services:
   web:
-    build: .
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     container_name: tesla-sync
     restart: unless-stopped
     ports:
