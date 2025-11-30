@@ -423,6 +423,19 @@ def amber_settings():
         try:
             db.session.commit()
             logger.info(f"Amber settings saved successfully: forecast_type={form.amber_forecast_type.data}, site_id={current_user.amber_site_id}")
+
+            # Reinitialize WebSocket client with new site_id (if this worker has the lock)
+            if current_user.amber_site_id and current_user.amber_api_token_encrypted:
+                if current_app.config.get('WEBSOCKET_LOCK_ACQUIRED'):
+                    init_fn = current_app.config.get('WEBSOCKET_INIT_FUNCTION')
+                    if init_fn:
+                        from app.utils import decrypt_token
+                        decrypted_token = decrypt_token(current_user.amber_api_token_encrypted)
+                        init_fn(decrypted_token, current_user.amber_site_id)
+                        logger.info(f"🔄 WebSocket client reinitialized with new site: {current_user.amber_site_id}")
+                else:
+                    logger.info("WebSocket lock held by another worker - site change will take effect on restart")
+
             flash('Amber settings have been saved.')
         except Exception as e:
             logger.error(f"Error saving Amber settings to database: {e}")
