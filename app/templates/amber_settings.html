@@ -13,6 +13,24 @@
         <form action="{{ url_for('main.amber_settings') }}" method="post" novalidate>
             {{ form.hidden_tag() }}
 
+            {% if amber_sites %}
+            <fieldset>
+                <legend>Amber Site</legend>
+                {% if amber_sites|length == 1 %}
+                    <label>
+                        <strong>Your Amber Site:</strong> {{ amber_sites[0].get('nmi', amber_sites[0]['id']) }}
+                        <small style="display: block; margin-top: 0.3em; color: var(--muted-color);">Only one site found - auto-selected</small>
+                    </label>
+                {% else %}
+                    <label for="amber_site_id">
+                        {{ form.amber_site_id.label }}
+                        {{ form.amber_site_id(style="width: 100%;") }}
+                        <small>{{ form.amber_site_id.description }}</small>
+                    </label>
+                {% endif %}
+            </fieldset>
+            {% endif %}
+
             <fieldset>
                 <legend>Forecast Pricing Type</legend>
                 <label for="amber_forecast_type">

@@ -15,6 +15,7 @@ class User(UserMixin, db.Model):
 
     # Encrypted Credentials
     amber_api_token_encrypted = db.Column(db.LargeBinary)
+    amber_site_id = db.Column(db.String(100))  # Amber Electric site ID (user-selected)
     tesla_energy_site_id = db.Column(db.String(50))
     teslemetry_api_key_encrypted = db.Column(db.LargeBinary)
 

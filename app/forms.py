@@ -113,6 +113,12 @@ class DemandChargeForm(FlaskForm):
 
 class AmberSettingsForm(FlaskForm):
     """Form for configuring Amber Electric specific settings"""
+    # Amber site selection (for accounts with multiple sites)
+    amber_site_id = SelectField('Amber Site',
+    choices=[],
+    coerce=str,
+    description='Select which Amber Electric site to use for pricing data. This will be auto-populated from your Amber account.')
+
     # Forecast type selection
     amber_forecast_type = SelectField('Forecast Pricing Type', choices=[
         ('predicted', 'Predicted (Default)'),

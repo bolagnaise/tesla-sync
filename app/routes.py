@@ -371,6 +371,26 @@ def amber_settings():
     logger.info(f"Amber settings page accessed by user: {current_user.email} - Method: {request.method}")
     form = AmberSettingsForm()
 
+    # Fetch Amber sites to populate dropdown (if Amber token is configured)
+    amber_sites = []
+    site_choices = []
+    if current_user.amber_api_token_encrypted:
+        try:
+            amber_client = get_amber_client(current_user)
+            if amber_client:
+                amber_sites = amber_client.get_sites()
+                if amber_sites:
+                    # Create dropdown choices using NMI (user-friendly) as label, site ID as value
+                    site_choices = [(site['id'], site.get('nmi', site['id'])) for site in amber_sites]
+                    logger.info(f"Found {len(amber_sites)} Amber sites for dropdown")
+                else:
+                    logger.warning("No Amber sites found for this API token")
+        except Exception as e:
+            logger.error(f"Error fetching Amber sites: {e}")
+
+    # Populate dropdown choices
+    form.amber_site_id.choices = site_choices
+
     if form.validate_on_submit():
         logger.info(f"Amber settings form submitted by user: {current_user.email}")
 
@@ -378,9 +398,17 @@ def amber_settings():
         current_user.amber_forecast_type = form.amber_forecast_type.data
         current_user.solar_curtailment_enabled = form.solar_curtailment_enabled.data
 
+        # Save selected site ID (auto-select if only 1 site)
+        if len(amber_sites) == 1:
+            current_user.amber_site_id = amber_sites[0]['id']
+            logger.info(f"Auto-selected single Amber site: {current_user.amber_site_id}")
+        elif form.amber_site_id.data:
+            current_user.amber_site_id = form.amber_site_id.data
+            logger.info(f"User selected Amber site: {current_user.amber_site_id}")
+
         try:
             db.session.commit()
-            logger.info(f"Amber settings saved successfully: forecast_type={form.amber_forecast_type.data}")
+            logger.info(f"Amber settings saved successfully: forecast_type={form.amber_forecast_type.data}, site_id={current_user.amber_site_id}")
             flash('Amber settings have been saved.')
         except Exception as e:
             logger.error(f"Error saving Amber settings to database: {e}")
@@ -393,9 +421,10 @@ def amber_settings():
     logger.debug("Pre-populating Amber settings form data")
     form.amber_forecast_type.data = current_user.amber_forecast_type or 'predicted'
     form.solar_curtailment_enabled.data = current_user.solar_curtailment_enabled or False
+    form.amber_site_id.data = current_user.amber_site_id
 
-    logger.info(f"Rendering Amber settings page - Forecast type: {form.amber_forecast_type.data}")
-    return render_template('amber_settings.html', title='Amber Settings', form=form)
+    logger.info(f"Rendering Amber settings page - Forecast type: {form.amber_forecast_type.data}, Site ID: {current_user.amber_site_id}")
+    return render_template('amber_settings.html', title='Amber Settings', form=form, amber_sites=amber_sites)
 
 
 @bp.route('/logs')

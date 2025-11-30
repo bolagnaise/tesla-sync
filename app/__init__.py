@@ -218,15 +218,19 @@ def create_app(config_class=Config):
                     # Decrypt the Amber API token
                     decrypted_token = decrypt_token(user.amber_api_token_encrypted)
 
-                    # Fetch site ID from Amber API (not stored in User model)
-                    site_id = None
-                    from app.api_clients import get_amber_client
-                    amber_client = get_amber_client(user)
-                    if amber_client:
-                        sites = amber_client.get_sites()
-                        if sites:
-                            site_id = sites[0]['id']
-                            logger.info(f"Using first Amber site: {site_id}")
+                    # Use stored site ID if available, otherwise fetch and auto-select first site
+                    site_id = user.amber_site_id
+                    if site_id:
+                        logger.info(f"Using stored Amber site ID: {site_id}")
+                    else:
+                        # Backward compatibility: fetch sites and use first one
+                        from app.api_clients import get_amber_client
+                        amber_client = get_amber_client(user)
+                        if amber_client:
+                            sites = amber_client.get_sites()
+                            if sites:
+                                site_id = sites[0]['id']
+                                logger.info(f"No stored site ID - auto-selected first Amber site: {site_id}")
 
                     if site_id:
                         # Create callback function to TRIGGER SYNC when WebSocket receives price update
