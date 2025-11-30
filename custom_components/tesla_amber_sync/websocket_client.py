@@ -72,6 +72,54 @@ class SensitiveDataFilter(logging.Filter):
             text
         )
 
+        # Handle Tesla energy site IDs (numeric, typically 15-20 digits)
+        text = re.sub(
+            r'(energy_site[s]?[/\s:=]+)(\d{10,})',
+            lambda m: m.group(1) + self.obfuscate(m.group(2)),
+            text,
+            flags=re.IGNORECASE
+        )
+
+        # Handle VIN numbers (17 alphanumeric characters)
+        text = re.sub(
+            r'(vin[\s:=]+)([A-HJ-NPR-Z0-9]{17})',
+            lambda m: m.group(1) + self.obfuscate(m.group(2)),
+            text,
+            flags=re.IGNORECASE
+        )
+
+        # Handle DIN numbers
+        text = re.sub(
+            r'(din[\s:=]+)([A-Za-z0-9-]{10,})',
+            lambda m: m.group(1) + self.obfuscate(m.group(2)),
+            text,
+            flags=re.IGNORECASE
+        )
+
+        # Handle serial numbers
+        text = re.sub(
+            r'(serial[\s_]?(?:number)?[\s:=]+)([A-Za-z0-9-]{8,})',
+            lambda m: m.group(1) + self.obfuscate(m.group(2)),
+            text,
+            flags=re.IGNORECASE
+        )
+
+        # Handle gateway IDs
+        text = re.sub(
+            r'(gateway[\s_]?(?:id)?[\s:=]+)([A-Za-z0-9-]{8,})',
+            lambda m: m.group(1) + self.obfuscate(m.group(2)),
+            text,
+            flags=re.IGNORECASE
+        )
+
+        # Handle warp site numbers
+        text = re.sub(
+            r'(warp[\s_]?(?:site)?[\s:=]+)([A-Za-z0-9-]{8,})',
+            lambda m: m.group(1) + self.obfuscate(m.group(2)),
+            text,
+            flags=re.IGNORECASE
+        )
+
         return text
 
     def filter(self, record: logging.LogRecord) -> bool:
