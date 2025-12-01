@@ -836,25 +836,21 @@
                 });
                 if (currentBlock) blocks.push(currentBlock);
 
-                // Mark current block
-                blocks.forEach((block, idx) => {
-                    if (block.hour === currentHour && block.startMinute === current30Min) {
-                        block.isCurrent = true;
-                        currentBlockIndex = idx;
-                    }
-                });
-                // If no exact match, first block is current
-                if (!blocks.some(b => b.isCurrent) && blocks.length > 0) {
+                // The first block from the API is always the current block (it's forecast data)
+                // Mark it as current and set currentBlockIndex to 0
+                if (blocks.length > 0) {
                     blocks[0].isCurrent = true;
                     currentBlockIndex = 0;
                 }
 
                 // Store for expansion
+                // isPast: only blocks before index 0 are past (none from the API since it starts at current)
+                // For 5-min intervals within blocks, we use time comparison to grey out past intervals
                 thirtyMinBlocksData = blocks.map((block, idx) => ({
                     ...block,
                     forecastType,
-                    isExpandable: idx === currentBlockIndex || idx === currentBlockIndex + 1, // Only current and next
-                    isPast: idx < currentBlockIndex
+                    isExpandable: idx === 0 || idx === 1, // Only current (0) and next (1) are expandable
+                    isPast: false // No 30-min blocks are past since API starts at current interval
                 }));
 
                 // Generate HTML for 30-min blocks - when expanded, show 5-min segments inline in the row
