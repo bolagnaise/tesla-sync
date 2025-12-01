@@ -702,12 +702,11 @@
                     const borderStyle = isCurrent ? `3px solid ${borderColor}` : '1px solid rgba(255,255,255,0.15)';
                     const bgStyle = isCurrent ? (selectedChannel === 'general' ? 'rgba(249, 115, 22, 0.1)' : 'rgba(251, 191, 36, 0.1)') : 'rgba(255,255,255,0.03)';
 
-                    // For feed-in, negate to show earnings (Amber: negative=paid, positive=pay)
-                    // For import, show absolute value
                     // For current tile, use perKwh directly to match main circle; for forecast tiles use getDisplayPrice
                     let displayPrice;
                     if (selectedChannel === 'general') {
-                        displayPrice = absPrice;
+                        // Import: use perKwh for current tile (matches main circle), advancedPrice for forecast
+                        displayPrice = isCurrent ? Math.abs(displayInterval.perKwh) : absPrice;
                     } else {
                         // Feed-in: negate and use perKwh for current tile (matches main circle), advancedPrice for forecast
                         displayPrice = isCurrent ? -displayInterval.perKwh : -getDisplayPrice(displayInterval);
