@@ -506,6 +506,7 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not self._aemo_only_mode:
             # Build Amber site options with status indicator
             amber_site_options = {}
+            default_amber_site = None
             for site in self._amber_sites:
                 site_id = site["id"]
                 site_nmi = site.get("nmi", site_id)
@@ -513,17 +514,20 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 # Add status indicator to help users identify active vs closed sites
                 if site_status == "active":
-                    label = f"{site_nmi} ✓ Active"
+                    label = f"{site_nmi} (Active)"
+                    # Default to active site
+                    if default_amber_site is None:
+                        default_amber_site = site_id
                 elif site_status == "closed":
-                    label = f"{site_nmi} ✗ Closed"
+                    label = f"{site_nmi} (Closed)"
                 else:
                     label = f"{site_nmi} ({site_status})"
 
                 amber_site_options[site_id] = label
 
-            # Only add Amber site selection if multiple sites
-            if len(self._amber_sites) > 1:
-                data_schema_dict[vol.Required(CONF_AMBER_SITE_ID)] = vol.In(
+            # Always show Amber site selection dropdown (so user can see status)
+            if amber_site_options:
+                data_schema_dict[vol.Required(CONF_AMBER_SITE_ID, default=default_amber_site)] = vol.In(
                     amber_site_options
                 )
 
