@@ -365,7 +365,7 @@ class AmberPriceCoordinator(DataUpdateCoordinator):
 
                 # All retries exhausted
                 if not current_prices:
-                    _LOGGER.warning(f"WebSocket prices unavailable after {retry_attempts} attempts ({max_age_seconds}s staleness threshold), falling back to REST API")
+                    _LOGGER.info(f"WebSocket prices unavailable after {retry_attempts} attempts ({max_age_seconds}s staleness threshold), falling back to REST API")
 
             # Fall back to REST API if WebSocket unavailable
             if not current_prices:
