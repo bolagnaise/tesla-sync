@@ -365,14 +365,30 @@ class AmberWebSocketClient:
                     await websocket.send(subscribe_json)
                     _LOGGER.info(f"📡 Subscription sent for site {self.site_id}, waiting for response...")
 
-                    # Listen for messages
+                    # Listen for messages with periodic status logging
                     _LOGGER.info("🎧 Listening for WebSocket messages...")
-                    async for message in websocket:
-                        if not self._running:
-                            break
+                    last_status_log = datetime.now(timezone.utc)
+                    message_wait_timeout = 120  # Log status every 2 minutes if no messages
 
+                    while self._running:
                         try:
+                            # Wait for message with timeout for status logging
+                            message = await asyncio.wait_for(
+                                websocket.recv(),
+                                timeout=message_wait_timeout
+                            )
                             self._handle_message(message)
+                        except asyncio.TimeoutError:
+                            # No message received within timeout - log status
+                            elapsed = (datetime.now(timezone.utc) - last_status_log).total_seconds()
+                            _LOGGER.warning(
+                                f"⏳ WebSocket waiting for messages... "
+                                f"(no data for {elapsed:.0f}s, connection: {self._connection_status}, "
+                                f"messages received: {self._message_count})"
+                            )
+                            last_status_log = datetime.now(timezone.utc)
+                            # Continue waiting - connection is still open
+                            continue
                         except Exception as e:
                             _LOGGER.error(f"Error handling message: {e}", exc_info=True)
                             self._error_count += 1
