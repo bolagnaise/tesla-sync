@@ -388,6 +388,14 @@ class AmberWebSocketClient:
                             last_status_log = datetime.now(timezone.utc)
                             # Continue waiting - connection is still open
                             continue
+                        except websockets.exceptions.ConnectionClosedOK:
+                            # Clean closure (1000 OK) - not an error, just reconnect
+                            _LOGGER.info("WebSocket connection closed cleanly (1000 OK)")
+                            break  # Exit inner loop to reconnect
+                        except websockets.exceptions.ConnectionClosedError as e:
+                            # Server closed connection (1001 going away, etc)
+                            _LOGGER.warning(f"WebSocket connection closed by server: {e}")
+                            break  # Exit inner loop to reconnect
                         except Exception as e:
                             _LOGGER.error(f"Error handling message: {e}", exc_info=True)
                             self._error_count += 1
