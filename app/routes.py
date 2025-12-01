@@ -699,10 +699,10 @@ def amber_5min_forecast():
     # Get current time in user's timezone to filter out past intervals
     now_utc = datetime.now(timezone.utc)
     now_local = now_utc.astimezone(user_tz)
-    # Round down to current 5-min interval
-    current_5min = now_local.replace(minute=(now_local.minute // 5) * 5, second=0, microsecond=0)
+    # Round down to start of current 30-min block (so we include all intervals in current block)
+    current_30min_start = now_local.replace(minute=(now_local.minute // 30) * 30, second=0, microsecond=0)
 
-    logger.info(f"Current time in user timezone: {now_local.strftime('%Y-%m-%d %H:%M:%S %Z')}, filtering from {current_5min.strftime('%H:%M')}")
+    logger.info(f"Current time in user timezone: {now_local.strftime('%Y-%m-%d %H:%M:%S %Z')}, filtering from start of 30-min block: {current_30min_start.strftime('%H:%M')}")
 
     filtered_forecast = []
     for interval in forecast:
@@ -715,8 +715,9 @@ def amber_5min_forecast():
                 # Convert to user's timezone
                 local_dt = nem_dt.astimezone(user_tz)
 
-                # Skip intervals that are in the past (before current 5-min interval)
-                if local_dt < current_5min:
+                # Skip intervals before the start of the current 30-min block
+                # This ensures we show all 6 intervals in the current block (past ones will be greyed in UI)
+                if local_dt < current_30min_start:
                     continue
 
                 # Add localTime field (naive datetime string in user's timezone)
@@ -727,7 +728,7 @@ def amber_5min_forecast():
             except Exception as e:
                 logger.error(f"Error converting nemTime to local timezone: {e}")
 
-    logger.info(f"Filtered forecast: {len(forecast)} -> {len(filtered_forecast)} intervals (removed past intervals)")
+    logger.info(f"Filtered forecast: {len(forecast)} -> {len(filtered_forecast)} intervals (kept from current 30-min block onwards)")
 
     # Group by channel type and return
     general_intervals = [i for i in filtered_forecast if i.get('channelType') == 'general']
