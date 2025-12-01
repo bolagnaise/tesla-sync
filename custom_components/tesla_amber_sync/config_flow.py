@@ -458,9 +458,15 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             amber_site_id = None
             if not self._aemo_only_mode:
                 amber_site_id = user_input.get(CONF_AMBER_SITE_ID)
-                if not amber_site_id and len(self._amber_sites) == 1:
-                    amber_site_id = self._amber_sites[0]["id"]
-                    _LOGGER.info(f"Auto-selected single Amber site: {amber_site_id}")
+                if not amber_site_id:
+                    # Auto-select: prefer active site, or fall back to first site
+                    active_sites = [s for s in self._amber_sites if s.get("status") == "active"]
+                    if len(active_sites) == 1:
+                        amber_site_id = active_sites[0]["id"]
+                        _LOGGER.info(f"Auto-selected single active Amber site: {amber_site_id}")
+                    elif len(self._amber_sites) == 1:
+                        amber_site_id = self._amber_sites[0]["id"]
+                        _LOGGER.info(f"Auto-selected single Amber site: {amber_site_id}")
 
             # Store site selection data
             self._site_data = {
@@ -498,11 +504,22 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Only add Amber-specific options in Amber mode
         if not self._aemo_only_mode:
-            # Build Amber site options
-            amber_site_options = {
-                site["id"]: site.get("nmi", site["id"])
-                for site in self._amber_sites
-            }
+            # Build Amber site options with status indicator
+            amber_site_options = {}
+            for site in self._amber_sites:
+                site_id = site["id"]
+                site_nmi = site.get("nmi", site_id)
+                site_status = site.get("status", "unknown")
+
+                # Add status indicator to help users identify active vs closed sites
+                if site_status == "active":
+                    label = f"{site_nmi} ✓ Active"
+                elif site_status == "closed":
+                    label = f"{site_nmi} ✗ Closed"
+                else:
+                    label = f"{site_nmi} ({site_status})"
+
+                amber_site_options[site_id] = label
 
             # Only add Amber site selection if multiple sites
             if len(self._amber_sites) > 1:
