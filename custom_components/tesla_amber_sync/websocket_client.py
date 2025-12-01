@@ -341,6 +341,7 @@ class AmberWebSocketClient:
                     _LOGGER.info(f"📡 Subscription sent for site {self.site_id}, waiting for response...")
 
                     # Listen for messages
+                    _LOGGER.info("🎧 Listening for WebSocket messages...")
                     async for message in websocket:
                         if not self._running:
                             break
@@ -351,6 +352,9 @@ class AmberWebSocketClient:
                             _LOGGER.error(f"Error handling message: {e}", exc_info=True)
                             self._error_count += 1
                             self._last_error = str(e)
+
+                    # If we exit the loop normally (not due to exception), connection closed cleanly
+                    _LOGGER.warning("WebSocket message loop ended (connection closed by server?)")
 
             except websockets.exceptions.ConnectionClosed as e:
                 _LOGGER.warning(f"WebSocket connection closed: {e}")
