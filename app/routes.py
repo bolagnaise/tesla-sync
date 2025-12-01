@@ -149,23 +149,14 @@ def dashboard():
 @login_required
 def api_curtailment_status():
     """Get current solar curtailment status"""
-    from app.api_clients import get_tesla_client, get_amber_client
+    from app.api_clients import get_amber_client
 
     # Check if curtailment is enabled
     if not current_user.solar_curtailment_enabled:
         return jsonify({'enabled': False})
 
-    # Get Tesla client
-    tesla_client = get_tesla_client(current_user)
-    if not tesla_client or not current_user.tesla_energy_site_id:
-        return jsonify({'enabled': True, 'error': 'Tesla not configured'})
-
-    # Get current export rule
-    settings = tesla_client.get_grid_import_export(current_user.tesla_energy_site_id)
-    if not settings:
-        return jsonify({'enabled': True, 'error': 'Failed to get grid settings'})
-
-    export_rule = settings.get('customer_preferred_export_rule')
+    # Read cached export rule from user model (set by curtailment tasks)
+    export_rule = current_user.current_export_rule
     is_curtailed = export_rule == 'never'
 
     # Get current feed-in price if Amber is configured

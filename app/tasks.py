@@ -1214,6 +1214,9 @@ def solar_curtailment_check():
                         continue
 
                     logger.info(f"✅ CURTAILMENT MAINTAINED: Toggled export rule to force re-apply for {user.email}")
+                    user.current_export_rule = 'never'
+                    user.current_export_rule_updated = datetime.utcnow()
+                    db.session.commit()
 
                 else:
                     # Not already 'never', so just set it
@@ -1225,6 +1228,9 @@ def solar_curtailment_check():
                         continue
 
                     logger.info(f"✅ CURTAILMENT APPLIED: Export rule changed '{current_export_rule}' → 'never' for {user.email}")
+                    user.current_export_rule = 'never'
+                    user.current_export_rule_updated = datetime.utcnow()
+                    db.session.commit()
 
                 success_count += 1
                 logger.info(f"📊 Action summary: Curtailment active (earnings: {export_earnings:.2f}c/kWh, export: 'never')")
@@ -1243,6 +1249,9 @@ def solar_curtailment_check():
                         continue
 
                     logger.info(f"✅ CURTAILMENT REMOVED: Export restored 'never' → 'battery_ok' for {user.email}")
+                    user.current_export_rule = 'battery_ok'
+                    user.current_export_rule_updated = datetime.utcnow()
+                    db.session.commit()
                     logger.info(f"📊 Action summary: Restored to normal (earnings: {export_earnings:.2f}c/kWh, export: 'battery_ok')")
                     success_count += 1
                 else:
@@ -1340,6 +1349,9 @@ def solar_curtailment_with_websocket_data(prices_data):
 
                     if result:
                         logger.info(f"✅ CURTAILMENT MAINTAINED for {user.email}")
+                        user.current_export_rule = 'never'
+                        user.current_export_rule_updated = datetime.utcnow()
+                        db.session.commit()
                         success_count += 1
                     else:
                         logger.error(f"Failed to maintain curtailment for {user.email}")
@@ -1348,6 +1360,9 @@ def solar_curtailment_with_websocket_data(prices_data):
                     result = tesla_client.set_grid_export_rule(user.tesla_energy_site_id, 'never')
                     if result:
                         logger.info(f"✅ CURTAILMENT APPLIED: '{current_export_rule}' → 'never' for {user.email}")
+                        user.current_export_rule = 'never'
+                        user.current_export_rule_updated = datetime.utcnow()
+                        db.session.commit()
                         success_count += 1
                     else:
                         logger.error(f"Failed to apply curtailment for {user.email}")
@@ -1359,6 +1374,9 @@ def solar_curtailment_with_websocket_data(prices_data):
                     result = tesla_client.set_grid_export_rule(user.tesla_energy_site_id, 'battery_ok')
                     if result:
                         logger.info(f"✅ CURTAILMENT REMOVED: 'never' → 'battery_ok' for {user.email}")
+                        user.current_export_rule = 'battery_ok'
+                        user.current_export_rule_updated = datetime.utcnow()
+                        db.session.commit()
                         success_count += 1
                     else:
                         logger.error(f"Failed to restore from curtailment for {user.email}")
