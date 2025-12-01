@@ -1759,7 +1759,7 @@
                         </div>
                     </div>
                     <p style="margin-top: 1em; color: #666; font-size: 0.9em;">
-                        <strong>Period:</strong> ${period === 'week' ? 'This Week' : period === 'month' ? 'This Month' : 'This Year'}
+                        <strong>Period:</strong> ${period === 'day' ? 'Today' : period === 'week' ? 'This Week' : period === 'month' ? 'This Month' : 'This Year'}
                         (${data.time_series.length} ${data.time_series.length === 1 ? 'day' : 'days'})
                     </p>
                 `;
