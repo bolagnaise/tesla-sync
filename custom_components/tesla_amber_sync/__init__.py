@@ -1649,17 +1649,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.info("⏭️  WebSocket price received but already synced this period, skipping")
                     return
 
-                # TRIGGER SYNC IMMEDIATELY with WebSocket data (event-driven!)
-                _LOGGER.info("🚀 WebSocket price received - triggering immediate sync (event-driven)")
+                # Check if auto-sync is enabled (respect user's preference)
+                auto_sync_enabled = entry.options.get(
+                    CONF_AUTO_SYNC_ENABLED,
+                    entry.data.get(CONF_AUTO_SYNC_ENABLED, True)
+                )
+
+                # Check if solar curtailment is enabled
+                solar_curtailment_enabled = entry.options.get(
+                    CONF_SOLAR_CURTAILMENT_ENABLED,
+                    entry.data.get(CONF_SOLAR_CURTAILMENT_ENABLED, False)
+                )
+
+                # Skip if neither feature is enabled
+                if not auto_sync_enabled and not solar_curtailment_enabled:
+                    _LOGGER.debug("⏭️  WebSocket price received but auto-sync and curtailment both disabled, skipping")
+                    return
+
+                _LOGGER.info("🚀 WebSocket price received - triggering event-driven actions")
 
                 try:
-                    # 1. Sync TOU to Tesla with WebSocket price
-                    await handle_sync_tou_with_websocket_data(prices_data)
+                    # 1. Sync TOU to Tesla with WebSocket price (only if auto-sync enabled)
+                    if auto_sync_enabled:
+                        await handle_sync_tou_with_websocket_data(prices_data)
+                    else:
+                        _LOGGER.debug("⏭️  Skipping TOU sync (auto-sync disabled)")
 
-                    # 2. Check solar curtailment with WebSocket price
-                    await handle_solar_curtailment_with_websocket_data(prices_data)
+                    # 2. Check solar curtailment with WebSocket price (only if curtailment enabled)
+                    if solar_curtailment_enabled:
+                        await handle_solar_curtailment_with_websocket_data(prices_data)
+                    else:
+                        _LOGGER.debug("⏭️  Skipping solar curtailment check (curtailment disabled)")
 
-                    _LOGGER.info("✅ Event-driven sync completed successfully")
+                    _LOGGER.info("✅ Event-driven actions completed successfully")
                 except Exception as e:
                     _LOGGER.error(f"❌ Error in event-driven sync: {e}", exc_info=True)
 
