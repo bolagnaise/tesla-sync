@@ -2,6 +2,7 @@
 """Background tasks for automatic syncing"""
 import logging
 import threading
+import hashlib
 from datetime import datetime, timezone
 from app.models import User, PriceRecord, EnergyRecord, SavedTOUProfile
 from app.api_clients import get_amber_client, get_tesla_client, AEMOAPIClient
@@ -9,6 +10,18 @@ from app.tariff_converter import AmberTariffConverter
 import json
 
 logger = logging.getLogger(__name__)
+
+
+def get_tariff_hash(tariff_structure):
+    """
+    Generate MD5 hash of tariff structure for deduplication.
+
+    This allows us to skip sending unchanged tariffs to Tesla,
+    which prevents duplicate rate plan entries in the Tesla dashboard.
+    """
+    # Sort keys for consistent hashing
+    tariff_json = json.dumps(tariff_structure, sort_keys=True)
+    return hashlib.md5(tariff_json.encode()).hexdigest()
 
 
 class SyncCoordinator:
@@ -359,6 +372,13 @@ def _sync_all_users_internal(websocket_data):
 
             logger.info(f"Applying tariff for {user.email} with {len(tariff.get('energy_charges', {}).get('Summer', {}).get('rates', {}))} rate periods")
 
+            # Deduplication: Check if tariff has changed since last sync
+            tariff_hash = get_tariff_hash(tariff)
+            if tariff_hash == user.last_tariff_hash:
+                logger.info(f"⏭️  Tariff unchanged for {user.email} - skipping sync (prevents duplicate dashboard entries)")
+                success_count += 1  # Count as success since current state is correct
+                continue
+
             # Apply tariff to Tesla
             result = tesla_client.set_tariff_rate(
                 user.tesla_energy_site_id,
@@ -368,9 +388,10 @@ def _sync_all_users_internal(websocket_data):
             if result:
                 logger.info(f"✅ Successfully synced schedule for user {user.email}")
 
-                # Update user's last_update timestamp
+                # Update user's last_update timestamp and tariff hash
                 user.last_update_time = datetime.now(timezone.utc)
                 user.last_update_status = "Auto-sync successful"
+                user.last_tariff_hash = tariff_hash  # Save hash for deduplication
                 db.session.commit()
 
                 success_count += 1

@@ -42,6 +42,7 @@ class User(UserMixin, db.Model):
     solar_curtailment_enabled = db.Column(db.Boolean, default=False)  # Enable solar curtailment when export price <= 0
     current_export_rule = db.Column(db.String(20))  # Cached export rule: 'never', 'pv_only', 'battery_ok'
     current_export_rule_updated = db.Column(db.DateTime)  # When the export rule was last updated
+    last_tariff_hash = db.Column(db.String(32))  # MD5 hash of last synced tariff for deduplication
 
     # Demand Charge Configuration
     enable_demand_charges = db.Column(db.Boolean, default=False)

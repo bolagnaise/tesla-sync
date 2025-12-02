@@ -12,6 +12,8 @@ import atexit
 import fcntl
 import os
 import re
+import random
+import time
 
 
 class SensitiveDataFilter(logging.Filter):
@@ -313,6 +315,10 @@ def create_app(config_class=Config):
     lock_file_path = os.path.join(app.instance_path, 'scheduler.lock')
     os.makedirs(app.instance_path, exist_ok=True)
 
+    # Add random delay to prevent race condition when multiple workers start simultaneously
+    # Without this, workers can race to acquire the lock before any has actually written to the file
+    time.sleep(random.uniform(0.1, 0.5))
+
     try:
         # Try to acquire exclusive lock (non-blocking)
         lock_file = open(lock_file_path, 'w')
@@ -498,6 +504,10 @@ def create_app(config_class=Config):
 
     # Store reinit function in app config so routes can access it
     app.config['WEBSOCKET_INIT_FUNCTION'] = init_websocket_client
+
+    # Add random delay to prevent race condition when multiple workers start simultaneously
+    # This ensures proper lock acquisition order across workers
+    time.sleep(random.uniform(0.1, 0.5))
 
     try:
         # Try to acquire exclusive lock (non-blocking)
