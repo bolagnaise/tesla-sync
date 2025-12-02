@@ -983,12 +983,7 @@
                     }, 10);
                 });
 
-                // Auto-expand current block on first load only
-                if (!initialExpandDone) {
-                    initialExpandDone = true;
-                    currentExpandedBlock = currentBlockIndex;
-                    generate30MinForecast(); // Re-render with expansion
-                }
+                // No auto-expand - blocks are closed by default
 
             } catch (error) {
                 console.error('Error generating 30-min forecast:', error);
