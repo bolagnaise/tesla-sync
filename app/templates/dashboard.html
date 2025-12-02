@@ -746,30 +746,27 @@
 
         // Store 5-min data for block expansion (fetched separately)
         let fiveMinIntervalsCache = { general: [], feedIn: [] };
+        // Cache for 30-min data to avoid re-fetching on toggle
+        let thirtyMinDataCache = { general: [], feedIn: [], forecastType: 'predicted' };
 
-        async function generate30MinForecast() {
-            const forecastDiv = document.getElementById('thirty-min-forecast');
-            const scrollContainer = document.getElementById('thirty-min-scroll-container');
-            if (!forecastDiv) return;
-
+        // Fetch forecast data (called periodically, not on toggle)
+        async function fetch30MinForecastData() {
             try {
                 // Fetch both 30-min and 5-min data in parallel
-                // 30-min: for the full forecast display (24h coverage)
-                // 5-min: for expanding the first couple blocks (only ~1h available)
                 const [response30min, response5min] = await Promise.all([
                     fetch('/api/amber/30min-forecast?hours=24'),
                     fetch('/api/amber/5min-forecast?hours=1')
                 ]);
 
-                if (!response30min.ok) {
-                    forecastDiv.innerHTML = '<p style="color: rgba(255,255,255,0.7);">30-minute forecast not available</p>';
-                    return;
+                if (response30min.ok) {
+                    const data = await response30min.json();
+                    thirtyMinDataCache = {
+                        general: data.general || [],
+                        feedIn: data.feedIn || [],
+                        forecastType: data.forecast_type || 'predicted'
+                    };
                 }
 
-                const data = await response30min.json();
-                const forecastType = data.forecast_type || 'predicted';
-
-                // Cache 5-min data for expansion (if available)
                 if (response5min.ok) {
                     const data5min = await response5min.json();
                     fiveMinIntervalsCache = {
@@ -778,132 +775,146 @@
                     };
                 }
 
-                // Select intervals based on selected channel
-                // Note: With 30-min resolution, each interval IS a 30-min block (no need to group 5-min intervals)
-                const sourceIntervals = selectedChannel === 'general' ? (data.general || []) : (data.feedIn || []);
+                return true;
+            } catch (error) {
+                console.error('Error fetching forecast data:', error);
+                return false;
+            }
+        }
 
-                if (sourceIntervals.length === 0) {
-                    forecastDiv.innerHTML = '<p style="color: rgba(255,255,255,0.7);">No forecast data available</p>';
+        // Render the 30-min forecast from cached data (fast, no network)
+        function render30MinForecast() {
+            const forecastDiv = document.getElementById('thirty-min-forecast');
+            const scrollContainer = document.getElementById('thirty-min-scroll-container');
+            if (!forecastDiv) return;
+
+            const forecastType = thirtyMinDataCache.forecastType;
+
+            // Select intervals based on selected channel
+            const sourceIntervals = selectedChannel === 'general' ? thirtyMinDataCache.general : thirtyMinDataCache.feedIn;
+
+            if (sourceIntervals.length === 0) {
+                forecastDiv.innerHTML = '<p style="color: rgba(255,255,255,0.7);">No forecast data available</p>';
+                return;
+            }
+
+            // Get current time
+            const now = new Date();
+            const currentHour = now.getHours();
+            const currentMinute = now.getMinutes();
+            const current30Min = Math.floor(currentMinute / 30) * 30;
+
+            // Helper to get price from interval
+            function getDisplayPrice(interval) {
+                if (interval.advancedPrice && interval.advancedPrice[forecastType] !== undefined) {
+                    return interval.advancedPrice[forecastType];
+                }
+                return interval.perKwh;
+            }
+
+            // Helper to determine spike status
+            function getSpikeInfo(intervals) {
+                let hasSpike = false;
+                let hasPotential = false;
+                intervals.forEach(interval => {
+                    const status = interval.spikeStatus || 'none';
+                    if (status === 'spike') hasSpike = true;
+                    if (status === 'potential') hasPotential = true;
+                });
+                if (hasSpike) {
+                    return { label: 'Spike', bgColor: 'rgba(220, 38, 38, 0.3)', borderColor: '#ef4444', dotColor: '#ef4444', icon: '⚠️' };
+                } else if (hasPotential) {
+                    return { label: 'Spike Risk', bgColor: 'rgba(245, 158, 11, 0.2)', borderColor: '#f59e0b', dotColor: '#f59e0b', icon: '⚠️' };
+                }
+                return null;
+            }
+
+            // Helper to get price color
+            function getPriceColor(price, isGeneral) {
+                const absPrice = Math.abs(price);
+                if (isGeneral) {
+                    if (absPrice < 20) return '#22c55e';
+                    if (absPrice < 30) return '#fbbf24';
+                    if (absPrice < 40) return '#f59e0b';
+                    if (absPrice < 50) return '#f97316';
+                    return '#ef4444';
+                } else {
+                    if (absPrice < 5) return '#fde047';
+                    if (absPrice >= 10) return '#f59e0b';
+                    return '#fbbf24';
+                }
+            }
+
+            // Group intervals into 30-min blocks
+            // With 30-min resolution, each interval already represents a 30-min period
+            // (each block will have exactly 1 interval)
+            const blocks = [];
+            let currentBlock = null;
+            let currentBlockIndex = 0;
+
+            sourceIntervals.forEach((interval, idx) => {
+                // Use server-provided localHour/localMinute (based on Powerwall timezone)
+                let hour = interval.localHour;
+                let minute = interval.localMinute;
+
+                // Fallback: parse from localTime string if localHour/localMinute not set
+                if (hour === undefined || minute === undefined) {
+                    if (interval.localTime) {
+                        const timeParts = interval.localTime.split('T')[1];
+                        if (timeParts) {
+                            const [h, m] = timeParts.split(':');
+                            hour = parseInt(h, 10);
+                            minute = parseInt(m, 10);
+                        }
+                    }
+                }
+
+                // Skip if we still can't determine time
+                if (hour === undefined || minute === undefined || isNaN(hour) || isNaN(minute)) {
+                    console.warn('Could not determine time for interval:', interval);
                     return;
                 }
 
-                // Get current time
-                const now = new Date();
-                const currentHour = now.getHours();
-                const currentMinute = now.getMinutes();
-                const current30Min = Math.floor(currentMinute / 30) * 30;
+                const block30Min = Math.floor(minute / 30) * 30;
 
-                // Helper to get price from interval
-                function getDisplayPrice(interval) {
-                    if (interval.advancedPrice && interval.advancedPrice[forecastType] !== undefined) {
-                        return interval.advancedPrice[forecastType];
-                    }
-                    return interval.perKwh;
+                if (currentBlock === null || hour !== currentBlock.hour || block30Min !== currentBlock.startMinute) {
+                    if (currentBlock) blocks.push(currentBlock);
+                    currentBlock = {
+                        hour: hour,
+                        startMinute: block30Min,
+                        intervals: [],
+                        isCurrent: false,
+                        blockIndex: blocks.length
+                    };
                 }
+                // Store parsed hour/minute on interval for later use
+                interval.localHour = hour;
+                interval.localMinute = minute;
+                currentBlock.intervals.push(interval);
+            });
+            if (currentBlock) blocks.push(currentBlock);
 
-                // Helper to determine spike status
-                function getSpikeInfo(intervals) {
-                    let hasSpike = false;
-                    let hasPotential = false;
-                    intervals.forEach(interval => {
-                        const status = interval.spikeStatus || 'none';
-                        if (status === 'spike') hasSpike = true;
-                        if (status === 'potential') hasPotential = true;
-                    });
-                    if (hasSpike) {
-                        return { label: 'Spike', bgColor: 'rgba(220, 38, 38, 0.3)', borderColor: '#ef4444', dotColor: '#ef4444', icon: '⚠️' };
-                    } else if (hasPotential) {
-                        return { label: 'Spike Risk', bgColor: 'rgba(245, 158, 11, 0.2)', borderColor: '#f59e0b', dotColor: '#f59e0b', icon: '⚠️' };
-                    }
-                    return null;
-                }
+            // The first block from the API is always the current block (it's forecast data)
+            // Mark it as current and set currentBlockIndex to 0
+            if (blocks.length > 0) {
+                blocks[0].isCurrent = true;
+                currentBlockIndex = 0;
+            }
 
-                // Helper to get price color
-                function getPriceColor(price, isGeneral) {
-                    const absPrice = Math.abs(price);
-                    if (isGeneral) {
-                        if (absPrice < 20) return '#22c55e';
-                        if (absPrice < 30) return '#fbbf24';
-                        if (absPrice < 40) return '#f59e0b';
-                        if (absPrice < 50) return '#f97316';
-                        return '#ef4444';
-                    } else {
-                        if (absPrice < 5) return '#fde047';
-                        if (absPrice >= 10) return '#f59e0b';
-                        return '#fbbf24';
-                    }
-                }
+            // Store for expansion
+            // isPast: only blocks before index 0 are past (none from the API since it starts at current)
+            // First 2 blocks are expandable if we have 5-min data cached for them
+            thirtyMinBlocksData = blocks.map((block, idx) => ({
+                ...block,
+                forecastType,
+                isExpandable: idx === 0 || idx === 1, // First two blocks can be expanded with 5-min data
+                isPast: false // No 30-min blocks are past since API starts at current interval
+            }));
 
-                // Group intervals into 30-min blocks
-                // With 30-min resolution, each interval already represents a 30-min period
-                // (each block will have exactly 1 interval)
-                const blocks = [];
-                let currentBlock = null;
-                let currentBlockIndex = 0;
+            // Generate HTML for 30-min blocks - when expanded, show 5-min segments inline in the row
+            let html = '';
 
-                sourceIntervals.forEach((interval, idx) => {
-                    // Use server-provided localHour/localMinute (based on Powerwall timezone)
-                    let hour = interval.localHour;
-                    let minute = interval.localMinute;
-
-                    // Fallback: parse from localTime string if localHour/localMinute not set
-                    if (hour === undefined || minute === undefined) {
-                        if (interval.localTime) {
-                            const timeParts = interval.localTime.split('T')[1];
-                            if (timeParts) {
-                                const [h, m] = timeParts.split(':');
-                                hour = parseInt(h, 10);
-                                minute = parseInt(m, 10);
-                            }
-                        }
-                    }
-
-                    // Skip if we still can't determine time
-                    if (hour === undefined || minute === undefined || isNaN(hour) || isNaN(minute)) {
-                        console.warn('Could not determine time for interval:', interval);
-                        return;
-                    }
-
-                    const block30Min = Math.floor(minute / 30) * 30;
-
-                    if (currentBlock === null || hour !== currentBlock.hour || block30Min !== currentBlock.startMinute) {
-                        if (currentBlock) blocks.push(currentBlock);
-                        currentBlock = {
-                            hour: hour,
-                            startMinute: block30Min,
-                            intervals: [],
-                            isCurrent: false,
-                            blockIndex: blocks.length
-                        };
-                    }
-                    // Store parsed hour/minute on interval for later use
-                    interval.localHour = hour;
-                    interval.localMinute = minute;
-                    currentBlock.intervals.push(interval);
-                });
-                if (currentBlock) blocks.push(currentBlock);
-
-                // The first block from the API is always the current block (it's forecast data)
-                // Mark it as current and set currentBlockIndex to 0
-                if (blocks.length > 0) {
-                    blocks[0].isCurrent = true;
-                    currentBlockIndex = 0;
-                }
-
-                // Store for expansion
-                // isPast: only blocks before index 0 are past (none from the API since it starts at current)
-                // First 2 blocks are expandable if we have 5-min data cached for them
-                thirtyMinBlocksData = blocks.map((block, idx) => ({
-                    ...block,
-                    forecastType,
-                    isExpandable: idx === 0 || idx === 1, // First two blocks can be expanded with 5-min data
-                    isPast: false // No 30-min blocks are past since API starts at current interval
-                }));
-
-                // Generate HTML for 30-min blocks - when expanded, show 5-min segments inline in the row
-                let html = '';
-
-                blocks.forEach((block, blockIdx) => {
+            blocks.forEach((block, blockIdx) => {
                     const blockId = `block-${blockIdx}`;
                     const blockData = thirtyMinBlocksData[blockIdx];
                     const isExpandable = blockData.isExpandable;
@@ -1026,15 +1037,32 @@
                     }, 10);
                 });
 
-                // No auto-expand - blocks are closed by default
+            // No auto-expand - blocks are closed by default
+        }
 
-            } catch (error) {
-                console.error('Error generating 30-min forecast:', error);
-                forecastDiv.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Error loading forecast</p>';
+        // Main function: fetch data then render (called on load and periodically)
+        async function generate30MinForecast() {
+            const forecastDiv = document.getElementById('thirty-min-forecast');
+            if (!forecastDiv) return;
+
+            // Show loading state only if no cached data
+            if (thirtyMinDataCache.general.length === 0 && thirtyMinDataCache.feedIn.length === 0) {
+                forecastDiv.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Loading forecast...</p>';
             }
+
+            // Fetch fresh data
+            const success = await fetch30MinForecastData();
+            if (!success && thirtyMinDataCache.general.length === 0) {
+                forecastDiv.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Failed to load forecast</p>';
+                return;
+            }
+
+            // Render from cache
+            render30MinForecast();
         }
 
         // Toggle 30-min block expansion - inline, only one at a time
+        // Uses cached data - instant response, no network call
         function toggle30MinBlock(blockIdx) {
             // Only current and next block are expandable
             if (!thirtyMinBlocksData[blockIdx] || !thirtyMinBlocksData[blockIdx].isExpandable) return;
@@ -1046,8 +1074,8 @@
                 currentExpandedBlock = blockIdx;
             }
 
-            // Re-render to show/hide inline expansion
-            generate30MinForecast();
+            // Re-render from cache (instant, no network call)
+            render30MinForecast();
         }
 
         // Fetch current Amber prices
