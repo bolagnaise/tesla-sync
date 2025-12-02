@@ -1374,7 +1374,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         return
 
                     data = await response.json()
-                    current_export_rule = data.get("response", {}).get("customer_preferred_export_rule")
+                    site_info = data.get("response", {})
+                    current_export_rule = site_info.get("customer_preferred_export_rule")
+
+                    # Handle VPP users where export rule is derived from components_non_export_configured
+                    if current_export_rule is None:
+                        non_export = site_info.get("components_non_export_configured")
+                        if non_export is not None:
+                            current_export_rule = "never" if non_export else "battery_ok"
+                            _LOGGER.info(f"VPP user: derived export_rule='{current_export_rule}' from components_non_export_configured={non_export}")
+
                     _LOGGER.info(f"Current export rule: {current_export_rule}")
 
             except Exception as err:
@@ -1534,7 +1543,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         return
 
                     data = await response.json()
-                    current_export_rule = data.get("response", {}).get("customer_preferred_export_rule")
+                    site_info = data.get("response", {})
+                    current_export_rule = site_info.get("customer_preferred_export_rule")
+
+                    # Handle VPP users where export rule is derived from components_non_export_configured
+                    if current_export_rule is None:
+                        non_export = site_info.get("components_non_export_configured")
+                        if non_export is not None:
+                            current_export_rule = "never" if non_export else "battery_ok"
+                            _LOGGER.info(f"VPP user: derived export_rule='{current_export_rule}' from components_non_export_configured={non_export}")
+
                     _LOGGER.info(f"Current export rule: {current_export_rule}")
 
             except Exception as err:

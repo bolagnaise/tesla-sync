@@ -628,6 +628,43 @@ class FleetAPIClient(TeslaAPIClientBase):
             logger.error(f"Error setting grid export rule via Fleet API: {e}")
             return None
 
+    def get_grid_import_export(self, site_id):
+        """
+        Get current grid import/export settings for the Powerwall
+
+        For VPP/Amber subscribers, customer_preferred_export_rule is not returned.
+        Instead, check components_non_export_configured:
+        - True = export is NEVER (non-export configured)
+        - False/missing = export is allowed (battery_ok equivalent)
+        """
+        try:
+            logger.info(f"Getting grid import/export settings for site {site_id} via Fleet API")
+            site_info = self.get_site_info(site_id)
+
+            if site_info:
+                export_rule = site_info.get('customer_preferred_export_rule')
+                disallow_charge = site_info.get('disallow_charge_from_grid_with_solar_installed')
+                non_export_configured = site_info.get('components_non_export_configured')
+
+                # VPP users: derive export rule from components_non_export_configured
+                if export_rule is None and non_export_configured is not None:
+                    export_rule = 'never' if non_export_configured else 'battery_ok'
+                    logger.info(f"VPP user detected: derived export_rule='{export_rule}' from components_non_export_configured={non_export_configured}")
+
+                settings = {
+                    'customer_preferred_export_rule': export_rule,
+                    'disallow_charge_from_grid_with_solar_installed': disallow_charge,
+                    'components_non_export_configured': non_export_configured,
+                }
+                logger.info(f"Current grid export settings: {settings}")
+                return settings
+            else:
+                logger.error(f"Failed to get site_info for {site_id}")
+                return None
+        except Exception as e:
+            logger.error(f"Error getting grid import/export settings via Fleet API: {e}")
+            return None
+
 
 class TeslemetryAPIClient(TeslaAPIClientBase):
     """Client for Teslemetry API (Tesla API proxy service)"""
@@ -1084,6 +1121,11 @@ class TeslemetryAPIClient(TeslaAPIClientBase):
         """
         Get current grid import/export settings for the Powerwall
 
+        For VPP/Amber subscribers, customer_preferred_export_rule is not returned.
+        Instead, check components_non_export_configured:
+        - True = export is NEVER (non-export configured)
+        - False/missing = export is allowed (battery_ok equivalent)
+
         Args:
             site_id: Energy site ID
 
@@ -1091,7 +1133,8 @@ class TeslemetryAPIClient(TeslaAPIClientBase):
             dict: Grid import/export settings including customer_preferred_export_rule, or None on error
             Example: {
                 'customer_preferred_export_rule': 'pv_only',  # 'never', 'pv_only', or 'battery_ok'
-                'disallow_charge_from_grid_with_solar_installed': True
+                'disallow_charge_from_grid_with_solar_installed': True,
+                'components_non_export_configured': False  # VPP indicator
             }
         """
         try:
@@ -1099,13 +1142,23 @@ class TeslemetryAPIClient(TeslaAPIClientBase):
             site_info = self.get_site_info(site_id)
 
             if site_info:
-                # Extract relevant fields from site_info
+                # Standard field (non-VPP users)
                 export_rule = site_info.get('customer_preferred_export_rule')
                 disallow_charge = site_info.get('disallow_charge_from_grid_with_solar_installed')
 
+                # VPP/Amber users: check components_non_export_configured
+                non_export_configured = site_info.get('components_non_export_configured')
+
+                # If customer_preferred_export_rule is missing but non_export_configured exists,
+                # this is a VPP user - derive the export rule from components_non_export_configured
+                if export_rule is None and non_export_configured is not None:
+                    export_rule = 'never' if non_export_configured else 'battery_ok'
+                    logger.info(f"VPP user detected: derived export_rule='{export_rule}' from components_non_export_configured={non_export_configured}")
+
                 settings = {
                     'customer_preferred_export_rule': export_rule,
-                    'disallow_charge_from_grid_with_solar_installed': disallow_charge
+                    'disallow_charge_from_grid_with_solar_installed': disallow_charge,
+                    'components_non_export_configured': non_export_configured,  # Include for debugging
                 }
                 logger.info(f"Current grid export settings: {settings}")
                 return settings

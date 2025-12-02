@@ -1181,6 +1181,14 @@ def solar_curtailment_check():
                 continue
 
             current_export_rule = current_settings.get('customer_preferred_export_rule')
+
+            # Handle VPP users where export rule is derived from components_non_export_configured
+            if current_export_rule is None:
+                non_export = current_settings.get('components_non_export_configured')
+                if non_export is not None:
+                    current_export_rule = 'never' if non_export else 'battery_ok'
+                    logger.info(f"VPP user {user.email}: derived export_rule='{current_export_rule}' from components_non_export_configured={non_export}")
+
             logger.info(f"Current export rule for {user.email}: {current_export_rule}")
 
             # CURTAILMENT LOGIC: Curtail when export earnings < 1c/kWh
@@ -1331,6 +1339,14 @@ def solar_curtailment_with_websocket_data(prices_data):
                 continue
 
             current_export_rule = current_settings.get('customer_preferred_export_rule')
+
+            # Handle VPP users where export rule is derived from components_non_export_configured
+            if current_export_rule is None:
+                non_export = current_settings.get('components_non_export_configured')
+                if non_export is not None:
+                    current_export_rule = 'never' if non_export else 'battery_ok'
+                    logger.info(f"VPP user {user.email}: derived export_rule='{current_export_rule}' from components_non_export_configured={non_export}")
+
             logger.info(f"Current export rule for {user.email}: {current_export_rule}")
 
             # CURTAILMENT LOGIC: Curtail when export earnings < 1c/kWh
