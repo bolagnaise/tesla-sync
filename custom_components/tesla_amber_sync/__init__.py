@@ -14,6 +14,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_utc_time_change
+from homeassistant.helpers.storage import Store
 
 from .const import (
     DOMAIN,
@@ -265,6 +266,10 @@ _LOGGER = logging.getLogger(__name__)
 _LOGGER.addFilter(SensitiveDataFilter())
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SWITCH]
+
+# Storage version for persisting data across HA restarts
+STORAGE_VERSION = 1
+STORAGE_KEY = f"{DOMAIN}.storage"
 
 
 async def fetch_active_amber_site_id(hass: HomeAssistant, api_token: str) -> str | None:
@@ -1112,6 +1117,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             _LOGGER.warning("AEMO spike detection enabled but no region configured")
 
+    # Initialize persistent storage for data that survives HA restarts
+    # (like Teslemetry's RestoreEntity pattern for export rule state)
+    store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}.{entry.entry_id}")
+    stored_data = await store.async_load() or {}
+    cached_export_rule = stored_data.get("cached_export_rule")
+    if cached_export_rule:
+        _LOGGER.info(f"Restored cached_export_rule='{cached_export_rule}' from persistent storage")
+
     # Store coordinators and WebSocket client in hass.data
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
@@ -1123,8 +1136,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "entry": entry,
         "auto_sync_cancel": None,  # Will store the timer cancel function
         "aemo_spike_cancel": None,  # Will store the AEMO spike check cancel function
-        "cached_export_rule": None,  # Cache export rule since API doesn't return it
+        "cached_export_rule": cached_export_rule,  # Restored from persistent storage
+        "store": store,  # Reference to Store for saving updates
     }
+
+    # Helper function to update and persist cached export rule
+    async def update_cached_export_rule(new_rule: str) -> None:
+        """Update the cached export rule in memory and persist to storage."""
+        hass.data[DOMAIN][entry.entry_id]["cached_export_rule"] = new_rule
+        store = hass.data[DOMAIN][entry.entry_id]["store"]
+        await store.async_save({"cached_export_rule": new_rule})
+        _LOGGER.debug(f"Persisted cached_export_rule='{new_rule}' to storage")
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -1423,7 +1445,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 return
 
                         _LOGGER.info(f"✅ CURTAILMENT APPLIED: Export rule changed '{current_export_rule}' → 'never'")
-                        hass.data[DOMAIN][entry.entry_id]["cached_export_rule"] = "never"
+                        await update_cached_export_rule("never")
                         _LOGGER.info(f"📊 Action summary: Curtailment active (earnings: {export_earnings:.2f}c/kWh, export: 'never')")
 
                     except Exception as err:
@@ -1450,7 +1472,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 return
 
                         _LOGGER.info(f"✅ CURTAILMENT REMOVED: Export restored 'never' → 'battery_ok'")
-                        hass.data[DOMAIN][entry.entry_id]["cached_export_rule"] = "battery_ok"
+                        await update_cached_export_rule("battery_ok")
                         _LOGGER.info(f"📊 Action summary: Restored to normal (earnings: {export_earnings:.2f}c/kWh, export: 'battery_ok')")
 
                     except Exception as err:
@@ -1564,7 +1586,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 return
 
                         _LOGGER.info(f"✅ CURTAILMENT APPLIED: Export rule changed '{current_export_rule}' → 'never'")
-                        hass.data[DOMAIN][entry.entry_id]["cached_export_rule"] = "never"
+                        await update_cached_export_rule("never")
                         _LOGGER.info(f"📊 Action summary: Curtailment active (price: {feedin_price}c/kWh, export: 'never')")
 
                     except Exception as err:
@@ -1590,7 +1612,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 return
 
                         _LOGGER.info(f"✅ CURTAILMENT REMOVED: Export restored 'never' → 'battery_ok'")
-                        hass.data[DOMAIN][entry.entry_id]["cached_export_rule"] = "battery_ok"
+                        await update_cached_export_rule("battery_ok")
                         _LOGGER.info(f"📊 Action summary: Restored to normal (price: {feedin_price}c/kWh, export: 'battery_ok')")
 
                     except Exception as err:
