@@ -750,8 +750,8 @@
             if (!forecastDiv) return;
 
             try {
-                // Fetch extended forecast data (3 hours for the 30-min view)
-                const response = await fetch('/api/amber/5min-forecast?hours=3');
+                // Fetch extended forecast data (4 hours for the 30-min view)
+                const response = await fetch('/api/amber/5min-forecast?hours=4');
                 if (!response.ok) {
                     forecastDiv.innerHTML = '<p style="color: rgba(255,255,255,0.7);">30-minute forecast not available</p>';
                     return;
