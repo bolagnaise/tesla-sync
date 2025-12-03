@@ -410,6 +410,11 @@ def convert_amber_to_tesla_tariff(
         general_lookup, feedin_lookup, detected_tz, current_actual_interval
     )
 
+    # If too many periods are missing, abort sync to preserve last good tariff
+    if general_prices is None or feedin_prices is None:
+        _LOGGER.error("Aborting tariff conversion - too many missing price periods")
+        return None
+
     _LOGGER.info(
         "Built rolling 24h tariff with %d general and %d feed-in periods",
         len(general_prices),
@@ -574,7 +579,8 @@ def _build_rolling_24h_tariff(
                     prices = general_lookup[fallback_key]
                     general_prices[period_key] = max(0, _round_price(sum(prices) / len(prices)))
                 else:
-                    general_prices[period_key] = 0
+                    # Mark as missing - will be counted below
+                    general_prices[period_key] = None
                     _LOGGER.warning("%s: No price data available", period_key)
 
             # Get feedin price (sell price)
@@ -586,7 +592,7 @@ def _build_rolling_24h_tariff(
                 sell_price = max(0, sell_price)
 
                 # Tesla restriction #2: Sell price cannot exceed buy price
-                if period_key in general_prices:
+                if period_key in general_prices and general_prices[period_key] is not None:
                     sell_price = min(sell_price, general_prices[period_key])
 
                 feedin_prices[period_key] = sell_price
@@ -596,12 +602,43 @@ def _build_rolling_24h_tariff(
                 if fallback_key in feedin_lookup:
                     prices = feedin_lookup[fallback_key]
                     sell_price = max(0, _round_price(sum(prices) / len(prices)))
-                    if period_key in general_prices:
+                    if period_key in general_prices and general_prices[period_key] is not None:
                         sell_price = min(sell_price, general_prices[period_key])
                     feedin_prices[period_key] = sell_price
                 else:
-                    feedin_prices[period_key] = 0
+                    # Mark as missing - will be counted below
+                    feedin_prices[period_key] = None
                     _LOGGER.warning("%s: No sell price data available", period_key)
+
+    # Count missing periods and abort if too many are missing
+    # This prevents sending bad tariffs when API is unreachable
+    missing_buy = sum(1 for v in general_prices.values() if v is None)
+    missing_sell = sum(1 for v in feedin_prices.values() if v is None)
+    total_missing = missing_buy + missing_sell
+
+    if total_missing > 0:
+        _LOGGER.warning(
+            "Missing price data: %d buy periods, %d sell periods (total: %d/96)",
+            missing_buy, missing_sell, total_missing
+        )
+
+    # If more than 10 periods are missing, abort - keep using last good tariff
+    MAX_MISSING_PERIODS = 10
+    if total_missing > MAX_MISSING_PERIODS:
+        _LOGGER.error(
+            "❌ Too many missing price periods (%d > %d) - ABORTING sync to preserve last good tariff. "
+            "This usually indicates Amber API is unreachable.",
+            total_missing, MAX_MISSING_PERIODS
+        )
+        return None, None
+
+    # Replace any remaining None values with 0 (shouldn't happen if we abort above)
+    for key in general_prices:
+        if general_prices[key] is None:
+            general_prices[key] = 0
+    for key in feedin_prices:
+        if feedin_prices[key] is None:
+            feedin_prices[key] = 0
 
     return general_prices, feedin_prices
 

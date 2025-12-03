@@ -225,6 +225,11 @@ class AmberTariffConverter:
             general_lookup, feedin_lookup, user, detected_tz, current_actual_interval
         )
 
+        # If too many periods are missing, abort sync to preserve last good tariff
+        if general_prices is None or feedin_prices is None:
+            logger.error("Aborting tariff conversion - too many missing price periods")
+            return None
+
         logger.info(f"Built rolling 24h tariff with {len(general_prices)} general and {len(feedin_prices)} feed-in periods")
 
         # Create the Tesla tariff structure
@@ -356,9 +361,9 @@ class AmberTariffConverter:
                         buy_price = max(0, self._round_price(sum(prices) / len(prices)))
                         general_prices[period_key] = buy_price
                     else:
-                        # Last resort: use 0
-                        logger.warning(f"{period_key}: No price data available for ({hour:02d}:{minute:02d}), using 0.00")
-                        general_prices[period_key] = 0
+                        # Mark as missing - will be counted below
+                        logger.warning(f"{period_key}: No price data available for ({hour:02d}:{minute:02d})")
+                        general_prices[period_key] = None
 
                 # Get feedin price (sell price)
                 if lookup_key in feedin_lookup:
@@ -374,7 +379,7 @@ class AmberTariffConverter:
 
                     # Tesla restriction #2: Sell price cannot exceed buy price
                     # If necessary, adjust sell price downward to comply
-                    if period_key in general_prices:
+                    if period_key in general_prices and general_prices[period_key] is not None:
                         buy_price = general_prices[period_key]
                         if sell_price > buy_price:
                             adjustments.append(f"exceeds_buy({sell_price:.4f}>{buy_price:.4f})->match_buy")
@@ -393,13 +398,41 @@ class AmberTariffConverter:
                     if fallback_key in feedin_lookup:
                         prices = feedin_lookup[fallback_key]
                         sell_price = max(0, self._round_price(sum(prices) / len(prices)))
-                        if period_key in general_prices and sell_price > general_prices[period_key]:
+                        if period_key in general_prices and general_prices[period_key] is not None and sell_price > general_prices[period_key]:
                             sell_price = general_prices[period_key]
                         feedin_prices[period_key] = sell_price
                     else:
-                        # Last resort: use 0
-                        logger.warning(f"{period_key}: No feedIn price data available (current or next slot), using 0.00")
-                        feedin_prices[period_key] = 0
+                        # Mark as missing - will be counted below
+                        logger.warning(f"{period_key}: No feedIn price data available (current or next slot)")
+                        feedin_prices[period_key] = None
+
+        # Count missing periods and abort if too many are missing
+        # This prevents sending bad tariffs when API is unreachable
+        missing_buy = sum(1 for v in general_prices.values() if v is None)
+        missing_sell = sum(1 for v in feedin_prices.values() if v is None)
+        total_missing = missing_buy + missing_sell
+
+        if total_missing > 0:
+            logger.warning(
+                f"Missing price data: {missing_buy} buy periods, {missing_sell} sell periods (total: {total_missing}/96)"
+            )
+
+        # If more than 10 periods are missing, abort - keep using last good tariff
+        MAX_MISSING_PERIODS = 10
+        if total_missing > MAX_MISSING_PERIODS:
+            logger.error(
+                f"❌ Too many missing price periods ({total_missing} > {MAX_MISSING_PERIODS}) - "
+                f"ABORTING sync to preserve last good tariff. This usually indicates Amber API is unreachable."
+            )
+            return None, None
+
+        # Replace any remaining None values with 0 (shouldn't happen if we abort above)
+        for key in general_prices:
+            if general_prices[key] is None:
+                general_prices[key] = 0
+        for key in feedin_prices:
+            if feedin_prices[key] is None:
+                feedin_prices[key] = 0
 
         logger.info(f"Rolling 24h window: {len([k for k in general_prices.keys()])} periods from {today} and {tomorrow}")
 
