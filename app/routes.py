@@ -1851,6 +1851,16 @@ def teslemetry_disconnect():
 # LOGS API
 # ============================================
 
+def get_log_file_path():
+    """Get the path to the persistent log file"""
+    # Use same logic as __init__.py for consistency
+    log_dir = os.environ.get('LOG_DIR', '/app/data/logs')
+    if not os.path.exists(log_dir):
+        # Fallback to local directory
+        log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'logs')
+    return os.path.join(log_dir, 'flask.log')
+
+
 @bp.route('/api/logs')
 @login_required
 def get_logs():
@@ -1871,8 +1881,8 @@ def get_logs():
         else:
             requested_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
 
-        # Read log file
-        log_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'flask.log')
+        # Read log file from persistent location
+        log_file_path = get_log_file_path()
 
         if not os.path.exists(log_file_path):
             return jsonify({
@@ -1933,7 +1943,7 @@ def download_logs():
     """Download the complete log file"""
     try:
         from flask import send_file
-        log_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'flask.log')
+        log_file_path = get_log_file_path()
 
         if not os.path.exists(log_file_path):
             flash('Log file not found')

@@ -223,16 +223,42 @@ class SensitiveDataFilter(logging.Filter):
 
 
 # Set up logging with sensitive data filter
-log_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'flask.log')
+# Use persistent log directory that survives container restarts
+from logging.handlers import RotatingFileHandler
 
-# Create handlers
-file_handler = logging.FileHandler(log_file)
+# Persistent log directory - /app/data/logs in Docker, or local data/logs for development
+log_dir = os.environ.get('LOG_DIR', '/app/data/logs')
+if not os.path.exists(log_dir):
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except (PermissionError, OSError):
+        # Fallback to local directory if /app/data/logs is not writable
+        log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+
+log_file = os.path.join(log_dir, 'flask.log')
+
+# Create handlers with rotation (5MB max, keep 5 backup files)
+file_handler = RotatingFileHandler(
+    log_file,
+    maxBytes=5*1024*1024,  # 5MB
+    backupCount=5,
+    encoding='utf-8'
+)
 console_handler = logging.StreamHandler()
 
 # Add filter to both handlers
 sensitive_filter = SensitiveDataFilter()
 file_handler.addFilter(sensitive_filter)
 console_handler.addFilter(sensitive_filter)
+
+# Set format for handlers
+log_format = logging.Formatter(
+    '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+file_handler.setFormatter(log_format)
+console_handler.setFormatter(log_format)
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -241,6 +267,7 @@ logging.basicConfig(
     handlers=[file_handler, console_handler]
 )
 logger = logging.getLogger(__name__)
+logger.info(f"Logging to persistent file: {log_file}")
 
 db = SQLAlchemy()
 migrate = Migrate()
