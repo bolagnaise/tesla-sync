@@ -391,24 +391,34 @@ class AmberWebSocketClient:
                             last_status_log = datetime.now(timezone.utc)
                             # Continue waiting - connection is still open
                             continue
-                        except websockets.exceptions.ConnectionClosedOK:
-                            # Clean closure (1000 OK) - not an error, just reconnect
-                            _LOGGER.info("WebSocket connection closed cleanly (1000 OK)")
+                        except websockets.exceptions.ConnectionClosedOK as e:
+                            # Clean closure (1000 normal, 1001 going away) - not an error, just reconnect
+                            _LOGGER.debug(f"WebSocket closed cleanly: {e.code} {e.reason}")
                             break  # Exit inner loop to reconnect
                         except websockets.exceptions.ConnectionClosedError as e:
-                            # Server closed connection (1001 going away, etc)
-                            _LOGGER.warning(f"WebSocket connection closed by server: {e}")
+                            # Error closure (1002+) - log as warning
+                            _LOGGER.warning(f"WebSocket connection closed with error: {e.code} {e.reason}")
+                            break  # Exit inner loop to reconnect
+                        except websockets.exceptions.ConnectionClosed as e:
+                            # Catch-all for any other connection closed scenarios
+                            _LOGGER.debug(f"WebSocket connection closed: {e.code} {e.reason}")
                             break  # Exit inner loop to reconnect
                         except Exception as e:
+                            # Only log as error if it's NOT a connection closed exception
                             _LOGGER.error(f"Error handling message: {e}", exc_info=True)
                             self._error_count += 1
                             self._last_error = str(e)
 
                     # If we exit the loop normally (not due to exception), connection closed cleanly
-                    _LOGGER.warning("WebSocket message loop ended (connection closed by server?)")
+                    _LOGGER.debug("WebSocket message loop ended, will reconnect")
 
+            except websockets.exceptions.ConnectionClosedOK as e:
+                # Clean closure during connect/subscribe - just reconnect
+                _LOGGER.debug(f"WebSocket closed cleanly during setup: {e.code} {e.reason}")
+                self._connection_status = "disconnected"
+                self._websocket = None
             except websockets.exceptions.ConnectionClosed as e:
-                _LOGGER.warning(f"WebSocket connection closed: {e}")
+                _LOGGER.debug(f"WebSocket connection closed: {e.code} {e.reason}")
                 self._connection_status = "disconnected"
                 self._websocket = None
 
@@ -422,7 +432,7 @@ class AmberWebSocketClient:
             # Reconnect with exponential backoff if still running
             if self._running:
                 self._connection_status = "reconnecting"
-                _LOGGER.info(f"Reconnecting in {self._reconnect_delay} seconds...")
+                _LOGGER.debug(f"WebSocket reconnecting in {self._reconnect_delay}s...")
                 await asyncio.sleep(self._reconnect_delay)
 
                 # Exponential backoff (double delay each time, up to max)
@@ -589,7 +599,7 @@ class AmberWebSocketClient:
             if age > max_age_seconds:
                 # Only warn once until data becomes fresh again (debounce spam)
                 if not self._stale_warning_logged:
-                    _LOGGER.warning(f"Cached WebSocket data is {age:.1f}s old (max: {max_age_seconds}s) - using REST fallback")
+                    _LOGGER.info(f"Cached WebSocket data is {age:.1f}s old (max: {max_age_seconds}s) - using REST fallback")
                     self._stale_warning_logged = True
                 return None
 
