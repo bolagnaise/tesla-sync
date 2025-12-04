@@ -1,149 +1,96 @@
-# Docker Hub Setup Guide
+# Docker Hub CI/CD Pipeline
 
-This guide will help you set up automated Docker image builds that publish to Docker Hub whenever you push to GitHub.
+Automated Docker image builds via GitHub Actions.
 
-## Prerequisites
+## Overview
 
-- GitHub account with this repository
-- Docker Hub account (free tier works)
+Every push to `main` automatically:
+- Builds multi-architecture images (amd64, arm64)
+- Pushes to Docker Hub with appropriate tags
+- Updates Docker Hub README from repository README
+- Sends Discord notification (if webhook configured)
 
-## Step 1: Create Docker Hub Account
+## Image Locations
 
-If you don't have one:
+| Repository | Status |
+|------------|--------|
+| `bolagnaise/tesla-sync` | **Primary** - Use this |
+| `bolagnaise/tesla-amber-sync` | Legacy (deprecated) |
 
-1. Go to https://hub.docker.com/signup
-2. Create account with username: `bolagnaise` (or your preferred username)
-3. Verify your email
+## Tags
 
-## Step 2: Create Docker Hub Access Token
+| Tag | Description |
+|-----|-------------|
+| `latest` | Most recent main branch build |
+| `main` | Same as latest |
+| `v1.0.0` | Specific version (from git tags) |
+| `abc1234` | Short commit SHA |
 
-1. Log in to https://hub.docker.com/
-2. Click your **profile icon** (top right) → **Account Settings**
-3. Go to **Security** → **Access Tokens**
-4. Click **New Access Token**
-5. Settings:
-   - **Description:** `GitHub Actions - Tesla Sync`
-   - **Permissions:** `Read, Write, Delete`
-6. Click **Generate**
-7. **COPY THE TOKEN** - you won't see it again!
+## Quick Deploy
 
-## Step 3: Add Token to GitHub Secrets
-
-1. Go to your GitHub repository: https://github.com/bolagnaise/tesla-sync
-2. Click **Settings** (repository settings, not your account)
-3. In left sidebar: **Secrets and variables** → **Actions**
-4. Click **New repository secret**
-5. Add secret:
-   - **Name:** `DOCKER_HUB_TOKEN`
-   - **Value:** Paste the token you copied from Docker Hub
-6. Click **Add secret**
-
-## Step 4: Verify Workflow File
-
-The GitHub Actions workflow is already configured in `.github/workflows/docker-publish.yml`
-
-It will automatically:
-- ✅ Build Docker image on every push to `main`
-- ✅ Build for multiple platforms (amd64, arm64)
-- ✅ Tag images properly (`latest`, version tags)
-- ✅ Update Docker Hub description from README
-- ✅ Use build cache for faster builds
-
-## Step 5: Test Automated Build
-
-Push a change to trigger the build:
-
-```bash
-# Make a small change
-echo "# Test" >> README.md
-git add README.md
-git commit -m "Test Docker Hub automation"
-git push
-```
-
-## Step 6: Monitor Build Progress
-
-1. Go to your repository on GitHub
-2. Click **Actions** tab
-3. You'll see "Build and Push Docker Image" workflow running
-4. Click on it to see progress
-5. Build takes ~5-10 minutes first time (cached after)
-
-## Step 7: Verify on Docker Hub
-
-Once build completes:
-
-1. Go to https://hub.docker.com/r/bolagnaise/tesla-sync
-2. You should see your image with tags:
-   - `latest` - most recent main branch
-   - `main` - same as latest
-   - `v1.0.0` - if you use version tags
-
-## Using the Docker Hub Image
-
-### On Unraid or Any Docker Host
-
-Instead of building locally, use the pre-built image:
-
-**docker-compose.yml:**
-```yaml
-version: '3.8'
-
-services:
-  web:
-    image: bolagnaise/tesla-sync:latest  # Use Docker Hub image
-    container_name: tesla-sync
-    restart: unless-stopped
-    ports:
-      - "5001:5001"
-    environment:
-      - SECRET_KEY=${SECRET_KEY}
-      - FERNET_ENCRYPTION_KEY=${FERNET_ENCRYPTION_KEY}
-      - TESLA_CLIENT_ID=${TESLA_CLIENT_ID}
-      - TESLA_CLIENT_SECRET=${TESLA_CLIENT_SECRET}
-      - TESLA_REDIRECT_URI=${TESLA_REDIRECT_URI}
-      - APP_DOMAIN=${APP_DOMAIN}
-    volumes:
-      - ./data:/app/data
-```
-
-**Or with docker run:**
 ```bash
 docker run -d \
   --name tesla-sync \
   -p 5001:5001 \
-  -v $(pwd)/data:/app/data \
-  -e SECRET_KEY=your-secret \
-  -e FERNET_ENCRYPTION_KEY=your-key \
-  -e TESLA_CLIENT_ID=your-id \
-  -e TESLA_CLIENT_SECRET=your-secret \
-  -e TESLA_REDIRECT_URI=http://localhost:5001/tesla-fleet/callback \
-  -e APP_DOMAIN=http://localhost:5001 \
+  -v ./data:/app/data \
+  -e SECRET_KEY=your-random-secret-key \
   --restart unless-stopped \
   bolagnaise/tesla-sync:latest
 ```
 
-## Automatic Updates
+> **Note:** Encryption key is auto-generated on first run and saved to `./data/.fernet_key`
 
-### Update to Latest Version
+## GitHub Secrets Required
+
+Configure in repository Settings → Secrets → Actions:
+
+| Secret | Required | Purpose |
+|--------|----------|---------|
+| `DOCKER_HUB_TOKEN` | Yes | Docker Hub access token |
+| `DISCORD_WEBHOOK` | No | Discord notifications |
+
+### Creating Docker Hub Token
+
+1. Log in to https://hub.docker.com
+2. Profile → Account Settings → Security → Access Tokens
+3. New Access Token with **Read, Write, Delete** permissions
+4. Copy token and add as `DOCKER_HUB_TOKEN` secret
+
+## Workflow Features
+
+The workflow (`.github/workflows/docker-publish.yml`) includes:
+
+- **Multi-platform builds:** linux/amd64, linux/arm64
+- **Build caching:** Registry-based cache for faster builds
+- **Semantic versioning:** Git tags create version tags (v1.0.0 → 1.0.0, 1.0, 1)
+- **PR builds:** Builds but doesn't push (validation only)
+- **Manual trigger:** Can be run manually via Actions tab
+- **Discord notifications:** Posts to Discord on successful deploy
+
+## Creating a Release
 
 ```bash
-# Pull latest image
-docker pull bolagnaise/tesla-sync:latest
-
-# Recreate container
-docker-compose down
-docker-compose up -d
-
-# Or with docker run
-docker stop tesla-sync
-docker rm tesla-sync
-# Run docker run command again with latest image
+# Tag the release
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
-### Use Watchtower for Auto-Updates (Unraid)
+This creates Docker tags:
+- `bolagnaise/tesla-sync:1.2.0`
+- `bolagnaise/tesla-sync:1.2`
+- `bolagnaise/tesla-sync:1`
+- `bolagnaise/tesla-sync:latest`
 
-Install Watchtower to automatically update containers:
+## Update Users' Containers
+
+### Manual Update
+
+```bash
+docker pull bolagnaise/tesla-sync:latest
+docker restart tesla-sync
+```
+
+### Automatic Updates (Watchtower)
 
 ```bash
 docker run -d \
@@ -155,115 +102,48 @@ docker run -d \
   --cleanup
 ```
 
-This checks for updates every hour and auto-updates the container.
-
-## Version Tagging (Optional)
-
-To create versioned releases:
-
-```bash
-# Create and push a version tag
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-This creates additional Docker tags:
-- `bolagnaise/tesla-sync:1.0.0`
-- `bolagnaise/tesla-sync:1.0`
-- `bolagnaise/tesla-sync:1`
-- `bolagnaise/tesla-sync:latest`
-
-## Multi-Architecture Support
-
-The workflow builds for:
-- **linux/amd64** - Standard x86_64 (most servers, Unraid)
-- **linux/arm64** - ARM64 (Raspberry Pi 4, Apple Silicon, some NAS)
-
-Docker automatically pulls the correct architecture for your system.
-
 ## Troubleshooting
 
-### Build Fails on GitHub Actions
+### Build Fails
 
-1. Check **Actions** tab for error logs
+1. Check Actions tab for error logs
 2. Common issues:
    - Missing `DOCKER_HUB_TOKEN` secret
-   - Invalid Dockerfile syntax
+   - Dockerfile syntax error
    - Network timeout (retry usually works)
 
-### Can't Pull Image
+### Image Not Updating
 
 ```bash
-# Ensure image name is correct
+# Force pull latest
 docker pull bolagnaise/tesla-sync:latest
 
-# Check if public (should be)
-# Visit: https://hub.docker.com/r/bolagnaise/tesla-sync
+# Check image digest
+docker images --digests bolagnaise/tesla-sync
 ```
 
-### Image Size
+### Discord Notification Not Working
 
-First build may be larger (~500MB). This includes:
-- Python 3.9
-- All dependencies
-- Application code
+- Verify `DISCORD_WEBHOOK` secret is set
+- Check webhook URL is valid
+- Webhook failures don't fail the build
 
-Subsequent builds use cache and are much faster.
+## Architecture
 
-## Customization
-
-### Change Docker Hub Username
-
-Edit `.github/workflows/docker-publish.yml`:
-
-```yaml
-env:
-  DOCKER_HUB_USERNAME: your-username  # Change this
-  IMAGE_NAME: tesla-sync
 ```
+Push to main
+     │
+     ▼
+GitHub Actions
+     │
+     ├─► Build amd64 image
+     ├─► Build arm64 image
+     │
+     ▼
+Docker Hub
+     │
+     ├─► bolagnaise/tesla-sync:latest
+     └─► bolagnaise/tesla-sync:main
 
-### Build on Different Branches
-
-Add branches to workflow trigger:
-
-```yaml
-on:
-  push:
-    branches:
-      - main
-      - develop  # Add other branches
+Discord ◄── Notification
 ```
-
-## Benefits of Docker Hub Automation
-
-✅ **No local builds** - Pull pre-built images
-✅ **Multi-architecture** - Works on x86 and ARM
-✅ **Automatic updates** - Push to GitHub = new image
-✅ **Version control** - Tag releases properly
-✅ **Fast deployment** - Download vs build
-✅ **Build cache** - Faster subsequent builds
-
-## Cost
-
-- **Docker Hub Free Tier:**
-  - Unlimited public repositories
-  - Unlimited pulls
-  - 1 concurrent build
-  - No cost for this project
-
-## Next Steps
-
-1. ✅ Set up Docker Hub account
-2. ✅ Create access token
-3. ✅ Add token to GitHub secrets
-4. ✅ Push to GitHub to trigger build
-5. ✅ Use image on Unraid/Docker hosts
-6. ✅ Set up Watchtower for auto-updates (optional)
-
----
-
-**Your image will be available at:**
-`docker pull bolagnaise/tesla-sync:latest`
-
-**Docker Hub page:**
-https://hub.docker.com/r/bolagnaise/tesla-sync

@@ -1,165 +1,62 @@
-# GitHub Setup Guide
+# GitHub Repository Security
 
-## ✅ Security Check Complete
+## Repository
 
-Your repository has been prepared for GitHub with **NO personal data** included:
+- **URL:** https://github.com/bolagnaise/tesla-sync
+- **Docker Hub:** https://hub.docker.com/r/bolagnaise/tesla-sync
 
-### Protected Files (Excluded via .gitignore):
-- ❌ `.env` - Contains your actual API keys and secrets
-- ❌ `app.db` - Contains your user data and credentials
-- ❌ `*.db`, `*.sqlite` - Any database files
-- ❌ `venv/` - Python virtual environment
-- ❌ `.DS_Store` - macOS system files
+## Protected Files (via .gitignore)
 
-### Safe Files (Included in repository):
-- ✅ `.env.example` - Template with placeholder values
-- ✅ All source code files
-- ✅ Documentation (README, setup guides)
-- ✅ Docker configuration
-- ✅ Database migrations (schema only, no data)
+These files are excluded from version control:
 
----
+| File | Contains |
+|------|----------|
+| `.env` | API keys, secrets, credentials |
+| `data/app.db` | User database |
+| `data/.fernet_key` | Encryption key |
+| `*.db`, `*.sqlite` | Any database files |
+| `venv/` | Python virtual environment |
+| `__pycache__/` | Python bytecode |
+| `.DS_Store` | macOS system files |
 
-## Push to GitHub
+## Safe to Commit
 
-### Option 1: Using GitHub CLI (Recommended)
+| File | Purpose |
+|------|---------|
+| `.env.example` | Template with placeholder values |
+| Source code | All `.py`, `.html`, `.js` files |
+| Documentation | All `.md` files |
+| Docker config | `Dockerfile`, `docker-compose.yml` |
+| Migrations | Database schema (no data) |
 
-If you have GitHub CLI installed:
-
-```bash
-# Create a new GitHub repository
-gh repo create tesla-sync --public --source=. --remote=origin --push
-
-# Or for private repository:
-gh repo create tesla-sync --private --source=. --remote=origin --push
-```
-
-### Option 2: Using GitHub Web Interface
-
-1. **Create a new repository on GitHub:**
-   - Go to https://github.com/new
-   - Repository name: `tesla-sync`
-   - Description: "Synchronize Tesla Powerwall with Amber Electric dynamic pricing"
-   - Choose Public or Private
-   - **DO NOT** initialize with README (we already have one)
-   - Click "Create repository"
-
-2. **Push your code:**
-   ```bash
-   # Add the GitHub remote (replace YOUR_USERNAME with your GitHub username)
-   git remote add origin https://github.com/YOUR_USERNAME/tesla-sync.git
-
-   # Push to GitHub
-   git push -u origin main
-   ```
-
----
-
-## Verify Security
-
-After pushing, verify no sensitive data was uploaded:
-
-1. Visit your GitHub repository
-2. Check that `.env` is NOT visible in the file list
-3. Check that `app.db` is NOT visible
-4. Verify `.env.example` IS present with placeholder values
-
----
-
-## Clone and Deploy on Another Machine
-
-When deploying elsewhere:
+## Clone and Deploy
 
 ```bash
-# Clone the repository
-git clone https://github.com/YOUR_USERNAME/tesla-sync.git
+git clone https://github.com/bolagnaise/tesla-sync.git
 cd tesla-sync
 
 # Create .env from template
 cp .env.example .env
 
-# Edit .env with your actual credentials
+# Edit with your credentials (or use web UI after first run)
 nano .env
 
 # Start with Docker
 docker-compose up -d
 ```
 
----
+## If You Accidentally Commit Secrets
 
-## Update README
+1. **Immediately rotate** any exposed credentials
+2. Use BFG Repo-Cleaner or `git filter-branch` to remove from history
+3. Force push the cleaned history
+4. See: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository
 
-After creating the GitHub repository, update the clone URL in README.md:
+## Required GitHub Secrets
 
-Find line 73 and replace:
-```bash
-git clone https://github.com/YOUR_USERNAME/tesla-sync.git
-```
+For CI/CD automation (Settings → Secrets → Actions):
 
-With your actual GitHub username:
-```bash
-git clone https://github.com/your-actual-username/tesla-sync.git
-```
-
-Then commit and push the change:
-```bash
-git add README.md
-git commit -m "Update clone URL with actual GitHub username"
-git push
-```
-
----
-
-## Next Steps
-
-1. ✅ Create GitHub repository (see above)
-2. ✅ Push code to GitHub
-3. ✅ Verify security (check .env is not visible)
-4. ✅ Update README with your GitHub username
-5. ✅ Test Docker deployment on clean machine
-6. ✅ Add GitHub topics: `tesla`, `powerwall`, `amber-electric`, `python`, `docker`, `flask`
-7. ✅ Add GitHub description
-8. ✅ Consider adding a GitHub Actions workflow for CI/CD
-
----
-
-## Continuous Updates
-
-When you make changes:
-
-```bash
-# Check what changed
-git status
-
-# Add changed files
-git add .
-
-# Commit
-git commit -m "Description of your changes"
-
-# Push to GitHub
-git push
-```
-
-**Remember:** Never manually add `.env` or `app.db` to git!
-
----
-
-## Security Reminders
-
-🔒 **What's Protected:**
-- Your Tesla API credentials
-- Your Amber Electric API token
-- Your Fernet encryption key
-- Your user database
-- Any user passwords or API tokens
-
-✅ **What's Safe to Share:**
-- All source code
-- Documentation
-- Docker configuration
-- Database schema (migrations)
-- Example environment file
-
-If you accidentally commit sensitive data, see:
-https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository
+| Secret | Purpose |
+|--------|---------|
+| `DOCKER_HUB_TOKEN` | Docker Hub access token for image publishing |
+| `DISCORD_WEBHOOK` | (Optional) Discord notifications on deploy |
