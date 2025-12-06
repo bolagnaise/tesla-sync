@@ -1174,6 +1174,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "entry": entry,
         "auto_sync_cancel": None,  # Will store the timer cancel function
         "aemo_spike_cancel": None,  # Will store the AEMO spike check cancel function
+        "demand_charging_cancel": None,  # Will store the demand period grid charging cancel function
+        "grid_charging_disabled_for_demand": False,  # Track if grid charging is disabled for demand period
         "cached_export_rule": cached_export_rule,  # Restored from persistent storage
         "store": store,  # Reference to Store for saving updates
         "token_getter": token_getter,  # Function to get fresh Tesla API token
@@ -2019,6 +2021,66 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info("Performing initial AEMO spike check")
         await aemo_spike_manager.check_and_handle_spike()
 
+    # Set up automatic demand period grid charging check if demand charges enabled
+    if demand_charge_coordinator:
+        async def auto_demand_charging_check(now):
+            """Automatically check demand period and toggle grid charging."""
+            try:
+                entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
+                dc_coordinator = entry_data.get("demand_charge_coordinator")
+                ts_coordinator = entry_data.get("tesla_coordinator")
+
+                if not dc_coordinator or not ts_coordinator:
+                    return
+
+                # Check if we're in peak period using the coordinator's method
+                current_time = dt_util.now()
+                in_peak = dc_coordinator._is_in_peak_period(current_time)
+                currently_disabled = entry_data.get("grid_charging_disabled_for_demand", False)
+
+                if in_peak and not currently_disabled:
+                    # Entering peak period - disable grid charging
+                    _LOGGER.info("Entering demand peak period - disabling grid charging")
+                    success = await ts_coordinator.set_grid_charging_enabled(False)
+                    if success:
+                        hass.data[DOMAIN][entry.entry_id]["grid_charging_disabled_for_demand"] = True
+                        _LOGGER.info("Grid charging disabled for demand period")
+                    else:
+                        _LOGGER.error("Failed to disable grid charging for demand period")
+
+                elif not in_peak and currently_disabled:
+                    # Exiting peak period - re-enable grid charging
+                    _LOGGER.info("Exiting demand peak period - re-enabling grid charging")
+                    success = await ts_coordinator.set_grid_charging_enabled(True)
+                    if success:
+                        hass.data[DOMAIN][entry.entry_id]["grid_charging_disabled_for_demand"] = False
+                        _LOGGER.info("Grid charging re-enabled after demand period")
+                    else:
+                        _LOGGER.error("Failed to re-enable grid charging after demand period")
+
+            except Exception as err:
+                _LOGGER.error("Error in demand period grid charging check: %s", err)
+
+        # Check every minute at :45 seconds (offset from AEMO check at :35)
+        demand_charging_cancel_timer = async_track_utc_time_change(
+            hass,
+            auto_demand_charging_check,
+            second=45,  # Every minute at :45 seconds
+        )
+
+        # Store the demand charging cancel function
+        hass.data[DOMAIN][entry.entry_id]["demand_charging_cancel"] = demand_charging_cancel_timer
+        _LOGGER.info(
+            "Demand period grid charging check scheduled every minute (peak=%s to %s, days=%s)",
+            demand_charge_coordinator.start_time,
+            demand_charge_coordinator.end_time,
+            demand_charge_coordinator.days,
+        )
+
+        # Perform initial demand period check
+        _LOGGER.info("Performing initial demand period grid charging check")
+        await auto_demand_charging_check(dt_util.now())
+
     _LOGGER.info("Tesla Sync integration setup complete")
     return True
 
@@ -2042,6 +2104,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if aemo_spike_cancel := entry_data.get("aemo_spike_cancel"):
         aemo_spike_cancel()
         _LOGGER.debug("Cancelled AEMO spike timer")
+
+    # Cancel the demand period grid charging timer if it exists
+    if demand_charging_cancel := entry_data.get("demand_charging_cancel"):
+        demand_charging_cancel()
+        _LOGGER.debug("Cancelled demand period grid charging timer")
 
     # Stop WebSocket client if it exists
     if ws_client := entry_data.get("ws_client"):

@@ -64,6 +64,9 @@ class User(UserMixin, db.Model):
     daily_supply_charge = db.Column(db.Float, default=0.0)  # Daily supply charge ($)
     monthly_supply_charge = db.Column(db.Float, default=0.0)  # Monthly fixed charge ($)
 
+    # Demand Period Grid Charging State
+    grid_charging_disabled_for_demand = db.Column(db.Boolean, default=False)  # True when grid charging disabled during peak
+
     # AEMO Spike Detection Configuration
     aemo_region = db.Column(db.String(10))  # NEM region: NSW1, QLD1, VIC1, SA1, TAS1
     aemo_spike_threshold = db.Column(db.Float, default=300.0)  # Spike threshold in $/MWh

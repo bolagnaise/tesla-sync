@@ -356,7 +356,7 @@ def create_app(config_class=Config):
         scheduler = BackgroundScheduler()
 
         # Add job to sync all users' TOU schedules every 5 minutes (aligned with Amber's update cycle)
-        from app.tasks import sync_all_users, save_price_history, save_energy_usage, monitor_aemo_prices, solar_curtailment_check
+        from app.tasks import sync_all_users, save_price_history, save_energy_usage, monitor_aemo_prices, solar_curtailment_check, demand_period_grid_charging_check
 
         # Wrapper functions to run tasks within app context
         def run_sync_all_users():
@@ -382,6 +382,10 @@ def create_app(config_class=Config):
         def run_solar_curtailment_check():
             with app.app_context():
                 solar_curtailment_check()
+
+        def run_demand_period_grid_charging_check():
+            with app.app_context():
+                demand_period_grid_charging_check()
 
         scheduler.add_job(
             func=run_sync_all_users,
@@ -428,6 +432,16 @@ def create_app(config_class=Config):
             replace_existing=True
         )
 
+        # Add job to check demand period grid charging every minute
+        # Disables grid charging during peak demand periods to prevent increasing demand charges
+        scheduler.add_job(
+            func=run_demand_period_grid_charging_check,
+            trigger=CronTrigger(minute='*', second='45'),  # Run every minute at :45 seconds
+            id='demand_period_grid_charging_check',
+            name='Check demand period and toggle grid charging',
+            replace_existing=True
+        )
+
         # Start the scheduler
         scheduler.start()
         logger.info("✅ Background scheduler started:")
@@ -436,6 +450,7 @@ def create_app(config_class=Config):
         logger.info("  - Price history: WebSocket event-driven (primary) + REST API fallback every 5 minutes at :01")
         logger.info("  - Energy usage logging: every minute (Teslemetry allows 1/min)")
         logger.info("  - AEMO price monitoring: every 1 minute at :35 seconds for spike detection")
+        logger.info("  - Demand period grid charging: every 1 minute at :45 seconds")
 
         # Shut down the scheduler and release lock when exiting the app
         def cleanup():

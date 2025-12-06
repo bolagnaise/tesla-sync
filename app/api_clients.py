@@ -683,6 +683,64 @@ class FleetAPIClient(TeslaAPIClientBase):
             logger.error(f"Error getting grid import/export settings via Fleet API: {e}")
             return None
 
+    def set_grid_charging_enabled(self, site_id, enabled: bool):
+        """
+        Enable or disable grid charging (imports) for the Powerwall.
+
+        Args:
+            site_id: Energy site ID
+            enabled: True to allow grid charging, False to disallow
+
+        Uses the disallow_charge_from_grid_with_solar_installed field:
+            - True = grid charging DISABLED
+            - False = grid charging ENABLED (default)
+
+        Returns:
+            dict: Response data or None on error
+        """
+        # Note: The field is inverted - True means charging is DISALLOWED
+        disallow_value = not enabled
+
+        try:
+            logger.info(f"Setting grid charging {'enabled' if enabled else 'disabled'} for site {site_id} via Fleet API")
+
+            url = f"{self.base_url}/api/1/energy_sites/{site_id}/grid_import_export"
+            payload = {
+                "disallow_charge_from_grid_with_solar_installed": disallow_value
+            }
+
+            logger.debug(f"Fleet API request: POST {url} with payload: {payload}")
+
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+
+            # Handle token refresh on 401
+            if response.status_code == 401:
+                logger.warning("Fleet API token expired, attempting refresh...")
+                if self._refresh_token():
+                    response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+                else:
+                    logger.error("Token refresh failed")
+                    return None
+
+            response.raise_for_status()
+            data = response.json()
+            logger.debug(f"Fleet API response: {data}")
+
+            # Check for actual success in response body
+            response_data = data.get('response', data)
+            if isinstance(response_data, dict) and 'result' in response_data:
+                if not response_data['result']:
+                    reason = response_data.get('reason', 'Unknown reason')
+                    logger.error(f"Set grid charging failed: {reason}")
+                    return None
+
+            logger.info(f"✅ Grid charging {'enabled' if enabled else 'disabled'} successfully for site {site_id}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error setting grid charging via Fleet API: {e}")
+            return None
+
 
 class TeslemetryAPIClient(TeslaAPIClientBase):
     """Client for Teslemetry API (Tesla API proxy service)"""
@@ -1240,6 +1298,65 @@ class TeslemetryAPIClient(TeslaAPIClientBase):
             return data
         except requests.exceptions.RequestException as e:
             logger.error(f"Error setting grid export rule via Teslemetry: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Error response: {e.response.text}")
+            return None
+
+    def set_grid_charging_enabled(self, site_id, enabled: bool):
+        """
+        Enable or disable grid charging (imports) for the Powerwall.
+
+        Args:
+            site_id: Energy site ID
+            enabled: True to allow grid charging, False to disallow
+
+        Uses the disallow_charge_from_grid_with_solar_installed field:
+            - True = grid charging DISABLED
+            - False = grid charging ENABLED (default)
+
+        Returns:
+            dict: Response data or None on error
+        """
+        # Note: The field is inverted - True means charging is DISALLOWED
+        disallow_value = not enabled
+
+        try:
+            logger.info(f"Setting grid charging {'enabled' if enabled else 'disabled'} for site {site_id} via Teslemetry")
+
+            url = f"{self.base_url}/api/1/energy_sites/{site_id}/grid_import_export"
+            payload = {
+                "disallow_charge_from_grid_with_solar_installed": disallow_value
+            }
+
+            logger.debug(f"Teslemetry request: POST {url} with payload: {payload}")
+
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+
+            logger.info(f"Set grid charging response status: {response.status_code}")
+            if response.status_code not in [200, 201, 202]:
+                logger.error(f"Error response: {response.text}")
+
+            response.raise_for_status()
+            data = response.json()
+
+            # Log full response for debugging
+            logger.debug(f"Set grid charging response: {data}")
+
+            # Check if the response indicates actual success
+            if isinstance(data, dict) and 'response' in data:
+                response_data = data['response']
+                if isinstance(response_data, dict) and 'result' in response_data:
+                    if not response_data['result']:
+                        reason = response_data.get('reason', 'Unknown reason')
+                        logger.error(f"❌ Set grid charging failed: {reason}")
+                        logger.error(f"Full response: {data}")
+                        return None
+
+            logger.info(f"✅ Grid charging {'enabled' if enabled else 'disabled'} successfully for site {site_id}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error setting grid charging via Teslemetry: {e}")
             if hasattr(e, 'response') and e.response is not None:
                 logger.error(f"Error response: {e.response.text}")
             return None

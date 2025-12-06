@@ -1450,3 +1450,141 @@ def solar_curtailment_with_websocket_data(prices_data):
 
     logger.info(f"=== ✅ Solar curtailment (WebSocket) complete: {success_count} OK, {error_count} errors ===")
 
+
+def is_in_peak_period(user):
+    """
+    Check if current time is within the user's configured peak demand period.
+
+    Args:
+        user: User model instance with peak period configuration
+
+    Returns:
+        bool: True if currently in peak period, False otherwise
+    """
+    from datetime import datetime
+    import pytz
+
+    # Get user's timezone or default to Sydney
+    try:
+        user_tz = pytz.timezone(user.timezone or 'Australia/Sydney')
+    except Exception:
+        user_tz = pytz.timezone('Australia/Sydney')
+
+    now = datetime.now(user_tz)
+    current_day = now.weekday()  # 0=Monday, 6=Sunday
+
+    # Check day of week
+    peak_days = user.peak_days or 'weekdays'
+    if peak_days == 'weekdays' and current_day >= 5:  # Saturday (5) or Sunday (6)
+        return False
+    elif peak_days == 'weekends' and current_day < 5:  # Monday-Friday
+        return False
+    # 'all' matches any day
+
+    # Get peak period times
+    peak_start_hour = user.peak_start_hour if user.peak_start_hour is not None else 14
+    peak_start_minute = user.peak_start_minute if user.peak_start_minute is not None else 0
+    peak_end_hour = user.peak_end_hour if user.peak_end_hour is not None else 20
+    peak_end_minute = user.peak_end_minute if user.peak_end_minute is not None else 0
+
+    # Create time objects for comparison
+    current_time = now.hour * 60 + now.minute  # Minutes since midnight
+    peak_start = peak_start_hour * 60 + peak_start_minute
+    peak_end = peak_end_hour * 60 + peak_end_minute
+
+    # Handle overnight periods (e.g., 22:00-06:00)
+    if peak_end <= peak_start:
+        # Overnight period
+        return current_time >= peak_start or current_time < peak_end
+    else:
+        # Normal period
+        return peak_start <= current_time < peak_end
+
+
+def demand_period_grid_charging_check():
+    """
+    Check if we're in a demand period and toggle grid charging accordingly.
+    Runs every minute via scheduler.
+
+    When in peak demand period: Disable grid charging to prevent imports
+    When outside peak period: Re-enable grid charging
+    """
+    from app import create_app
+    from app.models import User, db
+    from app.api_clients import get_tesla_client
+
+    logger.info("=== 🔋 Starting demand period grid charging check ===")
+
+    app = create_app()
+    with app.app_context():
+        # Get all users with demand charges enabled
+        users = User.query.filter_by(enable_demand_charges=True).all()
+
+        if not users:
+            logger.debug("No users with demand charges enabled")
+            return
+
+        success_count = 0
+        error_count = 0
+
+        for user in users:
+            try:
+                # Check if user has Tesla configured
+                if not user.tesla_energy_site_id:
+                    logger.debug(f"User {user.email} has no Tesla site configured")
+                    continue
+
+                tesla_client = get_tesla_client(user)
+                if not tesla_client:
+                    logger.debug(f"User {user.email} has no Tesla API configured")
+                    continue
+
+                in_peak = is_in_peak_period(user)
+                currently_disabled = user.grid_charging_disabled_for_demand
+
+                logger.debug(f"User {user.email}: in_peak={in_peak}, currently_disabled={currently_disabled}")
+
+                if in_peak and not currently_disabled:
+                    # Entering peak period - disable grid charging
+                    logger.info(f"⚡ Entering peak demand period for {user.email} - disabling grid charging")
+
+                    result = tesla_client.set_grid_charging_enabled(user.tesla_energy_site_id, False)
+
+                    if result:
+                        user.grid_charging_disabled_for_demand = True
+                        db.session.commit()
+                        logger.info(f"✅ Grid charging DISABLED for {user.email} during peak period")
+                        success_count += 1
+                    else:
+                        logger.error(f"❌ Failed to disable grid charging for {user.email}")
+                        error_count += 1
+
+                elif not in_peak and currently_disabled:
+                    # Exiting peak period - re-enable grid charging
+                    logger.info(f"⚡ Exiting peak demand period for {user.email} - re-enabling grid charging")
+
+                    result = tesla_client.set_grid_charging_enabled(user.tesla_energy_site_id, True)
+
+                    if result:
+                        user.grid_charging_disabled_for_demand = False
+                        db.session.commit()
+                        logger.info(f"✅ Grid charging ENABLED for {user.email} (peak period ended)")
+                        success_count += 1
+                    else:
+                        logger.error(f"❌ Failed to re-enable grid charging for {user.email}")
+                        error_count += 1
+
+                else:
+                    # No state change needed
+                    if in_peak:
+                        logger.debug(f"User {user.email}: Already in peak mode, no change needed")
+                    else:
+                        logger.debug(f"User {user.email}: Already in normal mode, no change needed")
+                    success_count += 1
+
+            except Exception as e:
+                logger.error(f"Error in demand period check for {user.email}: {e}", exc_info=True)
+                error_count += 1
+
+        logger.info(f"=== ✅ Demand period grid charging check complete: {success_count} OK, {error_count} errors ===")
+
