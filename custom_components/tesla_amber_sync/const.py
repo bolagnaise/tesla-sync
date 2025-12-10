@@ -112,6 +112,9 @@ SENSOR_TYPE_AEMO_SPIKE_STATUS = "aemo_spike_status"
 # Tariff schedule sensor
 SENSOR_TYPE_TARIFF_SCHEDULE = "tariff_schedule"
 
+# Solar curtailment sensor
+SENSOR_TYPE_SOLAR_CURTAILMENT = "solar_curtailment"
+
 # Attributes
 ATTR_LAST_SYNC = "last_sync"
 ATTR_SYNC_STATUS = "sync_status"

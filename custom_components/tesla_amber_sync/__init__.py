@@ -15,6 +15,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_utc_time_change
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
     DOMAIN,
@@ -1189,6 +1190,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         store = hass.data[DOMAIN][entry.entry_id]["store"]
         await store.async_save({"cached_export_rule": new_rule})
         _LOGGER.debug(f"Persisted cached_export_rule='{new_rule}' to storage")
+        # Signal sensor to update
+        async_dispatcher_send(hass, f"tesla_amber_sync_curtailment_updated_{entry.entry_id}")
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

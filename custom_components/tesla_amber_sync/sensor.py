@@ -47,6 +47,7 @@ from .const import (
     SENSOR_TYPE_AEMO_PRICE,
     SENSOR_TYPE_AEMO_SPIKE_STATUS,
     SENSOR_TYPE_TARIFF_SCHEDULE,
+    SENSOR_TYPE_SOLAR_CURTAILMENT,
     CONF_DEMAND_CHARGE_ENABLED,
     CONF_DEMAND_CHARGE_RATE,
     CONF_DEMAND_CHARGE_START_TIME,
@@ -54,6 +55,7 @@ from .const import (
     CONF_DEMAND_CHARGE_DAYS,
     CONF_DEMAND_CHARGE_BILLING_DAY,
     CONF_AEMO_SPIKE_ENABLED,
+    CONF_SOLAR_CURTAILMENT_ENABLED,
     ATTR_PRICE_SPIKE,
     ATTR_WHOLESALE_PRICE,
     ATTR_NETWORK_PRICE,
@@ -298,6 +300,17 @@ async def async_setup_entry(
     )
     _LOGGER.info("Tariff schedule sensor added for TOU visualization")
 
+    # Add solar curtailment sensor if curtailment is enabled
+    curtailment_enabled = entry.options.get(CONF_SOLAR_CURTAILMENT_ENABLED, False)
+    if curtailment_enabled:
+        entities.append(
+            SolarCurtailmentSensor(
+                hass=hass,
+                entry=entry,
+            )
+        )
+        _LOGGER.info("Solar curtailment sensor added")
+
     async_add_entities(entities)
 
 
@@ -527,3 +540,74 @@ class TariffScheduleSensor(SensorEntity):
         attributes["sell_prices"] = sell_prices
 
         return attributes
+
+
+SIGNAL_CURTAILMENT_UPDATED = "tesla_amber_sync_curtailment_updated_{}"
+
+
+class SolarCurtailmentSensor(SensorEntity):
+    """Sensor for displaying solar curtailment status."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the sensor."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_{SENSOR_TYPE_SOLAR_CURTAILMENT}"
+        self._attr_has_entity_name = True
+        self._attr_name = "Solar Curtailment"
+        self._attr_icon = "mdi:solar-power-variant"
+        self._unsub_dispatcher = None
+
+    async def async_added_to_hass(self) -> None:
+        """Run when entity is added to hass."""
+        await super().async_added_to_hass()
+
+        @callback
+        def _handle_curtailment_update():
+            """Handle curtailment update signal."""
+            self.async_write_ha_state()
+
+        # Subscribe to curtailment update signal
+        self._unsub_dispatcher = async_dispatcher_connect(
+            self.hass,
+            SIGNAL_CURTAILMENT_UPDATED.format(self._entry.entry_id),
+            _handle_curtailment_update,
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Run when entity is removed from hass."""
+        if self._unsub_dispatcher:
+            self._unsub_dispatcher()
+
+    @property
+    def native_value(self) -> str:
+        """Return the state - whether curtailment is active."""
+        cached_rule = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {}).get("cached_export_rule")
+        if cached_rule == "never":
+            return "Active"
+        return "Normal"
+
+    @property
+    def icon(self) -> str:
+        """Return the icon based on state."""
+        cached_rule = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {}).get("cached_export_rule")
+        if cached_rule == "never":
+            return "mdi:solar-power-variant-outline"  # Different icon when curtailed
+        return "mdi:solar-power-variant"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional attributes."""
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+        cached_rule = entry_data.get("cached_export_rule")
+        curtailment_enabled = self._entry.options.get(CONF_SOLAR_CURTAILMENT_ENABLED, False)
+
+        return {
+            "export_rule": cached_rule,
+            "curtailment_enabled": curtailment_enabled,
+            "description": "Export blocked due to negative feed-in price" if cached_rule == "never" else "Normal solar export allowed",
+        }
