@@ -65,16 +65,71 @@ views:
               green: 60
 
       # ========================================
-      # ROW 2: Tariff Schedule Status
+      # ROW 2: TOU Tariff Schedule (sent to Tesla)
       # ========================================
       - type: grid
         cards:
-          - type: entity
-            entity: sensor.tariff_schedule
-            name: TOU Schedule
-            icon: mdi:calendar-clock
-          # Note: Full 48-period schedule is in sensor attributes
-          # View in Developer Tools → States → sensor.tariff_schedule
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: TOU Schedule Sent to Tesla
+              show_states: false
+            graph_span: 24h
+            span:
+              start: day
+            yaxis:
+              - id: price
+                min: 0
+                apex_config:
+                  tickAmount: 5
+                  labels:
+                    formatter: |
+                      EVAL:function(val) {
+                        return (val * 100).toFixed(0) + '¢';
+                      }
+            series:
+              - entity: sensor.tariff_schedule
+                name: Buy Price
+                type: line
+                color: "#FF9800"
+                yaxis_id: price
+                stroke_width: 2
+                curve: stepline
+                data_generator: |
+                  const schedule = entity.attributes.schedule || [];
+                  const now = new Date();
+                  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                  return schedule.map((entry) => {
+                    const [hours, mins] = entry.time.split(':').map(Number);
+                    const timestamp = new Date(today.getTime() + hours * 3600000 + mins * 60000);
+                    return [timestamp.getTime(), entry.buy];
+                  });
+              - entity: sensor.tariff_schedule
+                name: Sell Price
+                type: line
+                color: "#4CAF50"
+                yaxis_id: price
+                stroke_width: 2
+                curve: stepline
+                data_generator: |
+                  const schedule = entity.attributes.schedule || [];
+                  const now = new Date();
+                  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                  return schedule.map((entry) => {
+                    const [hours, mins] = entry.time.split(':').map(Number);
+                    const timestamp = new Date(today.getTime() + hours * 3600000 + mins * 60000);
+                    return [timestamp.getTime(), entry.sell];
+                  });
+            apex_config:
+              chart:
+                height: 250
+              stroke:
+                curve: stepline
+              legend:
+                show: true
+              tooltip:
+                x:
+                  format: "HH:mm"
 
       # ========================================
       # ROW 3: Power Flow
