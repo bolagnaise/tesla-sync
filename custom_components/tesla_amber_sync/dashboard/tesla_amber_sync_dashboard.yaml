@@ -68,10 +68,54 @@ views:
         display_zero_lines: false
         clickable_entities: true
         use_new_flow_rate_model: true
-      - type: entity
-        entity: sensor.solar_curtailment
-        name: Solar Curtailment
-        icon: mdi:solar-power-variant
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Amber Prices - 24 Hours
+          show_states: false
+        graph_span: 24h
+        span:
+          start: day
+        yaxis:
+          - id: price
+            min: 0
+            apex_config:
+              tickAmount: 5
+              labels:
+                formatter: |
+                  EVAL:function(val) {
+                    return (val * 100).toFixed(0) + '¢';
+                  }
+        series:
+          - entity: sensor.amber_general_price
+            name: Import
+            type: line
+            color: '#FF9800'
+            yaxis_id: price
+            stroke_width: 2
+            group_by:
+              func: avg
+              duration: 5min
+          - entity: sensor.amber_feed_in_price
+            name: Feed-in
+            type: line
+            color: '#4CAF50'
+            yaxis_id: price
+            stroke_width: 2
+            group_by:
+              func: avg
+              duration: 5min
+        apex_config:
+          chart:
+            height: 200
+          stroke:
+            curve: smooth
+          legend:
+            show: true
+            position: bottom
+          tooltip:
+            x:
+              format: HH:mm
       - type: custom:apexcharts-card
         header:
           show: true
@@ -158,54 +202,40 @@ views:
           tooltip:
             x:
               format: HH:mm
-      - type: custom:apexcharts-card
-        header:
-          show: true
-          title: Amber Prices - 24 Hours
-          show_states: false
-        graph_span: 24h
-        span:
-          start: day
-        yaxis:
-          - id: price
-            min: 0
-            apex_config:
-              tickAmount: 5
-              labels:
-                formatter: |
-                  EVAL:function(val) {
-                    return (val * 100).toFixed(0) + '¢';
-                  }
-        series:
-          - entity: sensor.amber_general_price
-            name: Import
-            type: line
-            color: '#FF9800'
-            yaxis_id: price
-            stroke_width: 2
-            group_by:
-              func: avg
-              duration: 5min
-          - entity: sensor.amber_feed_in_price
-            name: Feed-in
-            type: line
-            color: '#4CAF50'
-            yaxis_id: price
-            stroke_width: 2
-            group_by:
-              func: avg
-              duration: 5min
-        apex_config:
-          chart:
-            height: 200
-          stroke:
-            curve: smooth
-          legend:
-            show: true
-            position: bottom
-          tooltip:
-            x:
-              format: HH:mm
+      - type: markdown
+        content: >-
+          ## Solar Curtailment
+
+          {% set state = states('sensor.solar_curtailment') %}
+          {% set export_rule = state_attr('sensor.solar_curtailment', 'export_rule') %}
+          {% if state == 'Active' %}
+          <ha-icon icon="mdi:solar-power-variant-outline" style="color: #F44336;"></ha-icon>
+          **Status: ACTIVE**
+
+          Solar export is **blocked** due to negative feed-in price.
+
+          Export rule: `{{ export_rule }}`
+          {% else %}
+          <ha-icon icon="mdi:solar-power-variant" style="color: #4CAF50;"></ha-icon>
+          **Status: Normal**
+
+          Solar export is **allowed**.
+
+          Export rule: `{{ export_rule }}`
+          {% endif %}
+        card_mod:
+          style: |
+            ha-card {
+              height: 150px;
+              {% set state = states('sensor.solar_curtailment') %}
+              {% if state == 'Active' %}
+              background: linear-gradient(135deg, rgba(244, 67, 54, 0.1) 0%, rgba(244, 67, 54, 0.05) 100%);
+              border-left: 4px solid #F44336;
+              {% else %}
+              background: linear-gradient(135deg, rgba(76, 175, 80, 0.1) 0%, rgba(76, 175, 80, 0.05) 100%);
+              border-left: 4px solid #4CAF50;
+              {% endif %}
+            }
       - type: custom:apexcharts-card
         header:
           show: true
