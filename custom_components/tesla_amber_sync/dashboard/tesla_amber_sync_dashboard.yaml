@@ -1,32 +1,10 @@
-# ============================================================================
-# Tesla Amber Sync Dashboard for Home Assistant
-# ============================================================================
-#
-# INSTALLATION:
-# 1. Install required HACS cards (via HACS → Frontend):
-#    - power-flow-card-plus (https://github.com/flixlix/power-flow-card-plus)
-#    - apexcharts-card (https://github.com/RomRider/apexcharts-card)
-#
-# 2. Create new dashboard in Home Assistant:
-#    Settings → Dashboards → Add Dashboard → "New dashboard from scratch"
-#
-# 3. Open the new dashboard, click the 3 dots menu → "Edit dashboard"
-#    Then click 3 dots again → "Raw configuration editor"
-#    Delete all content and paste this entire file
-#
-# ============================================================================
-
 title: Tesla Amber Sync
 views:
   - title: Energy Dashboard
     path: energy
     icon: mdi:lightning-bolt
-    type: sections
-    sections:
-      # ========================================
-      # ROW 1: Price & Battery Status
-      # ========================================
-      - type: grid
+    cards:
+      - type: horizontal-stack
         cards:
           - type: gauge
             entity: sensor.amber_general_price
@@ -39,7 +17,6 @@ views:
               green: 0
               yellow: 25
               red: 40
-
           - type: gauge
             entity: sensor.amber_feed_in_price
             name: Feed-in Price
@@ -51,11 +28,10 @@ views:
               red: -10
               yellow: 0
               green: 5
-
           - type: gauge
             entity: sensor.battery_level
             name: Battery
-            unit: "%"
+            unit: '%'
             min: 0
             max: 100
             needle: true
@@ -63,235 +39,254 @@ views:
               red: 0
               yellow: 30
               green: 60
-
-      # ========================================
-      # ROW 2: TOU Tariff Schedule (sent to Tesla)
-      # ========================================
-      - type: grid
-        columns: 1
-        cards:
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              title: TOU Schedule Sent to Tesla
-              show_states: false
-            graph_span: 24h
-            span:
-              start: day
-            yaxis:
-              - id: price
-                min: 0
-                apex_config:
-                  tickAmount: 5
-                  labels:
-                    formatter: |
-                      EVAL:function(val) {
-                        return (val * 100).toFixed(0) + '¢';
-                      }
-            series:
-              - entity: sensor.tariff_schedule
-                name: Buy Price
-                type: line
-                color: "#FF9800"
-                yaxis_id: price
-                stroke_width: 2
-                curve: stepline
-                data_generator: |
-                  const schedule = entity.attributes.schedule || [];
-                  const now = new Date();
-                  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                  return schedule.map((entry) => {
-                    const [hours, mins] = entry.time.split(':').map(Number);
-                    const timestamp = new Date(today.getTime() + hours * 3600000 + mins * 60000);
-                    return [timestamp.getTime(), entry.buy];
-                  });
-              - entity: sensor.tariff_schedule
-                name: Sell Price
-                type: line
-                color: "#4CAF50"
-                yaxis_id: price
-                stroke_width: 2
-                curve: stepline
-                data_generator: |
-                  const schedule = entity.attributes.schedule || [];
-                  const now = new Date();
-                  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                  return schedule.map((entry) => {
-                    const [hours, mins] = entry.time.split(':').map(Number);
-                    const timestamp = new Date(today.getTime() + hours * 3600000 + mins * 60000);
-                    return [timestamp.getTime(), entry.sell];
-                  });
+      - type: custom:power-flow-card-plus
+        entities:
+          battery:
+            entity: sensor.battery_power
+            state_of_charge: sensor.battery_level
+            name: Battery
+            color_icon: true
+            display_state: two_way
+          grid:
+            entity: sensor.grid_power
+            name: Grid
+            color_icon: true
+            display_state: two_way
+          solar:
+            entity: sensor.solar_power
+            name: Solar
+            color_icon: true
+            display_state: one_way
+          home:
+            entity: sensor.home_load
+            name: Home
+            color_icon: true
+        watt_threshold: 0
+        kw_decimals: 2
+        min_flow_rate: 0.75
+        max_flow_rate: 6
+        display_zero_lines: false
+        clickable_entities: true
+        use_new_flow_rate_model: true
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: TOU Schedule Sent to Tesla
+          show_states: false
+        graph_span: 24h
+        span:
+          start: day
+        yaxis:
+          - id: price
+            min: 0
             apex_config:
-              chart:
-                height: 250
-              stroke:
-                curve: stepline
-              legend:
-                show: true
-                position: bottom
-              tooltip:
-                x:
-                  format: "HH:mm"
+              tickAmount: 5
+              labels:
+                formatter: |
+                  EVAL:function(val) {
+                    return (val * 100).toFixed(0) + '¢';
+                  }
+        series:
+          - entity: sensor.tariff_schedule
+            name: Buy Price
+            type: line
+            color: '#FF9800'
+            yaxis_id: price
+            stroke_width: 2
+            curve: stepline
+            extend_to: end
+            data_generator: >
+              const schedule = entity.attributes.schedule || [];
 
-      # ========================================
-      # ROW 3: Power Flow
-      # ========================================
-      - type: grid
-        cards:
-          - type: custom:power-flow-card-plus
-            entities:
-              battery:
-                entity: sensor.battery_power
-                state_of_charge: sensor.battery_level
-                name: Battery
-                color_icon: true
-                display_state: two_way
-              grid:
-                entity: sensor.grid_power
-                name: Grid
-                color_icon: true
-                display_state: two_way
-              solar:
-                entity: sensor.solar_power
-                name: Solar
-                color_icon: true
-                display_state: one_way
-              home:
-                entity: sensor.home_load
-                name: Home
-                color_icon: true
-            watt_threshold: 0
-            kw_decimals: 2
-            min_flow_rate: 0.75
-            max_flow_rate: 6
-            display_zero_lines: false
-            clickable_entities: true
-            use_new_flow_rate_model: true
+              const now = new Date();
 
-      # ========================================
-      # ROW 3: Price History Chart
-      # ========================================
-      - type: grid
-        cards:
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              title: Amber Prices - 24 Hours
-              show_states: true
-              colorize_states: true
-            graph_span: 24h
-            yaxis:
-              - id: price
-                apex_config:
-                  tickAmount: 5
-            series:
-              - entity: sensor.amber_general_price
-                name: Import
-                type: line
-                color: "#FF9800"
-                yaxis_id: price
-                stroke_width: 2
-                group_by:
-                  func: avg
-                  duration: 5min
-              - entity: sensor.amber_feed_in_price
-                name: Feed-in
-                type: line
-                color: "#4CAF50"
-                yaxis_id: price
-                stroke_width: 2
-                group_by:
-                  func: avg
-                  duration: 5min
+              const today = new Date(now.getFullYear(), now.getMonth(),
+              now.getDate());
+
+              const data = schedule.map((entry) => {
+                const [hours, mins] = entry.time.split(':').map(Number);
+                const timestamp = new Date(today.getTime() + hours * 3600000 + mins * 60000);
+                return [timestamp.getTime(), entry.buy];
+              });
+
+              if (data.length > 0) {
+                const endOfDay = new Date(today.getTime() + 24 * 3600000 - 1);
+                data.push([endOfDay.getTime(), data[data.length - 1][1]]);
+              }
+
+              return data;
+          - entity: sensor.tariff_schedule
+            name: Sell Price
+            type: line
+            color: '#4CAF50'
+            yaxis_id: price
+            stroke_width: 2
+            curve: stepline
+            extend_to: end
+            data_generator: >
+              const schedule = entity.attributes.schedule || [];
+
+              const now = new Date();
+
+              const today = new Date(now.getFullYear(), now.getMonth(),
+              now.getDate());
+
+              const data = schedule.map((entry) => {
+                const [hours, mins] = entry.time.split(':').map(Number);
+                const timestamp = new Date(today.getTime() + hours * 3600000 + mins * 60000);
+                return [timestamp.getTime(), entry.sell];
+              });
+
+              if (data.length > 0) {
+                const endOfDay = new Date(today.getTime() + 24 * 3600000 - 1);
+                data.push([endOfDay.getTime(), data[data.length - 1][1]]);
+              }
+
+              return data;
+        apex_config:
+          chart:
+            height: 200
+          stroke:
+            curve: stepline
+          legend:
+            show: true
+            position: bottom
+          tooltip:
+            x:
+              format: HH:mm
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Amber Prices - 24 Hours
+          show_states: false
+        graph_span: 24h
+        span:
+          start: day
+        yaxis:
+          - id: price
+            min: 0
             apex_config:
-              chart:
-                height: 200
-              stroke:
-                curve: smooth
-              legend:
-                show: true
-
-      # ========================================
-      # ROW 4: Energy Charts
-      # ========================================
-      - type: grid
-        cards:
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              title: Solar
-              show_states: true
-            graph_span: 12h
-            series:
-              - entity: sensor.solar_power
-                name: Solar
-                type: area
-                color: "#FFD700"
-                stroke_width: 2
-                group_by:
-                  func: avg
-                  duration: 5min
-            apex_config:
-              chart:
-                height: 150
-              yaxis:
-                min: 0
-
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              title: Battery
-              show_states: true
-            graph_span: 12h
-            series:
-              - entity: sensor.battery_power
-                name: Battery
-                type: area
-                color: "#2196F3"
-                stroke_width: 2
-                group_by:
-                  func: avg
-                  duration: 5min
-            apex_config:
-              chart:
-                height: 150
-
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              title: Grid
-              show_states: true
-            graph_span: 12h
-            series:
-              - entity: sensor.grid_power
-                name: Grid
-                type: area
-                color: "#F44336"
-                stroke_width: 2
-                group_by:
-                  func: avg
-                  duration: 5min
-            apex_config:
-              chart:
-                height: 150
-
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              title: Home
-              show_states: true
-            graph_span: 12h
-            series:
-              - entity: sensor.home_load
-                name: Home
-                type: area
-                color: "#9C27B0"
-                stroke_width: 2
-                group_by:
-                  func: avg
-                  duration: 5min
-            apex_config:
-              chart:
-                height: 150
-              yaxis:
-                min: 0
+              tickAmount: 5
+              labels:
+                formatter: |
+                  EVAL:function(val) {
+                    return (val * 100).toFixed(0) + '¢';
+                  }
+        series:
+          - entity: sensor.amber_general_price
+            name: Import
+            type: line
+            color: '#FF9800'
+            yaxis_id: price
+            stroke_width: 2
+            group_by:
+              func: avg
+              duration: 5min
+          - entity: sensor.amber_feed_in_price
+            name: Feed-in
+            type: line
+            color: '#4CAF50'
+            yaxis_id: price
+            stroke_width: 2
+            group_by:
+              func: avg
+              duration: 5min
+        apex_config:
+          chart:
+            height: 200
+          stroke:
+            curve: smooth
+          legend:
+            show: true
+            position: bottom
+          tooltip:
+            x:
+              format: HH:mm
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Solar
+          show_states: true
+        graph_span: 24h
+        span:
+          start: day
+        series:
+          - entity: sensor.solar_power
+            name: Solar
+            type: area
+            color: '#FFD700'
+            stroke_width: 2
+            extend_to: end
+            group_by:
+              func: avg
+              duration: 5min
+        apex_config:
+          chart:
+            height: 150
+          yaxis:
+            min: 0
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Battery
+          show_states: true
+        graph_span: 24h
+        span:
+          start: day
+        series:
+          - entity: sensor.battery_power
+            name: Battery
+            type: area
+            color: '#2196F3'
+            stroke_width: 2
+            extend_to: end
+            group_by:
+              func: avg
+              duration: 5min
+        apex_config:
+          chart:
+            height: 150
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Grid
+          show_states: true
+        graph_span: 24h
+        span:
+          start: day
+        series:
+          - entity: sensor.grid_power
+            name: Grid
+            type: area
+            color: '#F44336'
+            stroke_width: 2
+            extend_to: end
+            group_by:
+              func: avg
+              duration: 5min
+        apex_config:
+          chart:
+            height: 150
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Home
+          show_states: true
+        graph_span: 24h
+        span:
+          start: day
+        series:
+          - entity: sensor.home_load
+            name: Home
+            type: area
+            color: '#9C27B0'
+            stroke_width: 2
+            extend_to: end
+            group_by:
+              func: avg
+              duration: 5min
+        apex_config:
+          chart:
+            height: 150
+          yaxis:
+            min: 0
