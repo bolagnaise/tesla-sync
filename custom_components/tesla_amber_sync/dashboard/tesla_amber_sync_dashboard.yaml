@@ -16,11 +16,11 @@
 #    Delete all content and paste this entire file
 #
 # ENTITY NAMES:
-# This dashboard uses the default entity names from Tesla Amber Sync.
+# This dashboard uses sensors from Tesla Amber Sync and the Amber Electric HACS integration.
 # If Home Assistant renamed your entities (e.g., added _2 suffix),
 # you may need to adjust the entity IDs below.
 #
-# Default entity names:
+# Tesla Amber Sync sensors:
 #   sensor.current_electricity_price
 #   sensor.solar_power
 #   sensor.grid_power
@@ -35,6 +35,11 @@
 #   sensor.total_estimated_monthly_cost
 #   sensor.aemo_wholesale_price
 #   sensor.aemo_spike_status
+#
+# Amber Electric HACS integration sensors (optional):
+#   sensor.amber_general_price - Current import price
+#   sensor.amber_feed_in_price - Current feed-in/export price
+#   sensor.amber_general_forecast - Forecast import price
 #
 # ============================================================================
 
@@ -74,6 +79,26 @@ views:
               red: 0
               yellow: 30
               green: 60
+
+      # ========================================
+      # AMBER ELECTRIC PRICING (from Amber HACS integration)
+      # ========================================
+      - type: horizontal-stack
+        cards:
+          - type: entity
+            entity: sensor.amber_general_price
+            name: Import Price
+            icon: mdi:cash-minus
+
+          - type: entity
+            entity: sensor.amber_feed_in_price
+            name: Feed-in Price
+            icon: mdi:cash-plus
+
+          - type: entity
+            entity: sensor.amber_general_forecast
+            name: Forecast
+            icon: mdi:chart-timeline-variant
 
       # AEMO Spike Alert Banner (shows only when spike active)
       - type: conditional
@@ -159,7 +184,7 @@ views:
       - type: custom:apexcharts-card
         header:
           show: true
-          title: Electricity Price - Last 24 Hours
+          title: Amber Electricity Prices - Last 24 Hours
           show_states: true
           colorize_states: true
         graph_span: 24h
@@ -167,19 +192,31 @@ views:
           end: now
         yaxis:
           - id: price
-            min: 0
             apex_config:
               tickAmount: 5
               labels:
                 formatter: |
                   EVAL:function(val) {
-                    return (val * 100).toFixed(0) + '¢';
+                    return val.toFixed(0) + '¢';
                   }
         series:
-          - entity: sensor.current_electricity_price
-            name: Price
-            type: area
+          - entity: sensor.amber_general_price
+            name: Import
+            type: line
             color: "#FF9800"
+            yaxis_id: price
+            stroke_width: 2
+            fill_raw: last
+            group_by:
+              func: avg
+              duration: 5min
+            show:
+              legend_value: true
+              in_header: true
+          - entity: sensor.amber_feed_in_price
+            name: Feed-in
+            type: line
+            color: "#4CAF50"
             yaxis_id: price
             stroke_width: 2
             fill_raw: last
@@ -192,17 +229,13 @@ views:
         apex_config:
           chart:
             height: 200
-          fill:
-            type: gradient
-            gradient:
-              shadeIntensity: 0.1
-              opacityFrom: 0.7
-              opacityTo: 0.3
+          stroke:
+            curve: smooth
           tooltip:
             y:
               formatter: |
                 EVAL:function(val) {
-                  return (val * 100).toFixed(2) + '¢/kWh';
+                  return val.toFixed(2) + '¢/kWh';
                 }
 
       # ========================================
@@ -451,6 +484,20 @@ views:
       # ========================================
       - type: markdown
         content: "## All Sensors"
+
+      - type: entities
+        title: Amber Electric (HACS Integration)
+        show_header_toggle: false
+        entities:
+          - entity: sensor.amber_general_price
+            name: Import Price
+            icon: mdi:cash-minus
+          - entity: sensor.amber_feed_in_price
+            name: Feed-in Price
+            icon: mdi:cash-plus
+          - entity: sensor.amber_general_forecast
+            name: Forecast Price
+            icon: mdi:chart-timeline-variant
 
       - type: entities
         title: Tesla Amber Sync Sensors
