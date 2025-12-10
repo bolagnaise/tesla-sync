@@ -285,6 +285,34 @@ def create_app(config_class=Config):
     migrate.init_app(app, db)
     login.init_app(app)
 
+    # Automatically run database migrations on startup
+    with app.app_context():
+        try:
+            from flask_migrate import upgrade
+            from alembic.runtime.migration import MigrationContext
+            from alembic.script import ScriptDirectory
+
+            # Get current database revision
+            conn = db.engine.connect()
+            context = MigrationContext.configure(conn)
+            current_rev = context.get_current_revision()
+
+            # Get the head revision from migrations
+            config = migrate.get_config()
+            script = ScriptDirectory.from_config(config)
+            head_rev = script.get_current_head()
+
+            if current_rev != head_rev:
+                logger.info(f"📦 Database migration needed: {current_rev} -> {head_rev}")
+                upgrade()
+                logger.info("✅ Database migrations applied successfully")
+            else:
+                logger.debug("Database schema is up to date")
+
+            conn.close()
+        except Exception as e:
+            logger.warning(f"Auto-migration check skipped: {e}")
+
     # Initialize Flask-Caching for API response caching
     app.config['CACHE_TYPE'] = 'SimpleCache'  # In-memory cache
     app.config['CACHE_DEFAULT_TIMEOUT'] = 300  # Default 5 minutes
