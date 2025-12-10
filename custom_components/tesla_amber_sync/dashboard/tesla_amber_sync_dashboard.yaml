@@ -75,10 +75,9 @@ views:
               show: true
               title: TOU Schedule Sent to Tesla
               show_states: false
-            update_interval: 5min
-            all_series_config:
-              show:
-                in_chart: true
+            graph_span: 24h
+            span:
+              start: day
             yaxis:
               - id: price
                 min: 0
@@ -100,20 +99,12 @@ views:
                 data_generator: |
                   const schedule = entity.attributes.schedule || [];
                   const now = new Date();
-                  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-                  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-                  const data = [];
-                  schedule.forEach((entry) => {
+                  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                  return schedule.map((entry) => {
                     const [hours, mins] = entry.time.split(':').map(Number);
-                    const timestamp = new Date(start.getTime() + hours * 3600000 + mins * 60000);
-                    data.push([timestamp.getTime(), entry.buy]);
+                    const timestamp = new Date(today.getTime() + hours * 3600000 + mins * 60000);
+                    return [timestamp.getTime(), entry.buy];
                   });
-                  // Sort by time and add endpoint
-                  data.sort((a, b) => a[0] - b[0]);
-                  if (data.length > 0) {
-                    data.push([end.getTime(), data[data.length - 1][1]]);
-                  }
-                  return data;
               - entity: sensor.tariff_schedule
                 name: Sell Price
                 type: line
@@ -124,27 +115,15 @@ views:
                 data_generator: |
                   const schedule = entity.attributes.schedule || [];
                   const now = new Date();
-                  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-                  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-                  const data = [];
-                  schedule.forEach((entry) => {
+                  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                  return schedule.map((entry) => {
                     const [hours, mins] = entry.time.split(':').map(Number);
-                    const timestamp = new Date(start.getTime() + hours * 3600000 + mins * 60000);
-                    data.push([timestamp.getTime(), entry.sell]);
+                    const timestamp = new Date(today.getTime() + hours * 3600000 + mins * 60000);
+                    return [timestamp.getTime(), entry.sell];
                   });
-                  // Sort by time and add endpoint
-                  data.sort((a, b) => a[0] - b[0]);
-                  if (data.length > 0) {
-                    data.push([end.getTime(), data[data.length - 1][1]]);
-                  }
-                  return data;
             apex_config:
               chart:
                 height: 250
-                width: '100%'
-                zoom:
-                  enabled: false
-                redrawOnParentResize: true
               stroke:
                 curve: stepline
               legend:
@@ -153,12 +132,6 @@ views:
               tooltip:
                 x:
                   format: "HH:mm"
-              xaxis:
-                type: datetime
-                labels:
-                  datetimeFormatter:
-                    hour: "HH:mm"
-                  rotate: 0
 
       # ========================================
       # ROW 3: Power Flow
