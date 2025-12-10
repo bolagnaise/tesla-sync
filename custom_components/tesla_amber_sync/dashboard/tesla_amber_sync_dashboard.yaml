@@ -188,8 +188,6 @@ views:
           show_states: true
           colorize_states: true
         graph_span: 24h
-        span:
-          end: now
         yaxis:
           - id: price
             apex_config:
@@ -253,8 +251,6 @@ views:
                   show_states: true
                   colorize_states: true
                 graph_span: 12h
-                span:
-                  end: now
                 series:
                   - entity: sensor.solar_power
                     name: Solar
@@ -290,8 +286,6 @@ views:
                   show_states: true
                   colorize_states: true
                 graph_span: 12h
-                span:
-                  end: now
                 series:
                   - entity: sensor.grid_power
                     name: Grid
@@ -328,8 +322,6 @@ views:
                   show_states: true
                   colorize_states: true
                 graph_span: 12h
-                span:
-                  end: now
                 series:
                   - entity: sensor.battery_power
                     name: Battery
@@ -364,8 +356,6 @@ views:
                   show_states: true
                   colorize_states: true
                 graph_span: 12h
-                span:
-                  end: now
                 series:
                   - entity: sensor.home_load
                     name: Home
