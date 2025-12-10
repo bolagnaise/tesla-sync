@@ -75,6 +75,9 @@ views:
               show: true
               title: TOU Schedule Sent to Tesla
               show_states: false
+            graph_span: 24h
+            span:
+              start: day
             yaxis:
               - id: price
                 min: 0
@@ -152,11 +155,6 @@ views:
                 labels:
                   datetimeFormatter:
                     hour: "HH:mm"
-                tickAmount: 8
-                min: |
-                  EVAL:new Date(new Date().setHours(0,0,0,0)).getTime()
-                max: |
-                  EVAL:new Date(new Date().setHours(23,59,59,999)).getTime()
 
       # ========================================
       # ROW 3: Power Flow
