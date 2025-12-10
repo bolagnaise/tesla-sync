@@ -96,7 +96,6 @@ views:
                 yaxis_id: price
                 stroke_width: 2
                 curve: stepline
-                extend_to: end
                 data_generator: |
                   const schedule = entity.attributes.schedule || [];
                   const now = new Date();
@@ -120,7 +119,6 @@ views:
                 yaxis_id: price
                 stroke_width: 2
                 curve: stepline
-                extend_to: end
                 data_generator: |
                   const schedule = entity.attributes.schedule || [];
                   const now = new Date();
@@ -140,8 +138,10 @@ views:
             apex_config:
               chart:
                 height: 250
+                width: '100%'
                 zoom:
                   enabled: false
+                redrawOnParentResize: true
               stroke:
                 curve: stepline
               legend:
@@ -155,6 +155,7 @@ views:
                 labels:
                   datetimeFormatter:
                     hour: "HH:mm"
+                  rotate: 0
 
       # ========================================
       # ROW 3: Power Flow
