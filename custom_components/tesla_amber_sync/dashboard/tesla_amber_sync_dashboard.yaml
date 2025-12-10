@@ -95,15 +95,23 @@ views:
                 yaxis_id: price
                 stroke_width: 2
                 curve: stepline
+                extend_to: end
                 data_generator: |
                   const schedule = entity.attributes.schedule || [];
                   const now = new Date();
                   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                  return schedule.map((entry) => {
+                  const data = schedule.map((entry) => {
                     const [hours, mins] = entry.time.split(':').map(Number);
                     const timestamp = new Date(today.getTime() + hours * 3600000 + mins * 60000);
                     return [timestamp.getTime(), entry.buy];
                   });
+                  // Add endpoint at midnight to complete the chart
+                  if (data.length > 0) {
+                    const lastVal = data[data.length - 1][1];
+                    const midnight = new Date(today.getTime() + 24 * 3600000);
+                    data.push([midnight.getTime(), lastVal]);
+                  }
+                  return data;
               - entity: sensor.tariff_schedule
                 name: Sell Price
                 type: line
@@ -111,25 +119,41 @@ views:
                 yaxis_id: price
                 stroke_width: 2
                 curve: stepline
+                extend_to: end
                 data_generator: |
                   const schedule = entity.attributes.schedule || [];
                   const now = new Date();
                   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                  return schedule.map((entry) => {
+                  const data = schedule.map((entry) => {
                     const [hours, mins] = entry.time.split(':').map(Number);
                     const timestamp = new Date(today.getTime() + hours * 3600000 + mins * 60000);
                     return [timestamp.getTime(), entry.sell];
                   });
+                  // Add endpoint at midnight to complete the chart
+                  if (data.length > 0) {
+                    const lastVal = data[data.length - 1][1];
+                    const midnight = new Date(today.getTime() + 24 * 3600000);
+                    data.push([midnight.getTime(), lastVal]);
+                  }
+                  return data;
             apex_config:
               chart:
                 height: 250
+                zoom:
+                  enabled: false
               stroke:
                 curve: stepline
               legend:
                 show: true
+                position: bottom
               tooltip:
                 x:
                   format: "HH:mm"
+              xaxis:
+                labels:
+                  datetimeFormatter:
+                    hour: "HH:mm"
+                tickAmount: 8
 
       # ========================================
       # ROW 3: Power Flow
