@@ -75,9 +75,6 @@ views:
               show: true
               title: TOU Schedule Sent to Tesla
               show_states: false
-            graph_span: 24h
-            span:
-              start: day
             yaxis:
               - id: price
                 min: 0
