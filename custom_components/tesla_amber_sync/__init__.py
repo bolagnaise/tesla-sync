@@ -1386,6 +1386,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         if success:
             _LOGGER.info("TOU schedule synced successfully")
+
+            # Enforce grid charging setting after TOU sync (counteracts VPP overrides)
+            entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
+            dc_coordinator = entry_data.get("demand_charge_coordinator")
+            if dc_coordinator and dc_coordinator.enabled:
+                from homeassistant.util import dt as dt_util
+                current_time = dt_util.now()
+                in_peak = dc_coordinator._is_in_peak_period(current_time)
+
+                if in_peak:
+                    # Force disable grid charging during peak (even if we think it's already disabled)
+                    _LOGGER.info("⚡ Peak period - forcing grid charging OFF after TOU sync")
+                    gc_success = await tesla_coordinator.set_grid_charging_enabled(False)
+                    if gc_success:
+                        hass.data[DOMAIN][entry.entry_id]["grid_charging_disabled_for_demand"] = True
+                        _LOGGER.info("🔋 Grid charging enforcement after TOU sync: disabled_for_peak")
+                    else:
+                        _LOGGER.warning("⚠️ Grid charging enforcement failed after TOU sync")
+                else:
+                    # Outside peak - ensure grid charging is enabled if we had disabled it
+                    if entry_data.get("grid_charging_disabled_for_demand", False):
+                        _LOGGER.info("⚡ Outside peak period - re-enabling grid charging after TOU sync")
+                        gc_success = await tesla_coordinator.set_grid_charging_enabled(True)
+                        if gc_success:
+                            hass.data[DOMAIN][entry.entry_id]["grid_charging_disabled_for_demand"] = False
+                            _LOGGER.info("🔋 Grid charging enforcement after TOU sync: enabled_outside_peak")
         else:
             _LOGGER.error("Failed to sync TOU schedule")
 
@@ -2070,15 +2096,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 in_peak = dc_coordinator._is_in_peak_period(current_time)
                 currently_disabled = entry_data.get("grid_charging_disabled_for_demand", False)
 
-                if in_peak and not currently_disabled:
-                    # Entering peak period - disable grid charging
-                    _LOGGER.info("Entering demand peak period - disabling grid charging")
+                if in_peak:
+                    # In peak period - force disable grid charging (even if we think it's already disabled)
+                    # This counteracts VPP overrides that may re-enable grid charging
+                    if not currently_disabled:
+                        _LOGGER.info("⚡ Entering demand peak period - disabling grid charging")
+                    else:
+                        _LOGGER.debug("⚡ Peak period - forcing grid charging OFF (VPP override protection)")
                     success = await ts_coordinator.set_grid_charging_enabled(False)
                     if success:
                         hass.data[DOMAIN][entry.entry_id]["grid_charging_disabled_for_demand"] = True
-                        _LOGGER.info("Grid charging disabled for demand period")
+                        if not currently_disabled:
+                            _LOGGER.info("✅ Grid charging DISABLED for demand period")
                     else:
-                        _LOGGER.error("Failed to disable grid charging for demand period")
+                        _LOGGER.error("❌ Failed to disable grid charging for demand period")
 
                 elif not in_peak and currently_disabled:
                     # Exiting peak period - re-enable grid charging
