@@ -1,7 +1,7 @@
 # app/forms.py
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, BooleanField, SubmitField, DecimalField, IntegerField, SelectField
-from wtforms.validators import DataRequired, Email, EqualTo, ValidationError, Optional, NumberRange
+from wtforms.validators import DataRequired, Email, EqualTo, ValidationError, Optional, NumberRange, Length
 from app.models import User
 
 class LoginForm(FlaskForm):
@@ -24,7 +24,7 @@ class RegistrationForm(FlaskForm):
 
 class SettingsForm(FlaskForm):
     amber_token = StringField('Amber Electric API Token')
-    tesla_site_id = StringField('Tesla Energy Site ID')
+    # Tesla Site ID is now auto-detected when connecting Tesla account
 
     # Tesla API Provider Selection
     tesla_api_provider = SelectField('Tesla API Provider', choices=[
@@ -223,4 +223,30 @@ class TOUPeriodForm(FlaskForm):
     sell_rate = DecimalField('Sell Rate ($/kWh)', validators=[DataRequired(), NumberRange(min=0)], places=4)
     demand_rate = DecimalField('Demand Rate ($/kW)', validators=[Optional(), NumberRange(min=0)], places=4, default=0)
     submit = SubmitField('Save Period')
+
+
+class TwoFactorSetupForm(FlaskForm):
+    """Form for verifying TOTP code during 2FA setup"""
+    token = StringField('Verification Code', validators=[DataRequired(), Length(min=6, max=6, message='Enter the 6-digit code from your authenticator app')])
+    submit = SubmitField('Enable 2FA')
+
+
+class TwoFactorVerifyForm(FlaskForm):
+    """Form for verifying TOTP code during login"""
+    token = StringField('Verification Code', validators=[DataRequired(), Length(min=6, max=6, message='Enter the 6-digit code from your authenticator app')])
+    submit = SubmitField('Verify')
+
+
+class TwoFactorDisableForm(FlaskForm):
+    """Form for disabling 2FA (requires current TOTP code)"""
+    token = StringField('Verification Code', validators=[DataRequired(), Length(min=6, max=6, message='Enter the 6-digit code to confirm')])
+    submit = SubmitField('Disable 2FA')
+
+
+class ChangePasswordForm(FlaskForm):
+    """Form for changing password (requires current password)"""
+    current_password = PasswordField('Current Password', validators=[DataRequired()])
+    new_password = PasswordField('New Password', validators=[DataRequired(), Length(min=6, message='Password must be at least 6 characters')])
+    confirm_password = PasswordField('Confirm New Password', validators=[DataRequired(), EqualTo('new_password', message='Passwords must match')])
+    submit = SubmitField('Change Password')
 

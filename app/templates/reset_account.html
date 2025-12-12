@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h1>Reset Account</h1>
+
+    <article style="background: rgba(255, 0, 0, 0.1); border-left: 4px solid #e74c3c;">
+        <header style="color: #e74c3c;"><strong>Warning: This action cannot be undone!</strong></header>
+        <p>Resetting your account will permanently delete:</p>
+        <ul>
+            <li>Your login credentials</li>
+            <li>All API tokens and settings</li>
+            <li>Two-factor authentication</li>
+            <li>All saved TOU profiles</li>
+            <li>All price and energy history</li>
+        </ul>
+        <p>After reset, you will need to register a new account and reconfigure all settings.</p>
+    </article>
+
+    <article>
+        <header><strong>Confirm Account Reset</strong></header>
+        <form action="{{ url_for('main.reset_account') }}" method="post">
+            {{ form.hidden_tag() }}
+
+            <label for="email">
+                Enter your email address to confirm:
+                <small>Must match: {{ user_email }}</small>
+                <input type="email" id="email" name="email" required autocomplete="email" placeholder="your@email.com">
+            </label>
+
+            <label for="confirm">
+                Type <strong>RESET</strong> to confirm:
+                <input type="text" id="confirm" name="confirm" required placeholder="RESET" style="text-transform: uppercase;">
+            </label>
+
+            <div style="display: flex; gap: 1em; margin-top: 1em;">
+                <a href="{{ url_for('main.login') }}" role="button" class="outline">Cancel</a>
+                <button type="submit" style="background: #e74c3c;">Reset Account</button>
+            </div>
+        </form>
+    </article>
+{% endblock %}

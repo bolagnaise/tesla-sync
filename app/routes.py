@@ -3,7 +3,7 @@ from flask import render_template, flash, redirect, url_for, request, Blueprint,
 from flask_login import login_user, logout_user, current_user, login_required
 from app import db, cache
 from app.models import User, PriceRecord, SavedTOUProfile
-from app.forms import LoginForm, RegistrationForm, SettingsForm, DemandChargeForm, AmberSettingsForm
+from app.forms import LoginForm, RegistrationForm, SettingsForm, DemandChargeForm, AmberSettingsForm, TwoFactorSetupForm, TwoFactorVerifyForm, TwoFactorDisableForm, ChangePasswordForm
 from app.utils import encrypt_token, decrypt_token
 from app.api_clients import get_amber_client, get_tesla_client
 from app.scheduler import TOUScheduler
@@ -98,6 +98,15 @@ def login():
             flash('Invalid email or password')
             return redirect(url_for('main.login'))
         logger.info(f"Successful login for user: {user.email}")
+
+        # Check if 2FA is enabled
+        if user.two_factor_enabled:
+            # Store user ID and remember_me preference in session for 2FA verification
+            session['pending_2fa_user'] = user.id
+            session['pending_2fa_remember'] = form.remember_me.data
+            logger.info(f"2FA required for user: {user.email}")
+            return redirect(url_for('main.two_factor_verify'))
+
         login_user(user, remember=form.remember_me.data)
         return redirect(url_for('main.dashboard'))
     return render_template('login.html', title='Sign In', form=form, allow_registration=allow_registration)
@@ -106,6 +115,184 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for('main.login'))
+
+
+# ============================================================================
+# Two-Factor Authentication Routes
+# ============================================================================
+
+@bp.route('/security-settings')
+@login_required
+def security_settings():
+    """Security settings page - 2FA management"""
+    form = ChangePasswordForm()
+    return render_template('security_settings.html', title='Security Settings', form=form)
+
+
+@bp.route('/2fa/setup', methods=['GET', 'POST'])
+@login_required
+def two_factor_setup():
+    """Setup 2FA - show QR code and verify first TOTP code"""
+    import qrcode
+    import io
+    import base64
+
+    # If 2FA is already enabled, redirect to security settings
+    if current_user.two_factor_enabled:
+        flash('Two-factor authentication is already enabled')
+        return redirect(url_for('main.security_settings'))
+
+    form = TwoFactorSetupForm()
+
+    # Generate a new TOTP secret if one doesn't exist
+    if not current_user.totp_secret:
+        current_user.generate_totp_secret()
+        db.session.commit()
+
+    if form.validate_on_submit():
+        # Verify the token
+        if current_user.verify_totp(form.token.data):
+            current_user.two_factor_enabled = True
+            db.session.commit()
+            logger.info(f"2FA enabled for user: {current_user.email}")
+            flash('Two-factor authentication has been enabled')
+            return redirect(url_for('main.security_settings'))
+        else:
+            flash('Invalid verification code. Please try again.')
+
+    # Generate QR code as base64 image
+    totp_uri = current_user.get_totp_uri()
+    qr = qrcode.make(totp_uri)
+    buffer = io.BytesIO()
+    qr.save(buffer, format='PNG')
+    qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
+
+    return render_template('2fa_setup.html',
+                           title='Setup Two-Factor Authentication',
+                           form=form,
+                           qr_code=qr_code_base64,
+                           totp_secret=current_user.totp_secret)
+
+
+@bp.route('/2fa/verify', methods=['GET', 'POST'])
+def two_factor_verify():
+    """Verify 2FA code during login"""
+    # Check if there's a pending 2FA user
+    pending_user_id = session.get('pending_2fa_user')
+    if not pending_user_id:
+        return redirect(url_for('main.login'))
+
+    user = User.query.get(pending_user_id)
+    if not user:
+        session.pop('pending_2fa_user', None)
+        session.pop('pending_2fa_remember', None)
+        return redirect(url_for('main.login'))
+
+    form = TwoFactorVerifyForm()
+
+    if form.validate_on_submit():
+        if user.verify_totp(form.token.data):
+            # Clear pending 2FA session data
+            remember_me = session.pop('pending_2fa_remember', False)
+            session.pop('pending_2fa_user', None)
+
+            # Complete login
+            login_user(user, remember=remember_me)
+            logger.info(f"2FA verification successful for user: {user.email}")
+            return redirect(url_for('main.dashboard'))
+        else:
+            logger.warning(f"Invalid 2FA code for user: {user.email}")
+            flash('Invalid verification code. Please try again.')
+
+    return render_template('2fa_verify.html',
+                           title='Two-Factor Authentication',
+                           form=form)
+
+
+@bp.route('/2fa/disable', methods=['POST'])
+@login_required
+def two_factor_disable():
+    """Disable 2FA - requires current TOTP code"""
+    form = TwoFactorDisableForm()
+
+    if form.validate_on_submit():
+        if current_user.verify_totp(form.token.data):
+            current_user.two_factor_enabled = False
+            current_user.totp_secret = None
+            db.session.commit()
+            logger.info(f"2FA disabled for user: {current_user.email}")
+            flash('Two-factor authentication has been disabled')
+        else:
+            flash('Invalid verification code. 2FA was not disabled.')
+
+    return redirect(url_for('main.security_settings'))
+
+
+@bp.route('/change-password', methods=['POST'])
+@login_required
+def change_password():
+    """Change user password - requires current password"""
+    form = ChangePasswordForm()
+
+    if form.validate_on_submit():
+        if not current_user.check_password(form.current_password.data):
+            flash('Current password is incorrect')
+        else:
+            current_user.set_password(form.new_password.data)
+            db.session.commit()
+            logger.info(f"Password changed for user: {current_user.email}")
+            flash('Your password has been changed successfully')
+
+    return redirect(url_for('main.security_settings'))
+
+
+@bp.route('/reset-account', methods=['GET', 'POST'])
+def reset_account():
+    """Reset account - deletes user and all data, allows re-registration"""
+    # Check if there's a user to reset
+    user = User.query.first()
+    if not user:
+        flash('No account to reset')
+        return redirect(url_for('main.register'))
+
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip()
+        confirm = request.form.get('confirm', '').strip()
+
+        if email != user.email:
+            flash('Email does not match the registered account')
+            return redirect(url_for('main.reset_account'))
+
+        if confirm.lower() != 'reset':
+            flash('You must type RESET to confirm')
+            return redirect(url_for('main.reset_account'))
+
+        # Log out if currently logged in
+        if current_user.is_authenticated:
+            logout_user()
+
+        # Delete all user data
+        logger.warning(f"Account reset initiated for user: {user.email}")
+
+        # Delete related records first (due to foreign key constraints)
+        PriceRecord.query.filter_by(user_id=user.id).delete()
+        from app.models import EnergyRecord, SavedTOUProfile, CustomTOUSchedule
+        EnergyRecord.query.filter_by(user_id=user.id).delete()
+        SavedTOUProfile.query.filter_by(user_id=user.id).delete()
+        CustomTOUSchedule.query.filter_by(user_id=user.id).delete()
+
+        # Delete the user
+        db.session.delete(user)
+        db.session.commit()
+
+        logger.warning("Account reset completed - all user data deleted")
+        flash('Account has been reset. You can now register a new account.')
+        return redirect(url_for('main.register'))
+
+    from flask_wtf import FlaskForm
+    form = FlaskForm()  # Just for CSRF token
+    return render_template('reset_account.html', title='Reset Account', user_email=user.email, form=form)
+
 
 @bp.route('/register', methods=['GET', 'POST'])
 def register():
@@ -268,9 +455,8 @@ def settings():
                 logger.info("Clearing Amber API token")
                 current_user.amber_api_token_encrypted = None
 
-        if 'tesla_site_id' in submitted_fields and form.tesla_site_id.data:
-            logger.info(f"Saving Tesla Site ID: {form.tesla_site_id.data}")
-            current_user.tesla_energy_site_id = form.tesla_site_id.data
+        # Tesla Site ID is now auto-detected when connecting Tesla account
+        # No longer manually configurable
 
         # Handle Tesla API Provider selection
         if 'tesla_api_provider' in submitted_fields and form.tesla_api_provider.data:
@@ -282,6 +468,26 @@ def settings():
             if form.teslemetry_api_key.data:
                 logger.info("Encrypting and saving Teslemetry API key")
                 current_user.teslemetry_api_key_encrypted = encrypt_token(form.teslemetry_api_key.data)
+
+                # Auto-detect energy site ID
+                try:
+                    from app.api_clients import TeslemetryAPIClient
+                    teslemetry_client = TeslemetryAPIClient(form.teslemetry_api_key.data)
+                    energy_sites = teslemetry_client.get_energy_sites()
+                    if energy_sites:
+                        if len(energy_sites) == 1:
+                            # Single site - auto-select it
+                            site_id = str(energy_sites[0].get('energy_site_id'))
+                            current_user.tesla_energy_site_id = site_id
+                            logger.info(f"Auto-detected Tesla energy site ID via Teslemetry: {site_id}")
+                        else:
+                            # Multiple sites - user needs to choose
+                            logger.info(f"Found {len(energy_sites)} energy sites via Teslemetry - user needs to select one")
+                            flash(f'Found {len(energy_sites)} energy sites - please select one below.')
+                    else:
+                        logger.warning("No energy sites found via Teslemetry")
+                except Exception as site_err:
+                    logger.error(f"Error auto-detecting energy site via Teslemetry: {site_err}")
             else:
                 logger.info("Clearing Teslemetry API key")
                 current_user.teslemetry_api_key_encrypted = None
@@ -341,8 +547,7 @@ def settings():
         logger.error(f"Error decrypting amber token: {e}")
         form.amber_token.data = None
 
-    form.tesla_site_id.data = current_user.tesla_energy_site_id
-    logger.debug(f"Tesla Site ID: {form.tesla_site_id.data}")
+    # Tesla Site ID is now auto-detected and displayed directly in template
 
     # Pre-populate Tesla API provider selection
     form.tesla_api_provider.data = current_user.tesla_api_provider or 'teslemetry'
@@ -650,6 +855,62 @@ def websocket_status():
         'has_cached_data': health.get('has_cached_data', False),
         'message': f"Status: {health.get('status', 'unknown')}, Messages: {health.get('message_count', 0)}"
     })
+
+
+@bp.route('/api/tesla/energy-sites')
+@login_required
+def get_tesla_energy_sites():
+    """Get list of Tesla energy sites for site selection dropdown"""
+    tesla_client = get_tesla_client(current_user)
+    if not tesla_client:
+        return jsonify({'error': 'Tesla not connected', 'sites': []}), 400
+
+    try:
+        energy_sites = tesla_client.get_energy_sites()
+        sites = []
+        for site in energy_sites:
+            site_id = str(site.get('energy_site_id', ''))
+            site_name = site.get('site_name', f'Energy Site {site_id}')
+            # Try to get more details
+            resource_type = site.get('resource_type', 'unknown')
+            sites.append({
+                'id': site_id,
+                'name': site_name,
+                'type': resource_type,
+                'selected': site_id == current_user.tesla_energy_site_id
+            })
+        return jsonify({'sites': sites, 'current': current_user.tesla_energy_site_id})
+    except Exception as e:
+        logger.error(f"Error fetching energy sites: {e}")
+        return jsonify({'error': str(e), 'sites': []}), 500
+
+
+@bp.route('/api/tesla/select-site', methods=['POST'])
+@login_required
+def select_tesla_energy_site():
+    """Select a Tesla energy site"""
+    data = request.get_json()
+    site_id = data.get('site_id')
+
+    if not site_id:
+        return jsonify({'success': False, 'error': 'No site_id provided'}), 400
+
+    # Verify the site exists
+    tesla_client = get_tesla_client(current_user)
+    if tesla_client:
+        try:
+            energy_sites = tesla_client.get_energy_sites()
+            valid_ids = [str(s.get('energy_site_id', '')) for s in energy_sites]
+            if site_id not in valid_ids:
+                return jsonify({'success': False, 'error': 'Invalid site ID'}), 400
+        except Exception as e:
+            logger.error(f"Error verifying site ID: {e}")
+
+    current_user.tesla_energy_site_id = site_id
+    db.session.commit()
+    logger.info(f"User {current_user.email} selected energy site: {site_id}")
+
+    return jsonify({'success': True, 'site_id': site_id})
 
 
 @bp.route('/api/amber/current-price')
@@ -2644,7 +2905,35 @@ def fleet_api_oauth_callback():
         db.session.commit()
 
         logger.info(f"Successfully saved Fleet API tokens for user {current_user.email}")
-        flash('✓ Successfully connected to Tesla Fleet API! Your account is now using direct Tesla API access.')
+
+        # Auto-detect energy site ID
+        try:
+            from app.api_clients import FleetAPIClient
+            fleet_client = FleetAPIClient(
+                access_token=access_token,
+                refresh_token=refresh_token,
+                client_id=client_id,
+                client_secret=client_secret
+            )
+            energy_sites = fleet_client.get_energy_sites()
+            if energy_sites:
+                if len(energy_sites) == 1:
+                    # Single site - auto-select it
+                    site_id = str(energy_sites[0].get('energy_site_id'))
+                    current_user.tesla_energy_site_id = site_id
+                    db.session.commit()
+                    logger.info(f"Auto-detected Tesla energy site ID: {site_id}")
+                    flash('✓ Successfully connected to Tesla Fleet API!')
+                else:
+                    # Multiple sites - user needs to choose
+                    logger.info(f"Found {len(energy_sites)} energy sites - user needs to select one")
+                    flash(f'✓ Connected to Tesla Fleet API! Found {len(energy_sites)} energy sites - please select one in Settings.')
+            else:
+                logger.warning("No energy sites found in Tesla account")
+                flash('✓ Connected to Tesla Fleet API, but no energy sites (Powerwall/Solar) found in your Tesla account.')
+        except Exception as site_err:
+            logger.error(f"Error auto-detecting energy site: {site_err}")
+            flash('✓ Connected to Tesla Fleet API!')
 
     except Exception as e:
         logger.error(f"Error during OAuth token exchange: {e}")

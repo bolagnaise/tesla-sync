@@ -741,6 +741,68 @@ class FleetAPIClient(TeslaAPIClientBase):
             logger.error(f"Error setting grid charging via Fleet API: {e}")
             return None
 
+    def get_calendar_history(self, site_id, kind='energy', period='day', end_date=None, timezone='Australia/Brisbane'):
+        """
+        Get historical energy data from Tesla calendar history via Fleet API
+
+        Args:
+            site_id: Energy site ID
+            kind: 'energy' or 'power'
+            period: 'day', 'week', 'month', 'year', or 'lifetime'
+            end_date: End date (datetime string with timezone, e.g., '2025-10-26T23:59:59+10:00')
+            timezone: IANA timezone string (e.g., 'Australia/Brisbane', 'America/New_York')
+
+        Returns:
+            dict: Calendar history data with time_series array
+        """
+        try:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            # Default to current time in user's timezone if no end_date provided
+            if not end_date:
+                user_tz = ZoneInfo(timezone)
+                now = datetime.now(user_tz)
+                # Use 23:59:59 to avoid midnight issues
+                end_dt = now.replace(hour=23, minute=59, second=59)
+                end_date = end_dt.isoformat()
+
+            logger.info(f"Fetching calendar history for site {site_id} via Fleet API: kind={kind}, period={period}, end_date={end_date}, timezone={timezone}")
+
+            params = {
+                'kind': kind,
+                'period': period,
+                'end_date': end_date,
+                'time_zone': timezone
+            }
+
+            response = requests.get(
+                f"{self.base_url}/api/1/energy_sites/{site_id}/calendar_history",
+                headers=self.headers,
+                params=params,
+                timeout=15
+            )
+
+            # Auto-refresh on 401
+            if response.status_code == 401 and self.refresh_token:
+                self.refresh_access_token()
+                response = requests.get(
+                    f"{self.base_url}/api/1/energy_sites/{site_id}/calendar_history",
+                    headers=self.headers,
+                    params=params,
+                    timeout=15
+                )
+
+            response.raise_for_status()
+            data = response.json()
+            result = data.get('response', {})
+            time_series = result.get('time_series', [])
+            logger.info(f"Successfully fetched calendar history via Fleet API: {len(time_series)} records returned for period='{period}'")
+            return result
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching calendar history via Fleet API: {e}")
+            return None
+
 
 class TeslemetryAPIClient(TeslaAPIClientBase):
     """Client for Teslemetry API (Tesla API proxy service)"""

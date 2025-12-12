@@ -339,17 +339,37 @@
 
             <fieldset style="margin-top: 1em;">
                 <legend>Tesla Energy Site</legend>
-                <label for="tesla_site_id">
-                    {{ form.tesla_site_id.label }}
-                    <small>Your Tesla energy site ID (Powerwall/Solar). Find this in Teslemetry dashboard or Tesla Fleet API products list.</small>
-                </label>
-                <div style="display: flex; align-items: center; gap: 0.5em;">
-                    {{ form.tesla_site_id(size=32, type='password', class='secure-field', style='width: 100%;') }}
-                    <button type="button" onclick="toggleVisibility('tesla_site_id', this)"
-                            style="background: none; border: none; cursor: pointer; padding: 0.5em;
-                                   font-size: 1.2em; color: var(--muted-color); flex-shrink: 0; width: 40px;"
-                            aria-label="Toggle visibility" title="Show/Hide Site ID">
-                        👁️
+                <div id="energy-site-container">
+                    {% if current_user.tesla_energy_site_id %}
+                    <div id="energy-site-status" style="padding: 0.8em; background: rgba(0, 255, 0, 0.1); border-radius: 0.5em; margin: 0.5em 0;">
+                        <p style="margin: 0; color: #51cf66; font-size: 0.9em;">✅ <strong>Selected</strong></p>
+                        <p style="margin: 0.3em 0 0 0; font-size: 0.85em;">
+                            Site ID: <code id="current-site-id">{{ current_user.tesla_energy_site_id }}</code>
+                        </p>
+                    </div>
+                    {% else %}
+                    <div id="energy-site-status" style="padding: 0.8em; background: rgba(150, 150, 150, 0.1); border-radius: 0.5em; margin: 0.5em 0;">
+                        <p style="margin: 0; color: #999; font-size: 0.9em;">⭕ <strong>Not selected</strong></p>
+                        <p style="margin: 0.3em 0 0 0; font-size: 0.75em;">Connect your Tesla account above to detect your energy site.</p>
+                    </div>
+                    {% endif %}
+
+                    <!-- Site selection dropdown (populated via JavaScript) -->
+                    <div id="site-selector-container" style="display: none; margin-top: 0.5em;">
+                        <label for="energy-site-select">
+                            Select Energy Site
+                            <select id="energy-site-select" style="width: 100%;">
+                                <option value="">Loading sites...</option>
+                            </select>
+                        </label>
+                        <button type="button" id="save-site-btn" onclick="saveSelectedSite()" class="outline" style="margin-top: 0.5em;">
+                            Save Selection
+                        </button>
+                        <p id="site-save-status" style="font-size: 0.75em; margin-top: 0.3em; display: none;"></p>
+                    </div>
+
+                    <button type="button" onclick="loadEnergySites()" class="outline secondary" style="margin-top: 0.5em; font-size: 0.85em;">
+                        🔄 Refresh Sites
                     </button>
                 </div>
             </fieldset>
@@ -683,6 +703,103 @@
                     btn.disabled = false;
                     btn.textContent = 'Stop Tunnel';
                 }
+            }
+        }
+
+        // Energy site selection functions
+        async function loadEnergySites() {
+            const container = document.getElementById('site-selector-container');
+            const select = document.getElementById('energy-site-select');
+            const status = document.getElementById('site-save-status');
+
+            try {
+                select.innerHTML = '<option value="">Loading...</option>';
+                container.style.display = 'block';
+
+                const response = await fetch('/api/tesla/energy-sites');
+                const data = await response.json();
+
+                if (data.error && !data.sites.length) {
+                    select.innerHTML = '<option value="">Tesla not connected</option>';
+                    return;
+                }
+
+                if (data.sites.length === 0) {
+                    select.innerHTML = '<option value="">No energy sites found</option>';
+                    return;
+                }
+
+                select.innerHTML = '';
+                data.sites.forEach(site => {
+                    const option = document.createElement('option');
+                    option.value = site.id;
+                    option.textContent = `${site.name} (${site.id})`;
+                    if (site.selected) {
+                        option.selected = true;
+                    }
+                    select.appendChild(option);
+                });
+
+                if (data.sites.length > 1) {
+                    status.textContent = `Found ${data.sites.length} energy sites`;
+                    status.style.display = 'block';
+                    status.style.color = '#888';
+                }
+
+            } catch (error) {
+                console.error('Error loading energy sites:', error);
+                select.innerHTML = '<option value="">Error loading sites</option>';
+            }
+        }
+
+        async function saveSelectedSite() {
+            const select = document.getElementById('energy-site-select');
+            const status = document.getElementById('site-save-status');
+            const siteId = select.value;
+
+            if (!siteId) {
+                status.textContent = 'Please select a site';
+                status.style.display = 'block';
+                status.style.color = 'orange';
+                return;
+            }
+
+            try {
+                status.textContent = 'Saving...';
+                status.style.display = 'block';
+                status.style.color = '#888';
+
+                const response = await fetch('/api/tesla/select-site', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ site_id: siteId })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    status.textContent = '✓ Site saved successfully';
+                    status.style.color = '#51cf66';
+
+                    // Update the status display
+                    const statusDiv = document.getElementById('energy-site-status');
+                    statusDiv.style.background = 'rgba(0, 255, 0, 0.1)';
+                    statusDiv.innerHTML = `
+                        <p style="margin: 0; color: #51cf66; font-size: 0.9em;">✅ <strong>Selected</strong></p>
+                        <p style="margin: 0.3em 0 0 0; font-size: 0.85em;">
+                            Site ID: <code id="current-site-id">${siteId}</code>
+                        </p>
+                    `;
+                } else {
+                    status.textContent = '✗ ' + (data.error || 'Failed to save');
+                    status.style.color = 'red';
+                }
+            } catch (error) {
+                console.error('Error saving site:', error);
+                status.textContent = '✗ Error saving site';
+                status.style.color = 'red';
             }
         }
 

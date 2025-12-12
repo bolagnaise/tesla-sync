@@ -33,4 +33,15 @@
     {% if allow_registration %}
     <p>New User? <a href="{{ url_for('main.register') }}">Click to Register!</a></p>
     {% endif %}
+
+    <details style="margin-top: 2em;">
+        <summary style="font-size: 0.85em; color: var(--muted-color);">Forgot password or locked out?</summary>
+        <p style="font-size: 0.8em; margin-top: 0.5em;">
+            If you've forgotten your password or are locked out of your account (e.g., lost 2FA device),
+            you can reset your account. This will delete all settings and data.
+        </p>
+        <a href="{{ url_for('main.reset_account') }}" style="font-size: 0.85em; color: #e74c3c;">
+            Reset Account
+        </a>
+    </details>
 {% endblock %}

@@ -3,6 +3,7 @@ from app import db, login
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin
 from datetime import datetime
+import pyotp
 
 @login.user_loader
 def load_user(id):
@@ -32,6 +33,10 @@ class User(UserMixin, db.Model):
 
     # Ngrok Tunnel (for Fleet API registration)
     ngrok_authtoken_encrypted = db.Column(db.LargeBinary)
+
+    # Two-Factor Authentication
+    totp_secret = db.Column(db.String(32))  # Base32 encoded secret for TOTP
+    two_factor_enabled = db.Column(db.Boolean, default=False)
 
     # Status Tracking
     last_update_status = db.Column(db.String(255))
@@ -97,6 +102,28 @@ class User(UserMixin, db.Model):
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
+    def generate_totp_secret(self):
+        """Generate a new TOTP secret for 2FA setup"""
+        self.totp_secret = pyotp.random_base32()
+        return self.totp_secret
+
+    def get_totp_uri(self):
+        """Generate the provisioning URI for authenticator apps"""
+        if not self.totp_secret:
+            return None
+        totp = pyotp.TOTP(self.totp_secret)
+        return totp.provisioning_uri(
+            name=self.email,
+            issuer_name="Tesla Amber Sync"
+        )
+
+    def verify_totp(self, token):
+        """Verify a TOTP token"""
+        if not self.totp_secret:
+            return False
+        totp = pyotp.TOTP(self.totp_secret)
+        return totp.verify(token)
 
 
 class PriceRecord(db.Model):
