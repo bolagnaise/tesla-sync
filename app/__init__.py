@@ -653,6 +653,7 @@ def create_app(config_class=Config):
     # Auto-start named Cloudflare tunnel if configured
     if not app.config.get('TESTING'):
         try:
+            from app.models import User
             user = User.query.filter_by(cloudflare_tunnel_enabled=True).first()
             if user and user.cloudflare_tunnel_token_encrypted and user.cloudflare_tunnel_domain:
                 from app.routes import CloudflareTunnel, _cloudflare_tunnel, get_cloudflared_path
