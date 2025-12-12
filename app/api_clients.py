@@ -803,6 +803,83 @@ class FleetAPIClient(TeslaAPIClientBase):
             logger.error(f"Error fetching calendar history via Fleet API: {e}")
             return None
 
+    def get_current_tariff(self, site_id):
+        """
+        Get the current TOU tariff from Tesla Powerwall via Fleet API
+
+        Returns the complete tariff structure that's currently programmed into the Powerwall.
+        This can be saved and later restored.
+
+        Returns:
+            dict: Complete tariff structure or None if error
+        """
+        try:
+            logger.info(f"Fetching current tariff for site {site_id} via Fleet API")
+
+            # Get site_info which includes TOU settings
+            site_info = self.get_site_info(site_id)
+            if not site_info:
+                logger.error("Failed to fetch site info")
+                return None
+
+            # Extract the tariff from site_info
+            tariff = site_info.get('tariff_content_v2')
+
+            if tariff:
+                logger.info(f"Successfully extracted current tariff: {tariff.get('name', 'Unknown')}")
+                logger.debug(f"Tariff keys: {list(tariff.keys())}")
+                return tariff
+            else:
+                logger.warning("No tariff found in site_info")
+                logger.debug(f"Site info keys: {list(site_info.keys())}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error getting current tariff via Fleet API: {e}")
+            return None
+
+    def get_battery_level(self, site_id):
+        """Get current battery level via Fleet API"""
+        try:
+            status = self.get_site_status(site_id)
+            if status:
+                battery_level = status.get('percentage_charged', 0)
+                logger.info(f"Battery level: {battery_level}%")
+                return battery_level
+            return None
+        except Exception as e:
+            logger.error(f"Error getting battery level via Fleet API: {e}")
+            return None
+
+    def get_operation_mode(self, site_id):
+        """
+        Get the current Powerwall operation mode via Fleet API
+
+        Args:
+            site_id: Energy site ID
+
+        Returns:
+            str: Current operation mode ('self_consumption', 'backup', 'autonomous') or None if error
+        """
+        try:
+            logger.info(f"Getting operation mode for site {site_id} via Fleet API")
+            site_info = self.get_site_info(site_id)
+
+            if site_info:
+                mode = site_info.get('default_real_mode')
+                if mode:
+                    logger.info(f"Current operation mode: {mode}")
+                    return mode
+                else:
+                    logger.warning(f"default_real_mode not found in site_info")
+                    return None
+            else:
+                logger.error(f"Failed to get site_info for {site_id}")
+                return None
+        except Exception as e:
+            logger.error(f"Error getting operation mode via Fleet API: {e}")
+            return None
+
     def set_tariff_rate(self, site_id, tariff_content):
         """
         Set the electricity tariff/rate plan for the site via Fleet API
