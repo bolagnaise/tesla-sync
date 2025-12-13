@@ -805,3 +805,72 @@ class AmberTariffConverter:
         else:
             # Normal range (e.g., 14:00 to 20:00)
             return start_minutes <= time_minutes < end_minutes
+
+
+# Flow Power Electricity Provider Support
+# Flow Power offers fixed export rates during "Happy Hour" (5:30pm-7:30pm)
+# Outside Happy Hour, export rate is 0c/kWh
+
+# Happy Hour export rates by NEM region (in $/kWh)
+FLOW_POWER_EXPORT_RATES = {
+    'NSW1': 0.45,   # 45c/kWh
+    'QLD1': 0.45,   # 45c/kWh
+    'SA1': 0.45,    # 45c/kWh
+    'VIC1': 0.35,   # 35c/kWh
+}
+
+# Happy Hour periods (5:30pm to 7:30pm)
+# Maps to Tesla PERIOD_XX_XX format for 30-minute intervals
+FLOW_POWER_HAPPY_HOUR_PERIODS = [
+    'PERIOD_17_30',  # 5:30pm - 6:00pm
+    'PERIOD_18_00',  # 6:00pm - 6:30pm
+    'PERIOD_18_30',  # 6:30pm - 7:00pm
+    'PERIOD_19_00',  # 7:00pm - 7:30pm
+]
+
+
+def apply_flow_power_export(tariff: Dict, state: str) -> Dict:
+    """
+    Apply Flow Power export rates to a tariff structure.
+
+    Flow Power pricing:
+    - Happy Hour (5:30pm-7:30pm): Fixed export rate (45c NSW/QLD/SA, 35c VIC)
+    - All other times: 0c export
+
+    Args:
+        tariff: Tesla tariff structure (from AmberTariffConverter)
+        state: NEM region code (NSW1, VIC1, QLD1, SA1)
+
+    Returns:
+        Modified tariff with Flow Power export rates applied
+    """
+    if not tariff:
+        logger.warning("No tariff provided for Flow Power export adjustment")
+        return tariff
+
+    # Get the happy hour export rate for this state
+    export_rate = FLOW_POWER_EXPORT_RATES.get(state, 0.45)  # Default to 45c if unknown state
+
+    logger.info(f"Applying Flow Power export rates for {state}: {export_rate * 100:.0f}c during Happy Hour, 0c otherwise")
+
+    # Apply to both Summer and Winter seasons in sell_tariff
+    for season in ['Summer', 'Winter']:
+        if season not in tariff.get('sell_tariff', {}).get('energy_charges', {}):
+            continue
+
+        rates = tariff['sell_tariff']['energy_charges'][season].get('rates', {})
+
+        # Set ALL periods to 0c first
+        for period in list(rates.keys()):
+            rates[period] = 0.0
+
+        # Then set Happy Hour periods to the fixed rate
+        for period in FLOW_POWER_HAPPY_HOUR_PERIODS:
+            if period in rates or len(rates) > 0:  # Only add if rates exist
+                rates[period] = export_rate
+
+    # Log summary of changes
+    happy_hour_periods_count = len(FLOW_POWER_HAPPY_HOUR_PERIODS)
+    logger.info(f"Flow Power export applied: {happy_hour_periods_count} periods at ${export_rate}/kWh, remaining periods at $0.00/kWh")
+
+    return tariff

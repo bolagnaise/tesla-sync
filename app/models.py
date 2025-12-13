@@ -93,6 +93,11 @@ class User(UserMixin, db.Model):
     aemo_saved_tariff_id = db.Column(db.Integer, db.ForeignKey('saved_tou_profile.id'))  # Tariff to restore after spike
     aemo_pre_spike_operation_mode = db.Column(db.String(20))  # Operation mode before spike (self_consumption, autonomous, backup)
 
+    # Electricity Provider Configuration
+    electricity_provider = db.Column(db.String(20), default='amber')  # 'amber', 'flow_power'
+    flow_power_state = db.Column(db.String(10))  # NEM region: NSW1, VIC1, QLD1, SA1
+    flow_power_price_source = db.Column(db.String(20), default='amber')  # 'amber', 'aemo'
+
     # Relationships
     price_records = db.relationship('PriceRecord', backref='user', lazy='dynamic')
     energy_records = db.relationship('EnergyRecord', backref='user', lazy='dynamic')

@@ -54,6 +54,48 @@ AEMO_REGIONS = {
     "TAS1": "TAS - Tasmania",
 }
 
+# Flow Power Electricity Provider configuration
+CONF_ELECTRICITY_PROVIDER = "electricity_provider"
+CONF_FLOW_POWER_STATE = "flow_power_state"
+CONF_FLOW_POWER_PRICE_SOURCE = "flow_power_price_source"
+CONF_AEMO_SENSOR_ENTITY = "aemo_sensor_entity"
+
+# Electricity provider options
+ELECTRICITY_PROVIDERS = {
+    "amber": "Amber Electric",
+    "flow_power": "Flow Power",
+}
+
+# Flow Power state options with export rates
+FLOW_POWER_STATES = {
+    "NSW1": "New South Wales (45c export)",
+    "VIC1": "Victoria (35c export)",
+    "QLD1": "Queensland (45c export)",
+    "SA1": "South Australia (45c export)",
+}
+
+# Flow Power price source options
+FLOW_POWER_PRICE_SOURCES = {
+    "amber": "Amber API",
+    "aemo_sensor": "AEMO NEM Data Sensor",
+}
+
+# Flow Power Happy Hour export rates ($/kWh)
+FLOW_POWER_EXPORT_RATES = {
+    "NSW1": 0.45,   # 45c/kWh
+    "QLD1": 0.45,   # 45c/kWh
+    "SA1": 0.45,    # 45c/kWh
+    "VIC1": 0.35,   # 35c/kWh
+}
+
+# Flow Power Happy Hour periods (5:30pm to 7:30pm)
+FLOW_POWER_HAPPY_HOUR_PERIODS = [
+    "PERIOD_17_30",  # 5:30pm - 6:00pm
+    "PERIOD_18_00",  # 6:00pm - 6:30pm
+    "PERIOD_18_30",  # 6:30pm - 7:00pm
+    "PERIOD_19_00",  # 7:00pm - 7:30pm
+]
+
 # Data coordinator update intervals
 UPDATE_INTERVAL_PRICES = timedelta(minutes=5)  # Amber updates every 5 minutes
 UPDATE_INTERVAL_ENERGY = timedelta(minutes=1)  # Tesla energy data every minute

@@ -1612,6 +1612,14 @@ class AEMOAPIClient:
         'TAS1': 'Tasmania'
     }
 
+    # Class-level cache for pre-dispatch forecast (shared across instances)
+    # AEMO updates pre-dispatch files every 30 minutes, so we cache to avoid redundant downloads
+    _predispatch_cache = {
+        'filename': None,      # Last downloaded filename
+        'data': {},            # Parsed data by region: {'NSW1': [...], 'QLD1': [...], ...}
+        'timestamp': None      # When the cache was populated
+    }
+
     def __init__(self):
         """Initialize AEMO API client (no auth required)"""
         logger.info("AEMOAPIClient initialized")
@@ -1700,6 +1708,190 @@ class AEMOAPIClient:
             logger.info(f"Normal price in {region}: ${current_price}/MWh (threshold: ${threshold_dollars_per_mwh}/MWh)")
 
         return is_spike, current_price, price_data
+
+    def get_price_forecast(self, region, periods=48):
+        """Get AEMO 30-min pre-dispatch price forecast.
+
+        Fetches directly from AEMO's NEMWeb pre-dispatch reports (ZIP/CSV).
+        Returns data in Amber-compatible format for tariff converter reuse.
+
+        Uses class-level caching to avoid re-downloading the same file.
+        AEMO updates pre-dispatch files every 30 minutes.
+
+        Args:
+            region: NEM region code (NSW1, QLD1, VIC1, SA1, TAS1)
+            periods: Number of 30-minute periods to fetch (default 48 = 24 hours)
+
+        Returns:
+            list: Price intervals in Amber-compatible format:
+            [
+                {
+                    'nemTime': '2025-12-13T19:30:00+10:00',
+                    'perKwh': 11.0,  # cents/kWh
+                    'channelType': 'general',
+                    'type': 'ForecastInterval',
+                    'duration': 30
+                },
+                ...
+            ]
+        """
+        import zipfile
+        import csv
+        import io
+        import re
+        from datetime import datetime
+        import pytz
+
+        if region not in self.REGIONS:
+            logger.error(f"Invalid region: {region}. Must be one of {list(self.REGIONS.keys())}")
+            return None
+
+        try:
+            # Step 1: Get list of available pre-dispatch files from NEMWeb
+            index_url = "https://nemweb.com.au/Reports/Current/Predispatch_Reports/"
+
+            response = requests.get(index_url, timeout=30)
+            response.raise_for_status()
+
+            # Step 2: Find latest PUBLIC_PREDISPATCH file
+            files = re.findall(r'PUBLIC_PREDISPATCH_\d+_\d+_LEGACY\.zip', response.text)
+            if not files:
+                logger.error("No pre-dispatch files found in AEMO NEMWeb directory")
+                return None
+
+            latest_file = sorted(files)[-1]  # Get most recent by timestamp
+
+            # Step 3: Check cache - return cached data if file hasn't changed
+            cache = AEMOAPIClient._predispatch_cache
+            if cache['filename'] == latest_file and region in cache['data']:
+                cached_intervals = cache['data'][region]
+                logger.info(f"📦 Using cached AEMO forecast for {region} ({len(cached_intervals) // 2} periods, file: {latest_file})")
+                # Return requested number of periods (or all if fewer available)
+                return cached_intervals[:periods * 2] if len(cached_intervals) > periods * 2 else cached_intervals
+
+            # Step 4: Download the ZIP file (cache miss or new file)
+            file_url = f"{index_url}{latest_file}"
+            logger.info(f"⬇️  Downloading AEMO pre-dispatch: {latest_file}")
+            zip_response = requests.get(file_url, timeout=60)
+            zip_response.raise_for_status()
+
+            # Step 5: Parse CSV from ZIP - extract ALL regions for caching
+            aest = pytz.timezone('Australia/Brisbane')  # NEM time (AEST, no DST)
+            region_data = {r: [] for r in self.REGIONS}  # Initialize all regions
+            seen_timestamps = {r: set() for r in self.REGIONS}  # Track duplicates per region
+
+            with zipfile.ZipFile(io.BytesIO(zip_response.content)) as zf:
+                # The ZIP contains a single CSV file with all data tables
+                csv_files = [f for f in zf.namelist() if f.endswith('.CSV') or f.endswith('.csv')]
+                if not csv_files:
+                    logger.error(f"No CSV file in pre-dispatch ZIP: {zf.namelist()}")
+                    return None
+
+                logger.debug(f"Found CSV file: {csv_files[0]}")
+
+                with zf.open(csv_files[0]) as f:
+                    reader = csv.reader(io.TextIOWrapper(f, encoding='utf-8'))
+
+                    for row in reader:
+                        # AEMO pre-dispatch CSV format (PDREGION table):
+                        # D,PDREGION,,5,DateTime,RunNo,REGIONID,PeriodDateTime,RRP,...
+                        # Column 0: Record type (D = data)
+                        # Column 1: Table name (PDREGION)
+                        # Column 6: Region ID (NSW1, QLD1, VIC1, SA1, TAS1)
+                        # Column 7: Period DateTime (forecast period)
+                        # Column 8: RRP in $/MWh
+                        if len(row) < 9 or row[0] != 'D':
+                            continue
+
+                        try:
+                            # Check if this is a PDREGION row (contains price data)
+                            table_name = row[1] if len(row) > 1 else ''
+                            if table_name != 'PDREGION':
+                                continue
+
+                            # Extract region
+                            row_region = row[6] if len(row) > 6 else None
+                            if row_region not in self.REGIONS:
+                                continue
+
+                            # Extract period datetime and RRP
+                            datetime_str = row[7] if len(row) > 7 else None
+                            rrp_str = row[8] if len(row) > 8 else None
+
+                            if not datetime_str or not rrp_str:
+                                continue
+
+                            # Skip duplicates (same timestamp for same region)
+                            if datetime_str in seen_timestamps[row_region]:
+                                continue
+                            seen_timestamps[row_region].add(datetime_str)
+
+                            # Parse datetime (format: YYYY/MM/DD HH:MM:SS)
+                            dt = datetime.strptime(datetime_str, '%Y/%m/%d %H:%M:%S')
+                            dt = aest.localize(dt)
+
+                            # Parse RRP ($/MWh) and convert to c/kWh
+                            rrp = float(rrp_str)
+                            price_cents = rrp / 10.0  # $/MWh ÷ 10 = c/kWh
+
+                            # Add import (general) price
+                            region_data[row_region].append({
+                                'nemTime': dt.isoformat(),
+                                'perKwh': price_cents,
+                                'channelType': 'general',
+                                'type': 'ForecastInterval',
+                                'duration': 30
+                            })
+
+                            # Add export (feedIn) price - same as import for AEMO
+                            # (will be overridden by Flow Power Happy Hour rates)
+                            region_data[row_region].append({
+                                'nemTime': dt.isoformat(),
+                                'perKwh': -price_cents,  # Amber convention: negative = you get paid
+                                'channelType': 'feedIn',
+                                'type': 'ForecastInterval',
+                                'duration': 30
+                            })
+
+                        except (ValueError, IndexError) as e:
+                            logger.debug(f"Skipping row due to parse error: {e}")
+                            continue
+
+            # Sort each region's data by timestamp
+            for r in region_data:
+                region_data[r].sort(key=lambda x: x['nemTime'])
+
+            # Update cache with all regions
+            AEMOAPIClient._predispatch_cache = {
+                'filename': latest_file,
+                'data': region_data,
+                'timestamp': datetime.now(pytz.UTC).isoformat()
+            }
+
+            # Log cache update
+            region_counts = {r: len(d) // 2 for r, d in region_data.items() if d}
+            logger.info(f"✅ Cached AEMO forecast for all regions: {region_counts}")
+
+            # Return requested region's data
+            intervals = region_data.get(region, [])
+            if not intervals:
+                logger.error(f"No price data found for region {region} in pre-dispatch file")
+                return None
+
+            logger.info(f"Successfully parsed {len(intervals) // 2} AEMO forecast periods for {region}")
+            return intervals[:periods * 2] if len(intervals) > periods * 2 else intervals
+
+        except requests.RequestException as e:
+            logger.error(f"Network error fetching AEMO pre-dispatch: {e}")
+            return None
+        except zipfile.BadZipFile as e:
+            logger.error(f"Invalid ZIP file from AEMO: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching AEMO price forecast: {e}")
+            import traceback
+            logger.debug(f"Traceback: {traceback.format_exc()}")
+            return None
 
 
 def get_tesla_client(user):

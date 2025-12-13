@@ -47,11 +47,17 @@ from .const import (
     CONF_AEMO_REGION,
     CONF_AEMO_SPIKE_THRESHOLD,
     AMBER_API_BASE_URL,
+    # Flow Power configuration
+    CONF_ELECTRICITY_PROVIDER,
+    CONF_FLOW_POWER_STATE,
+    CONF_FLOW_POWER_PRICE_SOURCE,
+    CONF_AEMO_SENSOR_ENTITY,
 )
 from .coordinator import (
     AmberPriceCoordinator,
     TeslaEnergyCoordinator,
     DemandChargeCoordinator,
+    AEMOSensorCoordinator,
 )
 import re
 
@@ -1157,6 +1163,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             _LOGGER.warning("AEMO spike detection enabled but no region configured")
 
+    # Initialize AEMO Sensor Coordinator for Flow Power AEMO-only mode
+    aemo_sensor_coordinator = None
+    flow_power_price_source = entry.options.get(
+        CONF_FLOW_POWER_PRICE_SOURCE,
+        entry.data.get(CONF_FLOW_POWER_PRICE_SOURCE, "amber")
+    )
+    aemo_sensor_entity = entry.options.get(
+        CONF_AEMO_SENSOR_ENTITY,
+        entry.data.get(CONF_AEMO_SENSOR_ENTITY, "")
+    )
+
+    if flow_power_price_source == "aemo_sensor" and aemo_sensor_entity:
+        aemo_sensor_coordinator = AEMOSensorCoordinator(
+            hass,
+            aemo_sensor_entity,
+        )
+        try:
+            await aemo_sensor_coordinator.async_config_entry_first_refresh()
+            _LOGGER.info(
+                "AEMO Sensor Coordinator initialized with sensor: %s",
+                aemo_sensor_entity,
+            )
+        except Exception as e:
+            _LOGGER.error(f"Failed to initialize AEMO sensor coordinator: {e}")
+            aemo_sensor_coordinator = None
+    elif flow_power_price_source == "aemo_sensor" and not aemo_sensor_entity:
+        _LOGGER.warning("AEMO sensor price source selected but no sensor entity configured")
+
     # Initialize persistent storage for data that survives HA restarts
     # (like Teslemetry's RestoreEntity pattern for export rule state)
     store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}.{entry.entry_id}")
@@ -1172,6 +1206,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "tesla_coordinator": tesla_coordinator,
         "demand_charge_coordinator": demand_charge_coordinator,
         "aemo_spike_manager": aemo_spike_manager,
+        "aemo_sensor_coordinator": aemo_sensor_coordinator,  # For Flow Power AEMO-only mode
         "ws_client": ws_client,  # Store for cleanup on unload
         "entry": entry,
         "auto_sync_cancel": None,  # Will store the timer cancel function
@@ -1211,9 +1246,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         Runs at :01 (60s into each 5-min period) so Amber REST API prices are fresh.
         No wait needed - just fetch directly from REST API.
         """
-        # Skip if no Amber coordinator (AEMO-only mode)
-        if not amber_coordinator:
-            _LOGGER.debug("TOU sync skipped - no Amber coordinator (AEMO-only mode)")
+        # Skip if no price coordinator available (AEMO spike-only mode without pricing)
+        if not amber_coordinator and not aemo_sensor_coordinator:
+            _LOGGER.debug("TOU sync skipped - no price coordinator available (AEMO spike-only mode)")
             return
 
         # FALLBACK CHECK: Has WebSocket already synced this period?
@@ -1236,11 +1271,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             extract_most_recent_actual_interval,
         )
 
+        # Determine price source: AEMO sensor or Amber
+        use_aemo_sensor = (
+            aemo_sensor_coordinator is not None and
+            flow_power_price_source == "aemo_sensor"
+        )
+
+        if use_aemo_sensor:
+            _LOGGER.info("📊 Using AEMO sensor for pricing data")
+        else:
+            _LOGGER.info("🟠 Using Amber for pricing data")
+
         # Get current interval price from WebSocket (real-time) or REST API fallback
         # WebSocket is PRIMARY source for current price, REST API is fallback if timeout
+        # Note: AEMO sensor mode doesn't have WebSocket - uses forecast data only
         current_actual_interval = None
 
-        if websocket_data:
+        if use_aemo_sensor:
+            # AEMO sensor mode: Refresh sensor coordinator
+            await aemo_sensor_coordinator.async_request_refresh()
+
+            if not aemo_sensor_coordinator.data:
+                _LOGGER.error("No AEMO sensor data available")
+                return
+
+            # Current price from AEMO sensor data
+            current_prices = aemo_sensor_coordinator.data.get("current", [])
+            if current_prices:
+                current_actual_interval = {'general': None, 'feedIn': None}
+                for price in current_prices:
+                    channel = price.get('channelType')
+                    if channel in ['general', 'feedIn']:
+                        current_actual_interval[channel] = price
+                general_price = current_actual_interval.get('general', {}).get('perKwh') if current_actual_interval.get('general') else None
+                _LOGGER.info(f"📊 Using AEMO sensor price for current interval: general={general_price:.2f}¢/kWh")
+        elif websocket_data:
             # WebSocket data received within 60s - use it directly as primary source
             current_actual_interval = websocket_data
             general_price = current_actual_interval.get('general', {}).get('perKwh') if current_actual_interval.get('general') else None
@@ -1266,19 +1331,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             else:
                 _LOGGER.error("No Amber price data available from REST API")
 
-        # Refresh coordinator to get latest forecast data (regardless of WebSocket status)
-        await amber_coordinator.async_request_refresh()
+        # Get forecast data from appropriate coordinator
+        if use_aemo_sensor:
+            # AEMO sensor already refreshed above
+            forecast_data = aemo_sensor_coordinator.data.get("forecast", [])
+            if not forecast_data:
+                _LOGGER.error("No AEMO forecast data available from sensor")
+                return
+            _LOGGER.info(f"Using AEMO sensor forecast: {len(forecast_data) // 2} periods")
+        else:
+            # Refresh Amber coordinator to get latest forecast data (regardless of WebSocket status)
+            await amber_coordinator.async_request_refresh()
 
-        if not amber_coordinator.data:
-            _LOGGER.error("No Amber forecast data available")
-            return
+            if not amber_coordinator.data:
+                _LOGGER.error("No Amber forecast data available")
+                return
+            forecast_data = amber_coordinator.data.get("forecast", [])
 
         # Get forecast type from options (if set) or data (from initial config)
         forecast_type = entry.options.get(
             CONF_AMBER_FORECAST_TYPE,
             entry.data.get(CONF_AMBER_FORECAST_TYPE, "predicted")
         )
-        _LOGGER.info(f"Using Amber forecast type: {forecast_type}")
+        _LOGGER.info(f"Using forecast type: {forecast_type}")
 
         # Fetch Powerwall timezone from site_info
         # This ensures correct timezone handling for TOU schedule alignment
@@ -1333,8 +1408,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
 
         # Convert prices to Tesla tariff format
+        # forecast_data comes from either AEMO sensor or Amber coordinator (set above)
         tariff = convert_amber_to_tesla_tariff(
-            amber_coordinator.data.get("forecast", []),
+            forecast_data,
             tesla_energy_site_id=entry.data[CONF_TESLA_ENERGY_SITE_ID],
             forecast_type=forecast_type,
             powerwall_timezone=powerwall_timezone,
@@ -1349,8 +1425,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
         if not tariff:
-            _LOGGER.error("Failed to convert Amber prices to Tesla tariff")
+            _LOGGER.error("Failed to convert prices to Tesla tariff")
             return
+
+        # Apply Flow Power export rates if configured
+        electricity_provider = entry.options.get(
+            CONF_ELECTRICITY_PROVIDER,
+            entry.data.get(CONF_ELECTRICITY_PROVIDER, "amber")
+        )
+        flow_power_state = entry.options.get(
+            CONF_FLOW_POWER_STATE,
+            entry.data.get(CONF_FLOW_POWER_STATE, "")
+        )
+
+        if electricity_provider == "flow_power" and flow_power_state:
+            from .tariff_converter import apply_flow_power_export
+            _LOGGER.info("Applying Flow Power export rates for state: %s", flow_power_state)
+            tariff = apply_flow_power_export(tariff, flow_power_state)
 
         # Store tariff schedule in hass.data for the sensor to read
         from datetime import datetime as dt
@@ -2017,11 +2108,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data.get(CONF_AUTO_SYNC_ENABLED, True)
     )
 
-    if auto_sync_enabled and amber_coordinator:
+    if auto_sync_enabled and (amber_coordinator or aemo_sensor_coordinator):
         _LOGGER.info("Performing initial TOU sync")
         await handle_sync_tou(None)
-    elif not amber_coordinator:
-        _LOGGER.info("Skipping initial TOU sync - AEMO-only mode")
+    elif not amber_coordinator and not aemo_sensor_coordinator:
+        _LOGGER.info("Skipping initial TOU sync - AEMO spike-only mode (no pricing data)")
 
     # Start the automatic sync timer (every 5 minutes, 60s after Amber price updates)
     # Triggers at :01:00, :06:00, :11:00, :16:00, :21:00, :26:00, :31:00, :36:00, :41:00, :46:00, :51:00, :56:00

@@ -283,35 +283,55 @@ def _sync_all_users_internal(websocket_data):
                 logger.debug(f"Skipping user {user.email} - syncing disabled")
                 continue
 
+            # Determine if user is using AEMO-only mode
+            use_aemo = (
+                user.electricity_provider == 'flow_power' and
+                user.flow_power_price_source == 'aemo'
+            )
+
             # Skip users without required configuration
-            if not user.amber_api_token_encrypted:
-                logger.debug(f"Skipping user {user.email} - no Amber token")
+            if not use_aemo and not user.amber_api_token_encrypted:
+                logger.debug(f"Skipping user {user.email} - no Amber token (and not AEMO mode)")
                 continue
 
-            if not user.teslemetry_api_key_encrypted:
-                logger.debug(f"Skipping user {user.email} - no Teslemetry token")
+            if not user.teslemetry_api_key_encrypted and not user.fleet_api_access_token_encrypted:
+                logger.debug(f"Skipping user {user.email} - no Tesla API token")
                 continue
 
             if not user.tesla_energy_site_id:
                 logger.debug(f"Skipping user {user.email} - no Tesla site ID")
                 continue
 
-            logger.info(f"Syncing schedule for user: {user.email}")
+            if use_aemo and not user.flow_power_state:
+                logger.debug(f"Skipping user {user.email} - AEMO mode but no region configured")
+                continue
+
+            logger.info(f"Syncing schedule for user: {user.email} (price source: {'AEMO' if use_aemo else 'Amber'})")
 
             # Get API clients
-            amber_client = get_amber_client(user)
+            amber_client = get_amber_client(user) if not use_aemo else None
             tesla_client = get_tesla_client(user)
 
-            if not amber_client or not tesla_client:
-                logger.warning(f"Failed to get API clients for user {user.email}")
+            if not use_aemo and not amber_client:
+                logger.warning(f"Failed to get Amber client for user {user.email}")
+                error_count += 1
+                continue
+
+            if not tesla_client:
+                logger.warning(f"Failed to get Tesla client for user {user.email}")
                 error_count += 1
                 continue
 
             # Step 1: Get current interval price from WebSocket (real-time) or REST API fallback
             # WebSocket is PRIMARY source for current price, REST API is fallback if timeout
+            # Note: AEMO mode doesn't have WebSocket - uses forecast data only
             current_actual_interval = None
 
-            if websocket_data:
+            if use_aemo:
+                # AEMO mode: No WebSocket, use AEMO API for forecast
+                # Current price will be derived from the first forecast interval
+                logger.info(f"📊 AEMO mode - fetching forecast from AEMO for region {user.flow_power_state}")
+            elif websocket_data:
                 # WebSocket data received within 60s - use it directly as primary source
                 current_actual_interval = websocket_data
                 general_price = current_actual_interval.get('general', {}).get('perKwh') if current_actual_interval.get('general') else None
@@ -334,13 +354,23 @@ def _sync_all_users_internal(websocket_data):
                 else:
                     logger.warning(f"No current price data available for {user.email}, proceeding with 30-min forecast only")
 
-            # Step 2: Fetch 48-hour forecast with 30-min resolution for TOU schedule building
-            # (The Amber API doesn't provide 48 hours of 5-min data, so we must use 30-min)
-            forecast_30min = amber_client.get_price_forecast(next_hours=48, resolution=30)
-            if not forecast_30min:
-                logger.error(f"Failed to fetch 30-min forecast for user {user.email}")
-                error_count += 1
-                continue
+            # Step 2: Fetch 48-period forecast for TOU schedule building
+            if use_aemo:
+                # AEMO mode: Get forecast from AEMO API
+                aemo_client = AEMOAPIClient()
+                forecast_30min = aemo_client.get_price_forecast(user.flow_power_state, periods=48)
+                if not forecast_30min:
+                    logger.error(f"Failed to fetch AEMO forecast for user {user.email} (region: {user.flow_power_state})")
+                    error_count += 1
+                    continue
+                logger.info(f"✅ AEMO forecast: {len(forecast_30min) // 2} periods for {user.flow_power_state}")
+            else:
+                # Amber mode: Get forecast from Amber API with 30-min resolution
+                forecast_30min = amber_client.get_price_forecast(next_hours=48, resolution=30)
+                if not forecast_30min:
+                    logger.error(f"Failed to fetch Amber forecast for user {user.email}")
+                    error_count += 1
+                    continue
 
             # Fetch Powerwall timezone from site_info
             # This ensures time alignment with the Powerwall's actual location
@@ -369,6 +399,12 @@ def _sync_all_users_internal(websocket_data):
                 logger.error(f"Failed to convert tariff for user {user.email}")
                 error_count += 1
                 continue
+
+            # Apply Flow Power export rates if user is on Flow Power
+            if user.electricity_provider == 'flow_power' and user.flow_power_state:
+                from app.tariff_converter import apply_flow_power_export
+                logger.info(f"Applying Flow Power export rates for {user.email} (state: {user.flow_power_state})")
+                tariff = apply_flow_power_export(tariff, user.flow_power_state)
 
             logger.info(f"Applying tariff for {user.email} with {len(tariff.get('energy_charges', {}).get('Summer', {}).get('rates', {}))} rate periods")
 

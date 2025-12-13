@@ -5,7 +5,7 @@ from app import db, cache
 from app.models import User, PriceRecord, SavedTOUProfile
 from app.forms import LoginForm, RegistrationForm, SettingsForm, DemandChargeForm, AmberSettingsForm, TwoFactorSetupForm, TwoFactorVerifyForm, TwoFactorDisableForm, ChangePasswordForm
 from app.utils import encrypt_token, decrypt_token
-from app.api_clients import get_amber_client, get_tesla_client
+from app.api_clients import get_amber_client, get_tesla_client, AEMOAPIClient
 from app.scheduler import TOUScheduler
 from app.route_helpers import (
     require_tesla_client,
@@ -526,6 +526,25 @@ def settings():
         if 'aemo_spike_threshold' in submitted_fields and form.aemo_spike_threshold.data:
             logger.info(f"Saving AEMO spike threshold: ${form.aemo_spike_threshold.data}/MWh")
             current_user.aemo_spike_threshold = float(form.aemo_spike_threshold.data)
+
+        # Flow Power / Electricity Provider settings
+        if 'electricity_provider' in submitted_fields:
+            provider = request.form.get('electricity_provider')
+            if provider in ['amber', 'flow_power']:
+                logger.info(f"Saving electricity provider: {provider}")
+                current_user.electricity_provider = provider
+
+        if 'flow_power_state' in submitted_fields:
+            state = request.form.get('flow_power_state')
+            if state in ['NSW1', 'VIC1', 'QLD1', 'SA1']:
+                logger.info(f"Saving Flow Power state: {state}")
+                current_user.flow_power_state = state
+
+        if 'flow_power_price_source' in submitted_fields:
+            source = request.form.get('flow_power_price_source')
+            if source in ['amber', 'aemo']:
+                logger.info(f"Saving Flow Power price source: {source}")
+                current_user.flow_power_price_source = source
 
         try:
             db.session.commit()
@@ -1610,7 +1629,7 @@ def tou_schedule():
 
     # Convert to Tesla tariff format using 30-min forecast data
     # The actual_interval (from 5-min data) will be injected for the current period only
-    from app.tariff_converter import AmberTariffConverter
+    from app.tariff_converter import AmberTariffConverter, apply_flow_power_export
     converter = AmberTariffConverter()
     tariff = converter.convert_amber_to_tesla_tariff(
         forecast_30min,
@@ -1622,6 +1641,11 @@ def tou_schedule():
     if not tariff:
         logger.error("Failed to convert tariff")
         return jsonify({'error': 'Failed to convert tariff'}), 500
+
+    # Apply Flow Power export rates if user is on Flow Power (for preview display)
+    if current_user.electricity_provider == 'flow_power' and current_user.flow_power_state:
+        logger.info(f"Preview: Applying Flow Power export rates for state: {current_user.flow_power_state}")
+        tariff = apply_flow_power_export(tariff, current_user.flow_power_state)
 
     # Extract tariff periods for display
     energy_rates = tariff.get('energy_charges', {}).get('Summer', {}).get('rates', {})
@@ -1686,22 +1710,47 @@ def tou_schedule():
 
 @bp.route('/api/sync-tesla-schedule', methods=['POST'])
 @login_required
-@require_amber_client
 @require_tesla_client
 @require_tesla_site_id
-def sync_tesla_schedule(amber_client, tesla_client):
+def sync_tesla_schedule(tesla_client):
     """Apply the TOU schedule to Tesla Powerwall"""
     logger.info(f"Tesla schedule sync requested by user: {current_user.email}")
 
     site_id = current_user.tesla_energy_site_id
 
     try:
-        # Get price forecast (48 hours for better coverage)
-        # Request 30-minute resolution - Amber pre-averages 5-min intervals for us
-        forecast = amber_client.get_price_forecast(next_hours=48, resolution=30)
-        if not forecast:
-            logger.error("Failed to fetch price forecast for sync")
-            return jsonify({'error': 'Failed to fetch price forecast'}), 500
+        # Determine price source based on user settings
+        use_aemo = (
+            current_user.electricity_provider == 'flow_power' and
+            current_user.flow_power_price_source == 'aemo'
+        )
+
+        if use_aemo:
+            # Use AEMO data for import prices (Flow Power AEMO-only mode)
+            aemo_region = current_user.flow_power_state
+            if not aemo_region:
+                logger.error("AEMO price source selected but no region configured")
+                return jsonify({'error': 'AEMO region not configured. Please set your Flow Power state in settings.'}), 400
+
+            logger.info(f"Using AEMO price source for region: {aemo_region}")
+            aemo_client = AEMOAPIClient()
+            forecast = aemo_client.get_price_forecast(aemo_region, periods=48)
+            if not forecast:
+                logger.error(f"Failed to fetch AEMO price forecast for {aemo_region}")
+                return jsonify({'error': 'Failed to fetch AEMO price forecast'}), 500
+        else:
+            # Use Amber API (default)
+            amber_client = get_amber_client(current_user)
+            if not amber_client:
+                logger.error("Amber client not available")
+                return jsonify({'error': 'Amber API not configured. Please set up Amber or use AEMO price source.'}), 400
+
+            # Get price forecast (48 hours for better coverage)
+            # Request 30-minute resolution - Amber pre-averages 5-min intervals for us
+            forecast = amber_client.get_price_forecast(next_hours=48, resolution=30)
+            if not forecast:
+                logger.error("Failed to fetch price forecast for sync")
+                return jsonify({'error': 'Failed to fetch price forecast'}), 500
 
         # Fetch Powerwall timezone from Tesla API (most accurate)
         # This ensures correct timezone handling for TOU schedule alignment
@@ -1717,7 +1766,7 @@ def sync_tesla_schedule(amber_client, tesla_client):
             logger.warning("Failed to fetch site_info from Tesla API, will auto-detect timezone from Amber data")
 
         # Convert Amber prices to Tesla tariff format
-        from app.tariff_converter import AmberTariffConverter
+        from app.tariff_converter import AmberTariffConverter, apply_flow_power_export
         converter = AmberTariffConverter()
         tariff = converter.convert_amber_to_tesla_tariff(
             forecast,
@@ -1728,6 +1777,11 @@ def sync_tesla_schedule(amber_client, tesla_client):
         if not tariff:
             logger.error("Failed to convert tariff")
             return jsonify({'error': 'Failed to convert Amber prices to Tesla tariff format'}), 500
+
+        # Apply Flow Power export rates if user is on Flow Power
+        if current_user.electricity_provider == 'flow_power' and current_user.flow_power_state:
+            logger.info(f"Applying Flow Power export rates for state: {current_user.flow_power_state}")
+            tariff = apply_flow_power_export(tariff, current_user.flow_power_state)
 
         num_periods = len(tariff.get('energy_charges', {}).get('Summer', {}).get('rates', {}))
         logger.info(f"Applying TESLA SYNC tariff with {num_periods} rate periods")

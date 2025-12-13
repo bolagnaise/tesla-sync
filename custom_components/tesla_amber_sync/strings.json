@@ -81,7 +81,7 @@
     "step": {
       "init": {
         "title": "Tesla Sync Options",
-        "description": "Configure automatic syncing, demand charge tracking, and AEMO spike detection.",
+        "description": "Configure automatic syncing, demand charge tracking, AEMO spike detection, and electricity provider settings. Flow Power users: Set your electricity provider to Flow Power to get fixed export rates during Happy Hour (5:30pm-7:30pm).",
         "data": {
           "auto_sync_enabled": "Enable automatic TOU schedule syncing",
           "amber_forecast_type": "Amber Forecast Type",
@@ -98,7 +98,11 @@
           "monthly_supply_charge": "Monthly Supply Charge ($)",
           "aemo_spike_enabled": "Enable AEMO Spike Detection",
           "aemo_region": "AEMO NEM Region",
-          "aemo_spike_threshold": "Spike Threshold ($/MWh)"
+          "aemo_spike_threshold": "Spike Threshold ($/MWh)",
+          "electricity_provider": "Electricity Provider",
+          "flow_power_state": "Flow Power State (for export rates)",
+          "flow_power_price_source": "Flow Power Price Source",
+          "aemo_sensor_entity": "AEMO Sensor Entity (if using AEMO sensor)"
         }
       }
     }

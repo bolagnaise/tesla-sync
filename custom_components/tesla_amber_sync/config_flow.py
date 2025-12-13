@@ -43,6 +43,14 @@ from .const import (
     CONF_AEMO_REGION,
     CONF_AEMO_SPIKE_THRESHOLD,
     AEMO_REGIONS,
+    # Flow Power configuration
+    CONF_ELECTRICITY_PROVIDER,
+    CONF_FLOW_POWER_STATE,
+    CONF_FLOW_POWER_PRICE_SOURCE,
+    CONF_AEMO_SENSOR_ENTITY,
+    ELECTRICITY_PROVIDERS,
+    FLOW_POWER_STATES,
+    FLOW_POWER_PRICE_SOURCES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -771,6 +779,24 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
             self.config_entry.data.get(CONF_AEMO_SPIKE_THRESHOLD, 300.0)
         )
 
+        # Flow Power / Electricity Provider settings
+        current_electricity_provider = self.config_entry.options.get(
+            CONF_ELECTRICITY_PROVIDER,
+            self.config_entry.data.get(CONF_ELECTRICITY_PROVIDER, "amber")
+        )
+        current_flow_power_state = self.config_entry.options.get(
+            CONF_FLOW_POWER_STATE,
+            self.config_entry.data.get(CONF_FLOW_POWER_STATE, "NSW1")
+        )
+        current_flow_power_price_source = self.config_entry.options.get(
+            CONF_FLOW_POWER_PRICE_SOURCE,
+            self.config_entry.data.get(CONF_FLOW_POWER_PRICE_SOURCE, "amber")
+        )
+        current_aemo_sensor_entity = self.config_entry.options.get(
+            CONF_AEMO_SENSOR_ENTITY,
+            self.config_entry.data.get(CONF_AEMO_SENSOR_ENTITY, "")
+        )
+
         # Build region choices for AEMO
         region_choices = {"": "Select Region..."}
         region_choices.update(AEMO_REGIONS)
@@ -848,6 +874,23 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                         CONF_AEMO_SPIKE_THRESHOLD,
                         default=current_aemo_threshold,
                     ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=20000.0)),
+                    # Flow Power / Electricity Provider Options
+                    vol.Optional(
+                        CONF_ELECTRICITY_PROVIDER,
+                        default=current_electricity_provider,
+                    ): vol.In(ELECTRICITY_PROVIDERS),
+                    vol.Optional(
+                        CONF_FLOW_POWER_STATE,
+                        default=current_flow_power_state,
+                    ): vol.In(FLOW_POWER_STATES),
+                    vol.Optional(
+                        CONF_FLOW_POWER_PRICE_SOURCE,
+                        default=current_flow_power_price_source,
+                    ): vol.In(FLOW_POWER_PRICE_SOURCES),
+                    vol.Optional(
+                        CONF_AEMO_SENSOR_ENTITY,
+                        default=current_aemo_sensor_entity,
+                    ): str,
                 }
             ),
         )
