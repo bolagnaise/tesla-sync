@@ -431,7 +431,7 @@ def convert_amber_to_tesla_tariff(
             demand_charge_end_time,
             demand_charge_rate,
         )
-        _LOGGER.info("Demand charges enabled: %d peak periods configured",
+        _LOGGER.info("Demand charge schedule: %d peak periods in tariff",
                      sum(1 for rate in demand_charge_rates.values() if rate > 0))
 
     # Apply artificial price increase during demand periods if enabled (ALPHA feature)

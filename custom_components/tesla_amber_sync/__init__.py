@@ -1325,7 +1325,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         if demand_charge_enabled:
             _LOGGER.info(
-                "Demand charges enabled: $%.2f/kW from %s to %s (applied to: %s)",
+                "Demand charge schedule configured: $%.2f/kW window %s to %s (applied to: %s)",
                 demand_charge_rate,
                 demand_charge_start_time,
                 demand_charge_end_time,
