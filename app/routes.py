@@ -1840,7 +1840,9 @@ def tou_schedule():
 
         logger.info(f"TOU Schedule - Using AEMO price source for region: {aemo_region}")
         aemo_client = AEMOAPIClient()
-        forecast_30min = aemo_client.get_price_forecast(aemo_region, periods=48)
+        # Request 96 periods (48 hours) to ensure coverage for rolling 24h window
+        # AEMO pre-dispatch provides ~40 hours of forecast, so 96 ensures full coverage
+        forecast_30min = aemo_client.get_price_forecast(aemo_region, periods=96)
         if not forecast_30min:
             logger.error(f"Failed to fetch AEMO price forecast for {aemo_region}")
             return jsonify({'error': 'Failed to fetch AEMO price forecast'}), 500
@@ -2029,7 +2031,8 @@ def sync_tesla_schedule(tesla_client):
 
             logger.info(f"Using AEMO price source for region: {aemo_region}")
             aemo_client = AEMOAPIClient()
-            forecast = aemo_client.get_price_forecast(aemo_region, periods=48)
+            # Request 96 periods (48 hours) to ensure coverage for rolling 24h window
+            forecast = aemo_client.get_price_forecast(aemo_region, periods=96)
             if not forecast:
                 logger.error(f"Failed to fetch AEMO price forecast for {aemo_region}")
                 return jsonify({'error': 'Failed to fetch AEMO price forecast'}), 500

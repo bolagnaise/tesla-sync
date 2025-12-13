@@ -354,11 +354,12 @@ def _sync_all_users_internal(websocket_data):
                 else:
                     logger.warning(f"No current price data available for {user.email}, proceeding with 30-min forecast only")
 
-            # Step 2: Fetch 48-period forecast for TOU schedule building
+            # Step 2: Fetch forecast for TOU schedule building
+            # Request 96 periods (48 hours) for AEMO to ensure rolling 24h window is fully covered
             if use_aemo:
                 # AEMO mode: Get forecast from AEMO API
                 aemo_client = AEMOAPIClient()
-                forecast_30min = aemo_client.get_price_forecast(user.flow_power_state, periods=48)
+                forecast_30min = aemo_client.get_price_forecast(user.flow_power_state, periods=96)
                 if not forecast_30min:
                     logger.error(f"Failed to fetch AEMO forecast for user {user.email} (region: {user.flow_power_state})")
                     error_count += 1
