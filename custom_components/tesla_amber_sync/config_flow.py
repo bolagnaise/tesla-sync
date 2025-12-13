@@ -345,11 +345,8 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if validation_result["success"]:
                 self._amber_data = user_input
                 self._amber_sites = validation_result.get("sites", [])
-                # Flow Power with Amber pricing skips AEMO config, goes straight to Tesla
-                if self._selected_electricity_provider == "flow_power":
-                    return await self.async_step_tesla_provider()
-                # Go to AEMO config (optional for Amber mode)
-                return await self.async_step_aemo_config()
+                # Go straight to Tesla provider - no AEMO config needed for Amber users
+                return await self.async_step_tesla_provider()
             else:
                 errors["base"] = validation_result.get("error", "unknown")
 
