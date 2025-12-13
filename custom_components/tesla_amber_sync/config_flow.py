@@ -924,7 +924,20 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                         CONF_FLOW_POWER_PRICE_SOURCE,
                         default=self._get_option(CONF_FLOW_POWER_PRICE_SOURCE, "amber"),
                     ): vol.In(FLOW_POWER_PRICE_SOURCES),
-                    # Network Tariff Configuration (for AEMO price source - adds DNSP fees)
+                    # Network Tariff - Primary: aemo_to_tariff library (auto-calculates from distributor + tariff)
+                    vol.Optional(
+                        CONF_NETWORK_DISTRIBUTOR,
+                        default=self._get_option(CONF_NETWORK_DISTRIBUTOR, "energex"),
+                    ): vol.In(NETWORK_DISTRIBUTORS),
+                    vol.Optional(
+                        CONF_NETWORK_TARIFF_CODE,
+                        default=self._get_option(CONF_NETWORK_TARIFF_CODE, "NTC6900"),
+                    ): str,
+                    vol.Optional(
+                        CONF_NETWORK_USE_MANUAL_RATES,
+                        default=self._get_option(CONF_NETWORK_USE_MANUAL_RATES, False),
+                    ): bool,
+                    # Network Tariff - Fallback: Manual rate entry (used when use_manual_rates=True)
                     vol.Optional(
                         CONF_NETWORK_TARIFF_TYPE,
                         default=self._get_option(CONF_NETWORK_TARIFF_TYPE, "flat"),

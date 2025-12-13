@@ -5,6 +5,13 @@ from datetime import datetime, timedelta
 import logging
 from typing import Any
 
+# Import aemo_to_tariff library for automatic network tariff calculation
+try:
+    from aemo_to_tariff import spot_to_tariff, get_daily_fee
+    AEMO_TARIFF_AVAILABLE = True
+except ImportError:
+    AEMO_TARIFF_AVAILABLE = False
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -946,6 +953,9 @@ def apply_flow_power_export(
 
 def apply_network_tariff(
     tariff: dict[str, Any],
+    distributor: str | None = None,
+    tariff_code: str | None = None,
+    use_manual_rates: bool = False,
     tariff_type: str = "flat",
     flat_rate: float = 8.0,
     peak_rate: float = 15.0,
@@ -962,13 +972,19 @@ def apply_network_tariff(
     Apply network tariff (DNSP) charges to wholesale prices.
 
     AEMO wholesale prices only include energy costs. This function adds:
-    - Network (DNSP) charges (flat rate or TOU)
-    - Other fees (environmental, market fees)
-    - GST (optional)
+    - Network (DNSP) charges (via aemo_to_tariff library or manual rates)
+    - Other fees (environmental, market fees) - only for manual rates
+    - GST (optional) - only for manual rates
+
+    Primary: Uses aemo_to_tariff library with distributor + tariff code
+    Fallback: Manual rate entry when library unavailable or use_manual_rates=True
 
     Args:
         tariff: Tesla tariff structure with wholesale prices
-        tariff_type: "flat" or "tou"
+        distributor: Network distributor code (e.g., "energex", "ausgrid")
+        tariff_code: Tariff code from electricity bill (e.g., "NTC6900")
+        use_manual_rates: Force use of manual rates instead of library
+        tariff_type: "flat" or "tou" (for manual rates only)
         flat_rate: Flat network rate in c/kWh (used when tariff_type="flat")
         peak_rate: Peak network rate in c/kWh
         shoulder_rate: Shoulder network rate in c/kWh
@@ -987,8 +1003,154 @@ def apply_network_tariff(
         _LOGGER.warning("No tariff provided for network tariff adjustment")
         return tariff
 
+    # Determine whether to use library or manual rates
+    if AEMO_TARIFF_AVAILABLE and not use_manual_rates and distributor and tariff_code:
+        _LOGGER.info(
+            "Using aemo_to_tariff library: distributor=%s, tariff=%s",
+            distributor, tariff_code
+        )
+        return _apply_network_tariff_library(tariff, distributor, tariff_code)
+    else:
+        if use_manual_rates:
+            _LOGGER.info("Using manual network rates (user preference)")
+        elif not AEMO_TARIFF_AVAILABLE:
+            _LOGGER.warning("aemo_to_tariff library not available, using manual rates")
+        else:
+            _LOGGER.info("Using manual network rates (no distributor/tariff configured)")
+        return _apply_network_tariff_manual(
+            tariff, tariff_type, flat_rate, peak_rate, shoulder_rate, offpeak_rate,
+            peak_start, peak_end, offpeak_start, offpeak_end, other_fees, include_gst
+        )
+
+
+def _apply_network_tariff_library(
+    tariff: dict[str, Any],
+    distributor: str,
+    tariff_code: str,
+) -> dict[str, Any]:
+    """
+    Apply network tariff using the aemo_to_tariff library.
+
+    The library calculates complete retail prices from AEMO wholesale:
+    - Network (DNSP) charges based on distributor and tariff code
+    - Market fees, environmental certificates, etc.
+    - GST included
+
+    Args:
+        tariff: Tesla tariff structure with wholesale prices (in $/kWh)
+        distributor: Network distributor code (e.g., "energex", "ausgrid")
+        tariff_code: Tariff code from electricity bill (e.g., "NTC6900")
+
+    Returns:
+        Modified tariff with retail prices from library
+    """
+    from datetime import datetime, timezone, timedelta
+
+    # Apply to Summer season buy rates (energy_charges)
+    for season in ["Summer"]:
+        if season not in tariff.get("energy_charges", {}):
+            continue
+
+        rates = tariff["energy_charges"][season].get("rates", {})
+        modified_count = 0
+
+        for period, price in list(rates.items()):
+            # Extract hour and minute from PERIOD_HH_MM
+            try:
+                parts = period.split("_")
+                hour = int(parts[1])
+                minute = int(parts[2])
+            except (IndexError, ValueError):
+                continue
+
+            # Build a datetime for this period (use today's date)
+            # The library uses interval_time for TOU period detection
+            now = datetime.now()
+            interval_time = datetime(
+                now.year, now.month, now.day, hour, minute,
+                tzinfo=timezone(timedelta(hours=10))  # AEST
+            )
+
+            # Convert wholesale $/kWh to $/MWh for the library
+            # Our tariff stores prices in $/kWh, library expects $/MWh
+            wholesale_mwh = price * 1000
+
+            try:
+                # spot_to_tariff returns price in c/kWh including all fees + GST
+                retail_cents = spot_to_tariff(
+                    interval_time=interval_time,
+                    network=distributor,
+                    tariff=tariff_code,
+                    rrp=wholesale_mwh  # RRP in $/MWh
+                )
+
+                # Convert c/kWh back to $/kWh
+                new_price = round(retail_cents / 100, 4)
+
+                # Tesla restriction: no negative prices
+                new_price = max(0, new_price)
+
+                if rates[period] != new_price:
+                    modified_count += 1
+                    _LOGGER.debug(
+                        "%s: wholesale $%.4f -> retail $%.4f (%.2fc/kWh)",
+                        period, price, new_price, retail_cents
+                    )
+                    rates[period] = new_price
+
+            except Exception as err:
+                _LOGGER.warning(
+                    "%s: Library calculation failed, keeping wholesale: %s",
+                    period, err
+                )
+
+        _LOGGER.info(
+            "Network tariff (library) applied to %d periods in %s",
+            modified_count, season
+        )
+
+    return tariff
+
+
+def _apply_network_tariff_manual(
+    tariff: dict[str, Any],
+    tariff_type: str = "flat",
+    flat_rate: float = 8.0,
+    peak_rate: float = 15.0,
+    shoulder_rate: float = 5.0,
+    offpeak_rate: float = 2.0,
+    peak_start: str = "16:00",
+    peak_end: str = "21:00",
+    offpeak_start: str = "10:00",
+    offpeak_end: str = "15:00",
+    other_fees: float = 1.5,
+    include_gst: bool = True,
+) -> dict[str, Any]:
+    """
+    Apply network tariff using manual rate entry.
+
+    This is the fallback when aemo_to_tariff library is not available
+    or when the user prefers manual rate entry.
+
+    Args:
+        tariff: Tesla tariff structure with wholesale prices
+        tariff_type: "flat" or "tou"
+        flat_rate: Flat network rate in c/kWh (used when tariff_type="flat")
+        peak_rate: Peak network rate in c/kWh
+        shoulder_rate: Shoulder network rate in c/kWh
+        offpeak_rate: Off-peak network rate in c/kWh
+        peak_start: Peak period start time (HH:MM)
+        peak_end: Peak period end time (HH:MM)
+        offpeak_start: Off-peak period start time (HH:MM)
+        offpeak_end: Off-peak period end time (HH:MM)
+        other_fees: Other fees in c/kWh (environmental, market)
+        include_gst: Whether to add 10% GST
+
+    Returns:
+        Modified tariff with network charges applied to buy prices
+    """
     _LOGGER.info(
-        "Applying network tariff: type=%s, other_fees=%.1fc/kWh, gst=%s",
+        "Applying manual network tariff: type=%s, other_fees=%.1fc/kWh, gst=%s",
         tariff_type, other_fees, include_gst
     )
 
@@ -1074,6 +1236,6 @@ def apply_network_tariff(
                 )
                 rates[period] = new_price
 
-        _LOGGER.info("Network tariff applied to %d periods in %s", modified_count, season)
+        _LOGGER.info("Manual network tariff applied to %d periods in %s", modified_count, season)
 
     return tariff

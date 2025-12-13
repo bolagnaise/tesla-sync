@@ -57,6 +57,9 @@ from .const import (
     AEMO_SENSOR_5MIN_PATTERN,
     AEMO_SENSOR_30MIN_PATTERN,
     # Network Tariff configuration
+    CONF_NETWORK_DISTRIBUTOR,
+    CONF_NETWORK_TARIFF_CODE,
+    CONF_NETWORK_USE_MANUAL_RATES,
     CONF_NETWORK_TARIFF_TYPE,
     CONF_NETWORK_FLAT_RATE,
     CONF_NETWORK_PEAK_RATE,
@@ -1499,8 +1502,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.info("Applying network tariff to AEMO wholesale prices")
 
             # Get network tariff config from options
+            # Primary: aemo_to_tariff library with distributor + tariff code
+            # Fallback: Manual rates when use_manual_rates=True or library unavailable
             tariff = apply_network_tariff(
                 tariff,
+                # Library-based pricing (primary)
+                distributor=entry.options.get(CONF_NETWORK_DISTRIBUTOR),
+                tariff_code=entry.options.get(CONF_NETWORK_TARIFF_CODE),
+                use_manual_rates=entry.options.get(CONF_NETWORK_USE_MANUAL_RATES, False),
+                # Manual pricing (fallback)
                 tariff_type=entry.options.get(CONF_NETWORK_TARIFF_TYPE, "flat"),
                 flat_rate=entry.options.get(CONF_NETWORK_FLAT_RATE, 8.0),
                 peak_rate=entry.options.get(CONF_NETWORK_PEAK_RATE, 15.0),
