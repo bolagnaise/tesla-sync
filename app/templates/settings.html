@@ -185,380 +185,211 @@
         </form>
     </article>
 
-    <!-- Tesla Authentication Options -->
-    <article>
-        <header>
-            <strong>Tesla API Authentication</strong>
-        </header>
-        <p>Choose your Tesla API provider for energy management (Powerwall/Solar).</p>
-
-        <!-- Provider Selection -->
-        <form action="{{ url_for('main.settings') }}" method="post" style="margin-bottom: 1em;">
-            {{ form.hidden_tag() }}
-            <label for="tesla_api_provider">
-                {{ form.tesla_api_provider.label }}
-                <small>{{ form.tesla_api_provider.description }}</small>
-                {{ form.tesla_api_provider(onchange="this.form.submit()") }}
-            </label>
-        </form>
-
-        <!-- Teslemetry Card (shown if provider is 'teslemetry') -->
-        {% if current_user.tesla_api_provider == 'teslemetry' or not current_user.tesla_api_provider %}
-        <article style="margin-top: 1em;">
-            <header style="background: rgba(100, 200, 150, 0.1); padding: 0.5em; border-radius: 0.5em;">
-                <strong>Teslemetry</strong>
-                <br><small>Tesla API Proxy Service (~$4/month)</small>
-            </header>
-
-            {% if current_user.teslemetry_api_key_encrypted %}
-                <!-- Connected -->
-                <div style="padding: 0.8em; background: rgba(0, 255, 0, 0.1); border-radius: 0.5em; margin: 0.5em 0;">
-                    <p style="margin: 0; color: #51cf66; font-size: 0.9em;">✅ <strong>Connected</strong></p>
-                </div>
-
-                <p style="font-size: 0.85em; margin: 0.5em 0;">API Key configured</p>
-
-                <form action="{{ url_for('main.teslemetry_disconnect') }}" method="post" style="margin: 0.5em 0 0 0;">
-                    <button type="submit" class="outline" style="width: 100%; font-size: 0.85em;" onclick="return confirm('Disconnect Teslemetry?')">Disconnect</button>
-                </form>
-            {% else %}
-                <!-- Not connected -->
-                <div style="padding: 0.8em; background: rgba(150, 150, 150, 0.1); border-radius: 0.5em; margin: 0.5em 0;">
-                    <p style="margin: 0; color: #999; font-size: 0.9em;">⭕ <strong>Not Configured</strong></p>
-                    <p style="margin: 0.3em 0 0 0; font-size: 0.75em;">Enter API key in the form below</p>
-                </div>
-
-                <details style="margin-top: 0.5em;" open>
-                    <summary style="font-size: 0.85em;">Setup Instructions</summary>
-                    <div style="font-size: 0.8em; margin-top: 0.5em; padding: 0.5em; background: rgba(100, 200, 150, 0.05); border-radius: 0.3em;">
-                        <p style="margin: 0 0 0.5em 0;"><strong>✅ Works with localhost (no public domain needed)</strong></p>
-
-                        <ol style="margin: 0.3em 0 0 1.2em; padding: 0;">
-                            <li style="margin: 0.3em 0;">Go to <a href="https://teslemetry.com" target="_blank" style="font-weight: bold;">teslemetry.com</a></li>
-                            <li style="margin: 0.3em 0;">Sign in with your Tesla account</li>
-                            <li style="margin: 0.3em 0;">Authorize Teslemetry</li>
-                            <li style="margin: 0.3em 0;">Copy your API key</li>
-                            <li style="margin: 0.3em 0;">Paste it in the API Configuration section below</li>
-                        </ol>
-                    </div>
-                </details>
-
-                <details style="margin-top: 0.5em;">
-                    <summary style="font-size: 0.85em;">About Teslemetry</summary>
-                    <p style="font-size: 0.8em; margin-top: 0.5em;">
-                        ✓ Easy setup (2 minutes)<br>
-                        ✓ Works with localhost<br>
-                        ✓ ~$4/month for energy sites<br>
-                        ✓ Handles Tesla authentication<br>
-                        ✓ Reliable and well-maintained
-                    </p>
-                </details>
-            {% endif %}
-        </article>
-        {% endif %}
-
-        <!-- Fleet API Card (shown if provider is 'fleet_api') -->
-        {% if current_user.tesla_api_provider == 'fleet_api' %}
-        <article style="margin-top: 1em;">
-            <header style="background: rgba(100, 150, 255, 0.1); padding: 0.5em; border-radius: 0.5em;">
-                <strong>Tesla Fleet API</strong>
-                <br><small>Direct Tesla API (Free)</small>
-            </header>
-
-            {% if current_user.fleet_api_access_token_encrypted %}
-                <!-- Connected - Tunnel Section FIRST -->
-                <div id="tunnelSection" style="padding: 0.6em; background: rgba(100, 150, 255, 0.1); border-radius: 0.5em; margin: 0.5em 0;">
-                    <p style="margin: 0 0 0.5em 0; font-size: 0.85em;">
-                        <strong>Public Tunnel (Cloudflare)</strong>
-                    </p>
-                    <p id="cloudflaredStatus" style="font-size: 0.8em; margin: 0 0 0.5em 0;">
-                        <span style="color: #999;">Checking cloudflared...</span>
-                    </p>
-                    <p style="margin: 0; font-size: 0.85em;">
-                        <strong>Status:</strong> <span id="tunnelStatusText">Checking...</span>
-                    </p>
-                    <div id="tunnelUrlDisplay" style="display: none; margin-top: 0.5em;">
-                        <p style="margin: 0; font-size: 0.8em; word-break: break-all;">
-                            <strong>URL:</strong> <code id="tunnelUrl"></code>
-                        </p>
-                        <p style="margin: 0.3em 0 0 0; font-size: 0.75em; color: #666;">
-                            Update Tesla Developer Portal with this URL
-                        </p>
-                    </div>
-                </div>
-
-                <div style="display: flex; gap: 0.5em; margin-top: 0.5em;">
-                    <button type="button" id="startTunnelBtn" class="outline" style="flex: 1; text-align: center; font-size: 0.85em;" onclick="startTunnel()">
-                        Start Tunnel
-                    </button>
-                    <button type="button" id="stopTunnelBtn" class="outline secondary" style="flex: 1; text-align: center; font-size: 0.85em; display: none;" onclick="stopTunnel()">
-                        Stop Tunnel
-                    </button>
-                </div>
-                <p id="tunnelActionStatus" style="font-size: 0.8em; margin-top: 0.3em; display: none;"></p>
-
-                <!-- Named Tunnel Configuration -->
-                <details style="margin-top: 0.5em;">
-                    <summary style="font-size: 0.85em;"><strong>Configure Named Tunnel (Stable URL)</strong></summary>
-                    <div style="padding: 0.5em; margin-top: 0.5em; background: rgba(100, 200, 100, 0.1); border-radius: 0.3em;">
-                        <p style="font-size: 0.8em; margin: 0 0 0.5em 0;">
-                            Named tunnels provide a stable URL using your own domain.
-                            <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/" target="_blank">Create a tunnel</a> in Cloudflare dashboard first.
-                        </p>
-
-                        <label style="font-size: 0.85em; display: block; margin-bottom: 0.3em;">
-                            Tunnel Token
-                            <input type="password" id="tunnelToken" placeholder="eyJhIjoiNj..." style="font-size: 0.85em; width: 100%;">
-                        </label>
-
-                        <label style="font-size: 0.85em; display: block; margin-bottom: 0.3em;">
-                            Custom Domain
-                            <input type="text" id="tunnelDomain" placeholder="tesla.mydomain.com"
-                                   value="{{ current_user.cloudflare_tunnel_domain or '' }}" style="font-size: 0.85em; width: 100%;">
-                        </label>
-
-                        <label style="font-size: 0.85em; display: flex; align-items: center; gap: 0.3em; margin: 0.5em 0;">
-                            <input type="checkbox" id="tunnelAutoStart" {% if current_user.cloudflare_tunnel_enabled %}checked{% endif %}>
-                            Auto-start tunnel on app startup
-                        </label>
-
-                        <div style="display: flex; gap: 0.5em; margin-top: 0.5em;">
-                            <button type="button" class="outline" style="flex: 1; font-size: 0.85em;" onclick="saveTunnelConfig()">
-                                Save Configuration
-                            </button>
-                            <button type="button" class="outline" style="flex: 1; font-size: 0.85em;" onclick="startNamedTunnel()">
-                                Start Named Tunnel
-                            </button>
-                        </div>
-                        <p id="namedTunnelStatus" style="font-size: 0.8em; margin-top: 0.3em; display: none;"></p>
-                    </div>
-                </details>
-
-                <!-- Key Status and Generation - SECOND -->
-                <div id="keyStatusSection" style="padding: 0.6em; background: rgba(150, 150, 150, 0.1); border-radius: 0.5em; margin: 0.5em 0;">
-                    <p style="margin: 0; font-size: 0.85em;">
-                        <strong>Domain Keys:</strong> <span id="keyStatusText">Checking...</span>
-                    </p>
-                </div>
-
-                <div style="display: flex; gap: 0.5em; margin-top: 0.5em;">
-                    <button type="button" id="generateKeysBtn" class="outline" style="flex: 1; text-align: center; font-size: 0.85em;" onclick="generateKeys()">
-                        Regenerate Domain Keys
-                    </button>
-                    <button type="button" id="deleteKeysBtn" class="outline secondary" style="flex: 1; text-align: center; font-size: 0.85em;" onclick="deleteKeys()">
-                        Delete Keys
-                    </button>
-                </div>
-                <p id="generateKeysStatus" style="font-size: 0.8em; margin-top: 0.3em; display: none;"></p>
-
-                <!-- Register Domain - THIRD -->
-                <button type="button" id="registerDomainBtn" class="outline" style="display: block; text-align: center; width: 100%; font-size: 0.85em; margin-top: 0.5em;" onclick="registerDomain()">
-                    Register Domain with Tesla
-                </button>
-                <p id="registerDomainStatus" style="font-size: 0.8em; margin-top: 0.3em; display: none;"></p>
-
-                <!-- OAuth Status - FOURTH (after registration) -->
-                <div style="padding: 0.8em; background: rgba(0, 255, 0, 0.1); border-radius: 0.5em; margin: 0.5em 0;">
-                    <p style="margin: 0; color: #51cf66; font-size: 0.9em;">✅ <strong>Connected</strong></p>
-                </div>
-
-                <p style="font-size: 0.85em; margin: 0.5em 0;">
-                    OAuth tokens configured<br>
-                    {% if current_user.fleet_api_token_expires_at %}
-                    Token expires: {{ current_user.fleet_api_token_expires_at.strftime('%Y-%m-%d %H:%M UTC') }}
-                    {% endif %}
-                </p>
-
-                <div style="display: flex; gap: 0.5em; margin-top: 0.5em;">
-                    <a href="{{ url_for('main.fleet_api_oauth_start') }}" class="outline" style="flex: 1; text-align: center; font-size: 0.85em;">Reconnect</a>
-                    <form action="{{ url_for('main.fleet_api_disconnect') }}" method="post" style="flex: 1; margin: 0;">
-                        <button type="submit" class="outline secondary" style="width: 100%; font-size: 0.85em;" onclick="return confirm('Disconnect Tesla Fleet API? OAuth tokens will be cleared but client credentials preserved.')">Disconnect</button>
-                    </form>
-                </div>
-
-                <details style="margin-top: 0.5em;">
-                    <summary style="font-size: 0.85em;">Setup steps for new registration</summary>
-                    <div style="font-size: 0.8em; margin-top: 0.5em; padding: 0.5em; background: rgba(100, 200, 255, 0.1); border-radius: 0.3em;">
-                        <p style="margin: 0 0 0.5em 0;">To register a new domain with Tesla:</p>
-                        <ol style="margin: 0.3em 0 0 1.2em; padding: 0;">
-                            <li style="margin: 0.3em 0;">Click <strong>"Start Tunnel"</strong> to get a public URL</li>
-                            <li style="margin: 0.3em 0;">Update <strong>Tesla Developer Portal</strong> with the tunnel URL:
-                                <ul style="margin: 0.2em 0 0 1em;">
-                                    <li>Allowed Origins: <code>[tunnel-url]</code></li>
-                                    <li>Redirect URI: <code>[tunnel-url]/fleet-api/callback</code></li>
-                                </ul>
-                            </li>
-                            <li style="margin: 0.3em 0;">Update <strong>Redirect URI</strong> in API Configuration below</li>
-                            <li style="margin: 0.3em 0;">Click <strong>"Generate Keys"</strong></li>
-                            <li style="margin: 0.3em 0;">Click <strong>"Register Domain with Tesla"</strong></li>
-                            <li style="margin: 0.3em 0;">Complete OAuth authorization</li>
-                            <li style="margin: 0.3em 0;">Click <strong>"Stop Tunnel"</strong> when done</li>
-                        </ol>
-                    </div>
-                </details>
-
-                <details style="margin-top: 0.5em;">
-                    <summary style="font-size: 0.85em;">Getting 412 Precondition Failed?</summary>
-                    <div style="font-size: 0.8em; margin-top: 0.5em; padding: 0.5em; background: rgba(255, 200, 100, 0.1); border-radius: 0.3em;">
-                        <p style="margin: 0 0 0.5em 0;">If you see "412 Precondition Failed" errors, follow these steps:</p>
-                        <ol style="margin: 0.3em 0 0 1.2em; padding: 0;">
-                            <li style="margin: 0.3em 0;">Click <strong>"Generate Domain Keys"</strong> above</li>
-                            <li style="margin: 0.3em 0;">Verify the key is accessible at your domain: <code>/.well-known/appspecific/com.tesla.3p.public-key.pem</code></li>
-                            <li style="margin: 0.3em 0;">Click <strong>"Register Domain with Tesla"</strong></li>
-                        </ol>
-                    </div>
-                </details>
-            {% else %}
-                <!-- Not connected - Setup Flow -->
-
-                <!-- Step 1: Tunnel -->
-                <div style="padding: 0.6em; background: rgba(100, 150, 255, 0.1); border-radius: 0.5em; margin: 0.5em 0;">
-                    <p style="margin: 0 0 0.4em 0; font-size: 0.85em;">
-                        <strong>1. Start Public Tunnel</strong>
-                        <small style="color: #888; margin-left: 0.5em;">(requires <a href="https://github.com/cloudflare/cloudflared/releases" target="_blank">cloudflared</a>)</small>
-                    </p>
-                    <p id="cloudflaredStatusSetup" style="font-size: 0.8em; margin: 0 0 0.3em 0;">
-                        <span style="color: #999;">Checking cloudflared...</span>
-                    </p>
-                    <div style="display: flex; align-items: center; gap: 0.5em;">
-                        <span style="font-size: 0.85em;"><span id="tunnelStatusTextSetup">Checking...</span></span>
-                        <button type="button" id="startTunnelBtnSetup" class="outline" style="font-size: 0.8em; padding: 0.3em 0.8em; margin: 0;" onclick="startTunnel()">Start</button>
-                        <button type="button" id="stopTunnelBtnSetup" class="outline secondary" style="font-size: 0.8em; padding: 0.3em 0.8em; margin: 0; display: none;" onclick="stopTunnel()">Stop</button>
-                    </div>
-                    <div id="tunnelUrlDisplaySetup" style="display: none; margin-top: 0.4em;">
-                        <code id="tunnelUrlSetup" style="font-size: 0.75em; word-break: break-all;"></code>
-                    </div>
-                    <p id="tunnelActionStatusSetup" style="font-size: 0.75em; margin: 0.3em 0 0 0; display: none;"></p>
-
-                    <!-- Named Tunnel Option -->
-                    <details style="margin-top: 0.4em;">
-                        <summary style="font-size: 0.8em;">Or use a Named Tunnel (stable URL)</summary>
-                        <div style="padding: 0.4em; margin-top: 0.3em; background: rgba(100, 200, 100, 0.1); border-radius: 0.3em;">
-                            <p style="font-size: 0.75em; margin: 0 0 0.3em 0;">
-                                <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/" target="_blank">Create a tunnel</a> in Cloudflare dashboard first.
-                            </p>
-                            <input type="password" id="tunnelTokenSetup" placeholder="Tunnel Token" style="font-size: 0.8em; width: 100%; margin-bottom: 0.2em;">
-                            <input type="text" id="tunnelDomainSetup" placeholder="tesla.mydomain.com" value="{{ current_user.cloudflare_tunnel_domain or '' }}" style="font-size: 0.8em; width: 100%; margin-bottom: 0.2em;">
-                            <label style="font-size: 0.75em; display: flex; align-items: center; gap: 0.3em;">
-                                <input type="checkbox" id="tunnelAutoStartSetup" {% if current_user.cloudflare_tunnel_enabled %}checked{% endif %}>
-                                Auto-start on app startup
-                            </label>
-                            <div style="display: flex; gap: 0.3em; margin-top: 0.3em;">
-                                <button type="button" class="outline" style="flex: 1; font-size: 0.75em; padding: 0.3em;" onclick="saveTunnelConfigSetup()">Save</button>
-                                <button type="button" class="outline" style="flex: 1; font-size: 0.75em; padding: 0.3em;" onclick="startNamedTunnelSetup()">Start</button>
-                            </div>
-                            <p id="namedTunnelStatusSetup" style="font-size: 0.75em; margin: 0.3em 0 0 0; display: none;"></p>
-                        </div>
-                    </details>
-                </div>
-
-                <!-- Step 2: Tesla Developer Portal -->
-                <div style="padding: 0.6em; background: rgba(255, 200, 100, 0.1); border-radius: 0.5em; margin: 0.5em 0;">
-                    <p style="margin: 0 0 0.3em 0; font-size: 0.85em;"><strong>2. Update <a href="https://developer.tesla.com" target="_blank">Tesla Developer Portal</a></strong></p>
-                    <div style="font-size: 0.8em; background: rgba(0,0,0,0.2); padding: 0.4em; border-radius: 0.3em;">
-                        <div style="margin-bottom: 0.2em;"><strong>Allowed Origins:</strong> <code id="allowedOriginHint" style="font-size: 0.9em;">[start tunnel]</code></div>
-                        <div><strong>Redirect URI:</strong> <code id="redirectUriHint" style="font-size: 0.9em;">[start tunnel]</code></div>
-                    </div>
-                    <p style="margin: 0.3em 0 0 0; font-size: 0.75em; color: #888;">Copy Client ID & Secret to the form below, then save.</p>
-                </div>
-
-                <!-- Step 3: Generate Keys & Register -->
-                <div style="padding: 0.6em; background: rgba(150, 150, 150, 0.1); border-radius: 0.5em; margin: 0.5em 0;">
-                    <p style="margin: 0 0 0.3em 0; font-size: 0.85em;"><strong>3. Generate Keys & Register Domain</strong></p>
-                    <div id="keyStatusSectionSetup" style="margin-bottom: 0.3em;">
-                        <span style="font-size: 0.8em;">Keys: <span id="keyStatusTextSetup">Checking...</span></span>
-                    </div>
-                    <div style="display: flex; gap: 0.5em;">
-                        <button type="button" id="generateKeysBtnSetup" class="outline" style="flex: 1; font-size: 0.8em; padding: 0.4em;" onclick="generateKeys()">Generate Keys</button>
-                        <button type="button" id="registerDomainBtnSetup" class="outline" style="flex: 1; font-size: 0.8em; padding: 0.4em;" onclick="registerDomain()">Register Domain</button>
-                    </div>
-                    <p id="generateKeysStatusSetup" style="font-size: 0.75em; margin: 0.3em 0 0 0; display: none;"></p>
-                    <p id="registerDomainStatusSetup" style="font-size: 0.75em; margin: 0.3em 0 0 0; display: none;"></p>
-                </div>
-
-                <!-- Step 4: OAuth -->
-                <div style="padding: 0.6em; background: rgba(0, 200, 100, 0.1); border-radius: 0.5em; margin: 0.5em 0;">
-                    <p style="margin: 0 0 0.3em 0; font-size: 0.85em;"><strong>4. Connect to Tesla</strong></p>
-                    <a href="{{ url_for('main.fleet_api_oauth_start') }}" class="outline" style="display: block; text-align: center; width: 100%; font-size: 0.85em;">Authorize with Tesla</a>
-                </div>
-
-                <details style="margin-top: 0.5em;">
-                    <summary style="font-size: 0.85em;">About Fleet API</summary>
-                    <p style="font-size: 0.8em; margin-top: 0.5em;">
-                        ✓ Completely free<br>
-                        ✓ Direct connection to Tesla<br>
-                        ✓ GUI-based configuration (no .env needed)<br>
-                        ✗ Requires Tesla developer account<br>
-                        ✗ OAuth setup required<br>
-                        ✗ Tokens expire every 8 hours (auto-refresh)
-                    </p>
-                </details>
-            {% endif %}
-        </article>
-        {% endif %}
-    </article>
-
-    <!-- Tesla Configuration Section -->
+    <!-- Tesla Configuration - Combined Section -->
     <article>
         <header><strong>Tesla Configuration</strong></header>
-        <p>Configure your Tesla API credentials and energy site.</p>
+        <p>Configure your Tesla API connection and energy site.</p>
+
         <form action="{{ url_for('main.settings') }}" method="post" novalidate>
             {{ form.hidden_tag() }}
 
-            <fieldset style="margin-top: 1em;">
-                <legend>Teslemetry (Optional)</legend>
-                <label for="teslemetry_api_key">
-                    {{ form.teslemetry_api_key.label }}
-                    <small>Sign up at <a href="https://teslemetry.com" target="_blank">teslemetry.com</a>, connect your Tesla account, and paste your API key here.</small>
-                </label>
-                <div style="display: flex; align-items: center; gap: 0.5em;">
-                    {{ form.teslemetry_api_key(size=64, type='password', class='secure-field', style='width: 100%;') }}
-                    <button type="button" onclick="toggleVisibility('teslemetry_api_key', this)"
-                            style="background: none; border: none; cursor: pointer; padding: 0.5em;
-                                   font-size: 1.2em; color: var(--muted-color); flex-shrink: 0; width: 40px;"
-                            aria-label="Toggle visibility" title="Show/Hide API Key">
-                        👁️
-                    </button>
-                </div>
-            </fieldset>
+            <!-- Tesla API Provider Selection -->
+            <label for="tesla_api_provider">
+                API Provider
+                <small>Choose how to connect to your Tesla Powerwall</small>
+                <select id="tesla_api_provider" name="tesla_api_provider" onchange="toggleTeslaProviderSettings(); this.form.submit();">
+                    <option value="teslemetry" {% if not current_user.tesla_api_provider or current_user.tesla_api_provider == 'teslemetry' %}selected{% endif %}>Teslemetry (~$4/month, easy setup)</option>
+                    <option value="fleet_api" {% if current_user.tesla_api_provider == 'fleet_api' %}selected{% endif %}>Tesla Fleet API (free, requires setup)</option>
+                </select>
+            </label>
 
-            <fieldset style="margin-top: 1em;">
-                <legend>Tesla Fleet API (Optional)</legend>
-                <label for="fleet_api_client_id">
-                    {{ form.fleet_api_client_id.label }}
-                    <small>Register your application at <a href="https://developer.tesla.com" target="_blank">developer.tesla.com</a> and paste your Client ID here.</small>
-                </label>
-                <div style="display: flex; align-items: center; gap: 0.5em;">
-                    {{ form.fleet_api_client_id(size=64, type='password', class='secure-field', style='width: 100%;') }}
-                    <button type="button" onclick="toggleVisibility('fleet_api_client_id', this)"
-                            style="background: none; border: none; cursor: pointer; padding: 0.5em;
-                                   font-size: 1.2em; color: var(--muted-color); flex-shrink: 0; width: 40px;"
-                            aria-label="Toggle visibility" title="Show/Hide Client ID">
-                        👁️
-                    </button>
-                </div>
+            <!-- Teslemetry Settings (shown when Teslemetry is selected) -->
+            <div id="teslemetrySettings" style="margin-top: 1em; {% if current_user.tesla_api_provider == 'fleet_api' %}display: none;{% endif %}">
+                <fieldset>
+                    <legend>Teslemetry API</legend>
 
-                <label for="fleet_api_client_secret" style="margin-top: 0.5em;">
-                    {{ form.fleet_api_client_secret.label }}
-                    <small>Your Client Secret from <a href="https://developer.tesla.com" target="_blank">developer.tesla.com</a>.</small>
-                </label>
-                <div style="display: flex; align-items: center; gap: 0.5em;">
-                    {{ form.fleet_api_client_secret(size=64, type='password', class='secure-field', style='width: 100%;') }}
-                    <button type="button" onclick="toggleVisibility('fleet_api_client_secret', this)"
-                            style="background: none; border: none; cursor: pointer; padding: 0.5em;
-                                   font-size: 1.2em; color: var(--muted-color); flex-shrink: 0; width: 40px;"
-                            aria-label="Toggle visibility" title="Show/Hide Client Secret">
-                        👁️
-                    </button>
-                </div>
+                    {% if current_user.teslemetry_api_key_encrypted %}
+                    <div style="padding: 0.8em; background: rgba(0, 255, 0, 0.1); border-radius: 0.5em; margin-bottom: 1em;">
+                        <p style="margin: 0; color: #51cf66; font-size: 0.9em;">✅ <strong>Connected</strong></p>
+                    </div>
+                    {% endif %}
 
-                <label for="fleet_api_redirect_uri" style="margin-top: 0.5em;">
-                    {{ form.fleet_api_redirect_uri.label }}
-                    <small>OAuth callback URL. Must match what you registered at <a href="https://developer.tesla.com" target="_blank">developer.tesla.com</a>. Example: <code>http://localhost:5001/fleet-api/callback</code></small>
-                </label>
-                {{ form.fleet_api_redirect_uri(size=64, style='width: 100%;', placeholder='http://localhost:5001/fleet-api/callback') }}
-            </fieldset>
+                    <label for="teslemetry_api_key">
+                        {{ form.teslemetry_api_key.label }}
+                        <small>Get from <a href="https://teslemetry.com" target="_blank">teslemetry.com</a> after connecting your Tesla account.</small>
+                    </label>
+                    <div style="display: flex; align-items: center; gap: 0.5em;">
+                        {{ form.teslemetry_api_key(size=64, type='password', class='secure-field', style='width: 100%;') }}
+                        <button type="button" onclick="toggleVisibility('teslemetry_api_key', this)"
+                                style="background: none; border: none; cursor: pointer; padding: 0.5em;
+                                       font-size: 1.2em; color: var(--muted-color); flex-shrink: 0; width: 40px;"
+                                aria-label="Toggle visibility" title="Show/Hide API Key">
+                            👁️
+                        </button>
+                    </div>
 
+                    {% if current_user.teslemetry_api_key_encrypted %}
+                    <form action="{{ url_for('main.teslemetry_disconnect') }}" method="post" style="margin-top: 0.5em;">
+                        <button type="submit" class="outline secondary" style="font-size: 0.85em;" onclick="return confirm('Disconnect Teslemetry?')">Disconnect</button>
+                    </form>
+                    {% endif %}
+
+                    <details style="margin-top: 1em;">
+                        <summary style="font-size: 0.85em;">Setup Instructions</summary>
+                        <div style="font-size: 0.8em; margin-top: 0.5em; padding: 0.5em; background: rgba(100, 200, 150, 0.05); border-radius: 0.3em;">
+                            <p style="margin: 0 0 0.5em 0;"><strong>✅ Works with localhost (no public domain needed)</strong></p>
+                            <ol style="margin: 0.3em 0 0 1.2em; padding: 0;">
+                                <li style="margin: 0.3em 0;">Go to <a href="https://teslemetry.com" target="_blank">teslemetry.com</a></li>
+                                <li style="margin: 0.3em 0;">Sign in with your Tesla account</li>
+                                <li style="margin: 0.3em 0;">Authorize Teslemetry</li>
+                                <li style="margin: 0.3em 0;">Copy your API key and paste it above</li>
+                            </ol>
+                        </div>
+                    </details>
+                </fieldset>
+            </div>
+
+            <!-- Fleet API Settings (shown when Fleet API is selected) -->
+            <div id="fleetApiSettings" style="margin-top: 1em; {% if current_user.tesla_api_provider != 'fleet_api' %}display: none;{% endif %}">
+                <fieldset>
+                    <legend>Tesla Fleet API</legend>
+
+                    {% if current_user.fleet_api_access_token_encrypted %}
+                    <div style="padding: 0.8em; background: rgba(0, 255, 0, 0.1); border-radius: 0.5em; margin-bottom: 1em;">
+                        <p style="margin: 0; color: #51cf66; font-size: 0.9em;">✅ <strong>Connected</strong></p>
+                        <p style="font-size: 0.8em; margin: 0.3em 0 0 0;">
+                            {% if current_user.fleet_api_token_expires_at %}
+                            Token expires: {{ current_user.fleet_api_token_expires_at.strftime('%Y-%m-%d %H:%M UTC') }}
+                            {% endif %}
+                        </p>
+                    </div>
+
+                    <div style="display: flex; gap: 0.5em; margin-bottom: 1em;">
+                        <a href="{{ url_for('main.fleet_api_oauth_start') }}" class="outline" style="flex: 1; text-align: center; font-size: 0.85em;">Reconnect</a>
+                        <form action="{{ url_for('main.fleet_api_disconnect') }}" method="post" style="flex: 1; margin: 0;">
+                            <button type="submit" class="outline secondary" style="width: 100%; font-size: 0.85em;" onclick="return confirm('Disconnect Tesla Fleet API?')">Disconnect</button>
+                        </form>
+                    </div>
+                    {% endif %}
+
+                    <!-- Credentials -->
+                    <label for="fleet_api_client_id">
+                        {{ form.fleet_api_client_id.label }}
+                        <small>From <a href="https://developer.tesla.com" target="_blank">developer.tesla.com</a></small>
+                    </label>
+                    <div style="display: flex; align-items: center; gap: 0.5em;">
+                        {{ form.fleet_api_client_id(size=64, type='password', class='secure-field', style='width: 100%;') }}
+                        <button type="button" onclick="toggleVisibility('fleet_api_client_id', this)"
+                                style="background: none; border: none; cursor: pointer; padding: 0.5em;
+                                       font-size: 1.2em; color: var(--muted-color); flex-shrink: 0; width: 40px;"
+                                aria-label="Toggle visibility">👁️</button>
+                    </div>
+
+                    <label for="fleet_api_client_secret" style="margin-top: 0.5em;">
+                        {{ form.fleet_api_client_secret.label }}
+                        <small>From <a href="https://developer.tesla.com" target="_blank">developer.tesla.com</a></small>
+                    </label>
+                    <div style="display: flex; align-items: center; gap: 0.5em;">
+                        {{ form.fleet_api_client_secret(size=64, type='password', class='secure-field', style='width: 100%;') }}
+                        <button type="button" onclick="toggleVisibility('fleet_api_client_secret', this)"
+                                style="background: none; border: none; cursor: pointer; padding: 0.5em;
+                                       font-size: 1.2em; color: var(--muted-color); flex-shrink: 0; width: 40px;"
+                                aria-label="Toggle visibility">👁️</button>
+                    </div>
+
+                    <label for="fleet_api_redirect_uri" style="margin-top: 0.5em;">
+                        {{ form.fleet_api_redirect_uri.label }}
+                        <small>Must match Tesla Developer Portal. Example: <code>http://localhost:5001/fleet-api/callback</code></small>
+                    </label>
+                    {{ form.fleet_api_redirect_uri(size=64, style='width: 100%;', placeholder='http://localhost:5001/fleet-api/callback') }}
+                </fieldset>
+
+                <!-- Fleet API Setup Tools (collapsible) -->
+                <details style="margin-top: 1em;" {% if not current_user.fleet_api_access_token_encrypted %}open{% endif %}>
+                    <summary style="font-weight: bold;">Setup Tools (Tunnel, Keys, Registration)</summary>
+                    <div style="padding: 0.5em; margin-top: 0.5em; background: rgba(100, 150, 255, 0.05); border-radius: 0.3em;">
+
+                        <!-- Tunnel Section -->
+                        <div style="padding: 0.6em; background: rgba(100, 150, 255, 0.1); border-radius: 0.5em; margin-bottom: 0.5em;">
+                            <p style="margin: 0 0 0.3em 0; font-size: 0.85em;"><strong>1. Public Tunnel (Cloudflare)</strong></p>
+                            <p id="cloudflaredStatus" style="font-size: 0.8em; margin: 0 0 0.3em 0;">
+                                <span style="color: #999;">Checking cloudflared...</span>
+                            </p>
+                            <p style="margin: 0; font-size: 0.85em;">
+                                <strong>Status:</strong> <span id="tunnelStatusText">Checking...</span>
+                            </p>
+                            <div id="tunnelUrlDisplay" style="display: none; margin-top: 0.3em;">
+                                <code id="tunnelUrl" style="font-size: 0.75em; word-break: break-all;"></code>
+                            </div>
+                            <div style="display: flex; gap: 0.5em; margin-top: 0.5em;">
+                                <button type="button" id="startTunnelBtn" class="outline" style="flex: 1; font-size: 0.8em;" onclick="startTunnel()">Start Tunnel</button>
+                                <button type="button" id="stopTunnelBtn" class="outline secondary" style="flex: 1; font-size: 0.8em; display: none;" onclick="stopTunnel()">Stop Tunnel</button>
+                            </div>
+                            <p id="tunnelActionStatus" style="font-size: 0.75em; margin-top: 0.3em; display: none;"></p>
+
+                            <!-- Named Tunnel -->
+                            <details style="margin-top: 0.5em;">
+                                <summary style="font-size: 0.8em;">Named Tunnel (stable URL)</summary>
+                                <div style="padding: 0.4em; margin-top: 0.3em; background: rgba(100, 200, 100, 0.1); border-radius: 0.3em;">
+                                    <input type="password" id="tunnelToken" placeholder="Tunnel Token" style="font-size: 0.8em; width: 100%; margin-bottom: 0.2em;">
+                                    <input type="text" id="tunnelDomain" placeholder="tesla.mydomain.com" value="{{ current_user.cloudflare_tunnel_domain or '' }}" style="font-size: 0.8em; width: 100%; margin-bottom: 0.2em;">
+                                    <label style="font-size: 0.75em; display: flex; align-items: center; gap: 0.3em;">
+                                        <input type="checkbox" id="tunnelAutoStart" {% if current_user.cloudflare_tunnel_enabled %}checked{% endif %}>
+                                        Auto-start on app startup
+                                    </label>
+                                    <div style="display: flex; gap: 0.3em; margin-top: 0.3em;">
+                                        <button type="button" class="outline" style="flex: 1; font-size: 0.75em;" onclick="saveTunnelConfig()">Save</button>
+                                        <button type="button" class="outline" style="flex: 1; font-size: 0.75em;" onclick="startNamedTunnel()">Start Named</button>
+                                    </div>
+                                    <p id="namedTunnelStatus" style="font-size: 0.75em; margin-top: 0.3em; display: none;"></p>
+                                </div>
+                            </details>
+                        </div>
+
+                        <!-- Tesla Developer Portal Hints -->
+                        <div style="padding: 0.6em; background: rgba(255, 200, 100, 0.1); border-radius: 0.5em; margin-bottom: 0.5em;">
+                            <p style="margin: 0 0 0.3em 0; font-size: 0.85em;"><strong>2. <a href="https://developer.tesla.com" target="_blank">Tesla Developer Portal</a></strong></p>
+                            <div style="font-size: 0.8em; background: rgba(0,0,0,0.2); padding: 0.4em; border-radius: 0.3em;">
+                                <div style="margin-bottom: 0.2em;"><strong>Allowed Origins:</strong> <code id="allowedOriginHint">[start tunnel]</code></div>
+                                <div><strong>Redirect URI:</strong> <code id="redirectUriHint">[start tunnel]</code></div>
+                            </div>
+                        </div>
+
+                        <!-- Keys & Registration -->
+                        <div style="padding: 0.6em; background: rgba(150, 150, 150, 0.1); border-radius: 0.5em; margin-bottom: 0.5em;">
+                            <p style="margin: 0 0 0.3em 0; font-size: 0.85em;"><strong>3. Domain Keys & Registration</strong></p>
+                            <p style="margin: 0 0 0.3em 0; font-size: 0.8em;">
+                                Keys: <span id="keyStatusText">Checking...</span>
+                            </p>
+                            <div style="display: flex; gap: 0.5em;">
+                                <button type="button" id="generateKeysBtn" class="outline" style="flex: 1; font-size: 0.8em;" onclick="generateKeys()">Generate Keys</button>
+                                <button type="button" id="registerDomainBtn" class="outline" style="flex: 1; font-size: 0.8em;" onclick="registerDomain()">Register Domain</button>
+                            </div>
+                            <p id="generateKeysStatus" style="font-size: 0.75em; margin-top: 0.3em; display: none;"></p>
+                            <p id="registerDomainStatus" style="font-size: 0.75em; margin-top: 0.3em; display: none;"></p>
+                        </div>
+
+                        <!-- OAuth -->
+                        <div style="padding: 0.6em; background: rgba(0, 200, 100, 0.1); border-radius: 0.5em;">
+                            <p style="margin: 0 0 0.3em 0; font-size: 0.85em;"><strong>4. Connect to Tesla</strong></p>
+                            <a href="{{ url_for('main.fleet_api_oauth_start') }}" class="outline" style="display: block; text-align: center; width: 100%; font-size: 0.85em;">Authorize with Tesla</a>
+                        </div>
+                    </div>
+                </details>
+
+                <details style="margin-top: 0.5em;">
+                    <summary style="font-size: 0.85em;">Troubleshooting: 412 Precondition Failed</summary>
+                    <div style="font-size: 0.8em; margin-top: 0.5em; padding: 0.5em; background: rgba(255, 200, 100, 0.1); border-radius: 0.3em;">
+                        <ol style="margin: 0 0 0 1.2em; padding: 0;">
+                            <li>Click "Generate Keys" above</li>
+                            <li>Verify key at: <code>/.well-known/appspecific/com.tesla.3p.public-key.pem</code></li>
+                            <li>Click "Register Domain"</li>
+                        </ol>
+                    </div>
+                </details>
+            </div>
+
+            <!-- Energy Site Selection (shown for both providers) -->
             <fieldset style="margin-top: 1em;">
                 <legend>Tesla Energy Site</legend>
                 <div id="energy-site-container">
@@ -572,11 +403,10 @@
                     {% else %}
                     <div id="energy-site-status" style="padding: 0.8em; background: rgba(150, 150, 150, 0.1); border-radius: 0.5em; margin: 0.5em 0;">
                         <p style="margin: 0; color: #999; font-size: 0.9em;">⭕ <strong>Not selected</strong></p>
-                        <p style="margin: 0.3em 0 0 0; font-size: 0.75em;">Connect your Tesla account above to detect your energy site.</p>
+                        <p style="margin: 0.3em 0 0 0; font-size: 0.75em;">Configure API credentials above first.</p>
                     </div>
                     {% endif %}
 
-                    <!-- Site selection dropdown (populated via JavaScript) -->
                     <div id="site-selector-container" style="display: none; margin-top: 0.5em;">
                         <label for="energy-site-select">
                             Select Energy Site
@@ -1311,6 +1141,22 @@
             const amberTokenDiv = document.getElementById('flowPowerAmberToken');
             if (amberTokenDiv) {
                 amberTokenDiv.style.display = (priceSource === 'aemo') ? 'none' : 'block';
+            }
+        }
+
+        // Toggle Tesla provider settings based on API provider selection
+        function toggleTeslaProviderSettings() {
+            const provider = document.getElementById('tesla_api_provider').value;
+            const teslemetrySettings = document.getElementById('teslemetrySettings');
+            const fleetApiSettings = document.getElementById('fleetApiSettings');
+
+            if (provider === 'fleet_api') {
+                if (teslemetrySettings) teslemetrySettings.style.display = 'none';
+                if (fleetApiSettings) fleetApiSettings.style.display = 'block';
+            } else {
+                // Default to Teslemetry
+                if (teslemetrySettings) teslemetrySettings.style.display = 'block';
+                if (fleetApiSettings) fleetApiSettings.style.display = 'none';
             }
         }
 
