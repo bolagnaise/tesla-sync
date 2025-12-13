@@ -1082,18 +1082,24 @@
             render30MinForecast();
         }
 
-        // Fetch current Amber prices
+        // Fetch current electricity prices (Amber or AEMO depending on user config)
         async function fetchCurrentPrices() {
             try {
-                const response = await fetch('/api/amber/current-price');
+                const response = await fetch('/api/current-price');
                 if (!response.ok) {
-                    // Don't spam console if Amber isn't configured
+                    // Don't spam console if price source isn't configured
                     if (response.status !== 404 && response.status !== 500) {
                         console.error('Failed to fetch prices:', response.status);
                     }
                     return;
                 }
                 const data = await response.json();
+
+                // Update price source indicator if AEMO
+                const priceSourceEl = document.getElementById('price-source-indicator');
+                if (priceSourceEl) {
+                    priceSourceEl.textContent = data.source || 'Amber';
+                }
 
                 // Update 5-minute billing window with live prices
                 update5MinWindow(data.prices || data);

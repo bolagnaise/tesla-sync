@@ -1056,6 +1056,167 @@ def amber_current_price(amber_client):
     return jsonify(prices)
 
 
+@bp.route('/api/current-price')
+@login_required
+def current_price():
+    """Get current electricity price - unified endpoint for Amber and AEMO users"""
+    logger.info(f"Current price requested by user: {current_user.email}")
+
+    # Determine price source based on user settings
+    use_aemo = (
+        current_user.electricity_provider == 'flow_power' and
+        current_user.flow_power_price_source == 'aemo'
+    )
+
+    if use_aemo:
+        # Use AEMO data for Flow Power AEMO-only mode
+        aemo_region = current_user.flow_power_state
+        if not aemo_region:
+            logger.error("AEMO price source selected but no region configured")
+            return jsonify({'error': 'AEMO region not configured'}), 400
+
+        logger.info(f"Fetching AEMO current price for region: {aemo_region}")
+        aemo_client = AEMOAPIClient()
+        price_data = aemo_client.get_region_price(aemo_region)
+
+        if not price_data:
+            logger.error(f"Failed to fetch AEMO price for {aemo_region}")
+            return jsonify({'error': 'Failed to fetch AEMO price'}), 500
+
+        # Get network tariff settings for price adjustment
+        network_tariff_type = current_user.network_tariff_type or 'flat'
+        network_flat_rate = current_user.network_flat_rate or 8.0
+        network_other_fees = current_user.network_other_fees or 1.5
+        network_include_gst = current_user.network_include_gst if current_user.network_include_gst is not None else True
+
+        # Calculate network charges for current time
+        now = datetime.now()
+        hour, minute = now.hour, now.minute
+
+        if network_tariff_type == 'flat':
+            network_charge_cents = network_flat_rate
+        else:
+            # TOU - determine which rate applies
+            time_minutes = hour * 60 + minute
+            peak_start = current_user.network_peak_start or '16:00'
+            peak_end = current_user.network_peak_end or '21:00'
+            offpeak_start = current_user.network_offpeak_start or '10:00'
+            offpeak_end = current_user.network_offpeak_end or '15:00'
+
+            peak_start_mins = int(peak_start.split(':')[0]) * 60 + int(peak_start.split(':')[1])
+            peak_end_mins = int(peak_end.split(':')[0]) * 60 + int(peak_end.split(':')[1])
+            offpeak_start_mins = int(offpeak_start.split(':')[0]) * 60 + int(offpeak_start.split(':')[1])
+            offpeak_end_mins = int(offpeak_end.split(':')[0]) * 60 + int(offpeak_end.split(':')[1])
+
+            if peak_start_mins <= time_minutes < peak_end_mins:
+                network_charge_cents = current_user.network_peak_rate or 15.0
+            elif offpeak_start_mins <= time_minutes < offpeak_end_mins:
+                network_charge_cents = current_user.network_offpeak_rate or 2.0
+            else:
+                network_charge_cents = current_user.network_shoulder_rate or 5.0
+
+        # Add other fees and GST
+        total_network_cents = network_charge_cents + network_other_fees
+        if network_include_gst:
+            total_network_cents = total_network_cents * 1.10
+
+        # AEMO price is in $/MWh, convert to c/kWh and add network charges
+        wholesale_cents = price_data.get('price', 0) / 10  # $/MWh to c/kWh
+        total_price_cents = wholesale_cents + total_network_cents
+
+        # Calculate 5-minute interval times
+        interval_start = (minute // 5) * 5
+        interval_end = interval_start + 5
+        if interval_end >= 60:
+            end_hour = (hour + 1) % 24
+            end_minute = interval_end - 60
+            display_end = f"{end_hour:02d}:{end_minute:02d}"
+        else:
+            display_end = f"{hour:02d}:{interval_end:02d}"
+        display_start = f"{hour:02d}:{interval_start:02d}"
+
+        # Format response to match Amber format expected by dashboard
+        prices = [
+            {
+                'channelType': 'general',
+                'perKwh': round(total_price_cents, 2),
+                'wholesalePerKwh': round(wholesale_cents, 2),
+                'networkPerKwh': round(total_network_cents, 2),
+                'type': 'CurrentInterval',
+                'displayIntervalStart': display_start,
+                'displayIntervalEnd': display_end,
+                'renewables': 0,  # AEMO doesn't provide this
+                'source': 'AEMO',
+                'region': aemo_region,
+            },
+            {
+                'channelType': 'feedIn',
+                'perKwh': 0,  # Flow Power: 0c outside Happy Hour
+                'type': 'CurrentInterval',
+                'displayIntervalStart': display_start,
+                'displayIntervalEnd': display_end,
+                'source': 'AEMO',
+            }
+        ]
+
+        # Check if we're in Happy Hour (5:30pm - 7:30pm) for feed-in
+        if (17 * 60 + 30) <= (hour * 60 + minute) < (19 * 60 + 30):
+            # Happy Hour export rate
+            from app.tariff_converter import FLOW_POWER_EXPORT_RATES
+            export_rate = FLOW_POWER_EXPORT_RATES.get(aemo_region, 0.45)
+            prices[1]['perKwh'] = round(export_rate * 100, 2)  # Convert $/kWh to c/kWh
+
+        logger.info(f"AEMO price for {aemo_region}: wholesale={wholesale_cents:.2f}c + network={total_network_cents:.2f}c = {total_price_cents:.2f}c/kWh")
+        return jsonify({'prices': prices, 'source': 'AEMO'})
+
+    else:
+        # Use Amber API (default) - redirect to existing endpoint
+        amber_client = get_amber_client(current_user)
+        if not amber_client:
+            logger.warning("Amber client not available for current price")
+            return jsonify({'error': 'Amber API not configured'}), 400
+
+        # Get WebSocket client from Flask app config
+        from flask import current_app
+        ws_client = current_app.config.get('AMBER_WEBSOCKET_CLIENT')
+
+        # Try WebSocket first, fall back to REST API
+        prices = amber_client.get_live_prices(ws_client=ws_client)
+
+        if not prices:
+            logger.error("No current price data available from WebSocket or REST API")
+            return jsonify({'error': 'No current price data available'}), 500
+
+        # Add display times for Amber prices
+        user_tz = ZoneInfo(get_powerwall_timezone(current_user))
+        for price_data in prices:
+            nem_time = datetime.fromisoformat(price_data['nemTime'].replace('Z', '+00:00'))
+
+            if price_data.get('type') == 'ActualInterval':
+                duration = price_data.get('duration', 5)
+                interval_end_time = nem_time.astimezone(user_tz)
+                interval_start_time = interval_end_time - timedelta(minutes=duration)
+                price_data['displayIntervalStart'] = interval_start_time.strftime('%H:%M')
+                price_data['displayIntervalEnd'] = interval_end_time.strftime('%H:%M')
+            else:
+                current_time = datetime.now(user_tz)
+                minute = current_time.minute
+                hour = current_time.hour
+                interval_start = (minute // 5) * 5
+                interval_end = interval_start + 5
+                if interval_end >= 60:
+                    end_hour = (hour + 1) % 24
+                    end_minute = interval_end - 60
+                    price_data['displayIntervalStart'] = f"{hour:02d}:{interval_start:02d}"
+                    price_data['displayIntervalEnd'] = f"{end_hour:02d}:{end_minute:02d}"
+                else:
+                    price_data['displayIntervalStart'] = f"{hour:02d}:{interval_start:02d}"
+                    price_data['displayIntervalEnd'] = f"{hour:02d}:{interval_end:02d}"
+
+        logger.info(f"Amber prices: {len(prices)} channels")
+        return jsonify({'prices': prices, 'source': 'Amber'})
+
+
 @bp.route('/api/amber/5min-forecast')
 @login_required
 def amber_5min_forecast():
