@@ -55,6 +55,19 @@ from .const import (
     ELECTRICITY_PROVIDERS,
     FLOW_POWER_STATES,
     FLOW_POWER_PRICE_SOURCES,
+    # Network Tariff configuration
+    CONF_NETWORK_TARIFF_TYPE,
+    CONF_NETWORK_FLAT_RATE,
+    CONF_NETWORK_PEAK_RATE,
+    CONF_NETWORK_SHOULDER_RATE,
+    CONF_NETWORK_OFFPEAK_RATE,
+    CONF_NETWORK_PEAK_START,
+    CONF_NETWORK_PEAK_END,
+    CONF_NETWORK_OFFPEAK_START,
+    CONF_NETWORK_OFFPEAK_END,
+    CONF_NETWORK_OTHER_FEES,
+    CONF_NETWORK_INCLUDE_GST,
+    NETWORK_TARIFF_TYPES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -852,6 +865,52 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                         CONF_FLOW_POWER_PRICE_SOURCE,
                         default=self._get_option(CONF_FLOW_POWER_PRICE_SOURCE, "amber"),
                     ): vol.In(FLOW_POWER_PRICE_SOURCES),
+                    # Network Tariff Configuration (for AEMO price source - adds DNSP fees)
+                    vol.Optional(
+                        CONF_NETWORK_TARIFF_TYPE,
+                        default=self._get_option(CONF_NETWORK_TARIFF_TYPE, "flat"),
+                    ): vol.In(NETWORK_TARIFF_TYPES),
+                    vol.Optional(
+                        CONF_NETWORK_FLAT_RATE,
+                        default=self._get_option(CONF_NETWORK_FLAT_RATE, 8.0),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=50.0)),
+                    vol.Optional(
+                        CONF_NETWORK_PEAK_RATE,
+                        default=self._get_option(CONF_NETWORK_PEAK_RATE, 15.0),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=50.0)),
+                    vol.Optional(
+                        CONF_NETWORK_SHOULDER_RATE,
+                        default=self._get_option(CONF_NETWORK_SHOULDER_RATE, 5.0),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=50.0)),
+                    vol.Optional(
+                        CONF_NETWORK_OFFPEAK_RATE,
+                        default=self._get_option(CONF_NETWORK_OFFPEAK_RATE, 2.0),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=50.0)),
+                    vol.Optional(
+                        CONF_NETWORK_PEAK_START,
+                        default=self._get_option(CONF_NETWORK_PEAK_START, "16:00"),
+                    ): str,
+                    vol.Optional(
+                        CONF_NETWORK_PEAK_END,
+                        default=self._get_option(CONF_NETWORK_PEAK_END, "21:00"),
+                    ): str,
+                    vol.Optional(
+                        CONF_NETWORK_OFFPEAK_START,
+                        default=self._get_option(CONF_NETWORK_OFFPEAK_START, "10:00"),
+                    ): str,
+                    vol.Optional(
+                        CONF_NETWORK_OFFPEAK_END,
+                        default=self._get_option(CONF_NETWORK_OFFPEAK_END, "15:00"),
+                    ): str,
+                    vol.Optional(
+                        CONF_NETWORK_OTHER_FEES,
+                        default=self._get_option(CONF_NETWORK_OTHER_FEES, 1.5),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=20.0)),
+                    vol.Optional(
+                        CONF_NETWORK_INCLUDE_GST,
+                        default=self._get_option(CONF_NETWORK_INCLUDE_GST, True),
+                    ): bool,
+                    # End Network Tariff
                     vol.Optional(
                         CONF_AUTO_SYNC_ENABLED,
                         default=self._get_option(CONF_AUTO_SYNC_ENABLED, True),

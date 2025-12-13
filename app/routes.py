@@ -546,6 +546,60 @@ def settings():
                 logger.info(f"Saving Flow Power price source: {source}")
                 current_user.flow_power_price_source = source
 
+        # Network Tariff Configuration (for Flow Power + AEMO)
+        if 'network_tariff_type' in submitted_fields:
+            tariff_type = request.form.get('network_tariff_type')
+            if tariff_type in ['flat', 'tou']:
+                logger.info(f"Saving network tariff type: {tariff_type}")
+                current_user.network_tariff_type = tariff_type
+
+        if 'network_flat_rate' in submitted_fields:
+            try:
+                rate = float(request.form.get('network_flat_rate', 8.0))
+                current_user.network_flat_rate = rate
+                logger.info(f"Saving network flat rate: {rate} c/kWh")
+            except (ValueError, TypeError):
+                pass
+
+        if 'network_peak_rate' in submitted_fields:
+            try:
+                current_user.network_peak_rate = float(request.form.get('network_peak_rate', 15.0))
+            except (ValueError, TypeError):
+                pass
+
+        if 'network_shoulder_rate' in submitted_fields:
+            try:
+                current_user.network_shoulder_rate = float(request.form.get('network_shoulder_rate', 5.0))
+            except (ValueError, TypeError):
+                pass
+
+        if 'network_offpeak_rate' in submitted_fields:
+            try:
+                current_user.network_offpeak_rate = float(request.form.get('network_offpeak_rate', 2.0))
+            except (ValueError, TypeError):
+                pass
+
+        if 'network_peak_start' in submitted_fields:
+            current_user.network_peak_start = request.form.get('network_peak_start', '16:00')
+
+        if 'network_peak_end' in submitted_fields:
+            current_user.network_peak_end = request.form.get('network_peak_end', '21:00')
+
+        if 'network_offpeak_start' in submitted_fields:
+            current_user.network_offpeak_start = request.form.get('network_offpeak_start', '10:00')
+
+        if 'network_offpeak_end' in submitted_fields:
+            current_user.network_offpeak_end = request.form.get('network_offpeak_end', '15:00')
+
+        if 'network_other_fees' in submitted_fields:
+            try:
+                current_user.network_other_fees = float(request.form.get('network_other_fees', 1.5))
+            except (ValueError, TypeError):
+                pass
+
+        # Checkbox - only present if checked
+        current_user.network_include_gst = 'network_include_gst' in request.form
+
         try:
             db.session.commit()
             logger.info("Settings saved successfully to database")
@@ -1629,7 +1683,7 @@ def tou_schedule():
 
     # Convert to Tesla tariff format using 30-min forecast data
     # The actual_interval (from 5-min data) will be injected for the current period only
-    from app.tariff_converter import AmberTariffConverter, apply_flow_power_export
+    from app.tariff_converter import AmberTariffConverter, apply_flow_power_export, apply_network_tariff
     converter = AmberTariffConverter()
     tariff = converter.convert_amber_to_tesla_tariff(
         forecast_30min,
@@ -1641,6 +1695,15 @@ def tou_schedule():
     if not tariff:
         logger.error("Failed to convert tariff")
         return jsonify({'error': 'Failed to convert tariff'}), 500
+
+    # Apply network tariff if using AEMO wholesale prices (no network fees included)
+    use_aemo = (
+        current_user.electricity_provider == 'flow_power' and
+        current_user.flow_power_price_source == 'aemo'
+    )
+    if use_aemo and current_user.network_tariff_type:
+        logger.info("Preview: Applying network tariff to AEMO wholesale prices")
+        tariff = apply_network_tariff(tariff, current_user)
 
     # Apply Flow Power export rates if user is on Flow Power (for preview display)
     if current_user.electricity_provider == 'flow_power' and current_user.flow_power_state:
@@ -1766,7 +1829,7 @@ def sync_tesla_schedule(tesla_client):
             logger.warning("Failed to fetch site_info from Tesla API, will auto-detect timezone from Amber data")
 
         # Convert Amber prices to Tesla tariff format
-        from app.tariff_converter import AmberTariffConverter, apply_flow_power_export
+        from app.tariff_converter import AmberTariffConverter, apply_flow_power_export, apply_network_tariff
         converter = AmberTariffConverter()
         tariff = converter.convert_amber_to_tesla_tariff(
             forecast,
@@ -1777,6 +1840,11 @@ def sync_tesla_schedule(tesla_client):
         if not tariff:
             logger.error("Failed to convert tariff")
             return jsonify({'error': 'Failed to convert Amber prices to Tesla tariff format'}), 500
+
+        # Apply network tariff if using AEMO wholesale prices (no network fees included)
+        if use_aemo and current_user.network_tariff_type:
+            logger.info("Applying network tariff to AEMO wholesale prices")
+            tariff = apply_network_tariff(tariff, current_user)
 
         # Apply Flow Power export rates if user is on Flow Power
         if current_user.electricity_provider == 'flow_power' and current_user.flow_power_state:

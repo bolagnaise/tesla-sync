@@ -98,6 +98,20 @@ class User(UserMixin, db.Model):
     flow_power_state = db.Column(db.String(10))  # NEM region: NSW1, VIC1, QLD1, SA1
     flow_power_price_source = db.Column(db.String(20), default='amber')  # 'amber', 'aemo'
 
+    # Network Tariff Configuration (for Flow Power + AEMO)
+    # Users look up their DNSP tariff and enter the rates
+    network_tariff_type = db.Column(db.String(10), default='flat')  # 'flat' or 'tou'
+    network_flat_rate = db.Column(db.Float, default=8.0)  # Flat network rate in c/kWh
+    network_peak_rate = db.Column(db.Float, default=15.0)  # Peak network rate in c/kWh
+    network_shoulder_rate = db.Column(db.Float, default=5.0)  # Shoulder network rate in c/kWh
+    network_offpeak_rate = db.Column(db.Float, default=2.0)  # Off-peak network rate in c/kWh
+    network_peak_start = db.Column(db.String(5), default='16:00')  # Peak period start HH:MM
+    network_peak_end = db.Column(db.String(5), default='21:00')  # Peak period end HH:MM
+    network_offpeak_start = db.Column(db.String(5), default='10:00')  # Off-peak period start HH:MM
+    network_offpeak_end = db.Column(db.String(5), default='15:00')  # Off-peak period end HH:MM
+    network_other_fees = db.Column(db.Float, default=1.5)  # Environmental/market fees in c/kWh
+    network_include_gst = db.Column(db.Boolean, default=True)  # Include 10% GST in calculations
+
     # Relationships
     price_records = db.relationship('PriceRecord', backref='user', lazy='dynamic')
     energy_records = db.relationship('EnergyRecord', backref='user', lazy='dynamic')

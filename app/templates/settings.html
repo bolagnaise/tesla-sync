@@ -92,6 +92,113 @@
                         </div>
                     </div>
 
+                    <!-- Network Tariff Configuration (shown when using AEMO as price source) -->
+                    <div id="networkTariffConfig" style="margin-top: 1em; {% if current_user.flow_power_price_source != 'aemo' %}display: none;{% endif %}">
+                        <fieldset style="border: 1px solid var(--muted-border-color); padding: 1em; border-radius: 0.5em;">
+                            <legend style="font-weight: bold;">Network Tariff (DNSP Charges)</legend>
+                            <p style="font-size: 0.8em; margin: 0 0 1em 0; color: var(--muted-color);">
+                                AEMO provides wholesale prices only. Add your network (DNSP) charges to get accurate total costs.
+                                <a href="https://www.energex.com.au/manage-your-energy/save-money-and-electricity/tariffs/residential-tariffs" target="_blank">Find your tariff rates</a>
+                            </p>
+
+                            <label for="network_tariff_type">
+                                Tariff Type
+                                <select id="network_tariff_type" name="network_tariff_type" onchange="toggleNetworkTariffType()">
+                                    <option value="flat" {% if current_user.network_tariff_type == 'flat' %}selected{% endif %}>Flat Rate (single rate all day)</option>
+                                    <option value="tou" {% if current_user.network_tariff_type == 'tou' %}selected{% endif %}>Time of Use (peak/shoulder/off-peak)</option>
+                                </select>
+                            </label>
+
+                            <!-- Flat Rate Configuration -->
+                            <div id="networkFlatRateConfig" style="margin-top: 1em; {% if current_user.network_tariff_type == 'tou' %}display: none;{% endif %}">
+                                <label for="network_flat_rate">
+                                    Network Rate (c/kWh)
+                                    <small>Your DNSP flat rate charge</small>
+                                    <input type="number" id="network_flat_rate" name="network_flat_rate"
+                                           value="{{ current_user.network_flat_rate or 8.0 }}" step="0.01" min="0"
+                                           style="max-width: 150px;">
+                                </label>
+                            </div>
+
+                            <!-- Time of Use Configuration -->
+                            <div id="networkTOUConfig" style="margin-top: 1em; {% if current_user.network_tariff_type != 'tou' %}display: none;{% endif %}">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1em;">
+                                    <div>
+                                        <label for="network_peak_rate" style="font-size: 0.9em;">
+                                            Peak (c/kWh)
+                                            <input type="number" id="network_peak_rate" name="network_peak_rate"
+                                                   value="{{ current_user.network_peak_rate or 15.0 }}" step="0.01" min="0">
+                                        </label>
+                                    </div>
+                                    <div>
+                                        <label for="network_shoulder_rate" style="font-size: 0.9em;">
+                                            Shoulder (c/kWh)
+                                            <input type="number" id="network_shoulder_rate" name="network_shoulder_rate"
+                                                   value="{{ current_user.network_shoulder_rate or 5.0 }}" step="0.01" min="0">
+                                        </label>
+                                    </div>
+                                    <div>
+                                        <label for="network_offpeak_rate" style="font-size: 0.9em;">
+                                            Off-Peak (c/kWh)
+                                            <input type="number" id="network_offpeak_rate" name="network_offpeak_rate"
+                                                   value="{{ current_user.network_offpeak_rate or 2.0 }}" step="0.01" min="0">
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1em; margin-top: 1em;">
+                                    <div>
+                                        <label style="font-size: 0.9em;">
+                                            Peak Period
+                                            <div style="display: flex; gap: 0.5em; align-items: center;">
+                                                <input type="time" id="network_peak_start" name="network_peak_start"
+                                                       value="{{ current_user.network_peak_start or '16:00' }}" style="width: 100px;">
+                                                <span>to</span>
+                                                <input type="time" id="network_peak_end" name="network_peak_end"
+                                                       value="{{ current_user.network_peak_end or '21:00' }}" style="width: 100px;">
+                                            </div>
+                                        </label>
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 0.9em;">
+                                            Off-Peak Period
+                                            <div style="display: flex; gap: 0.5em; align-items: center;">
+                                                <input type="time" id="network_offpeak_start" name="network_offpeak_start"
+                                                       value="{{ current_user.network_offpeak_start or '10:00' }}" style="width: 100px;">
+                                                <span>to</span>
+                                                <input type="time" id="network_offpeak_end" name="network_offpeak_end"
+                                                       value="{{ current_user.network_offpeak_end or '15:00' }}" style="width: 100px;">
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+                                <p style="font-size: 0.75em; color: var(--muted-color); margin-top: 0.5em;">
+                                    Shoulder rate applies to all other times not covered by peak or off-peak periods.
+                                </p>
+                            </div>
+
+                            <!-- Other Fees and GST -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1em; margin-top: 1em; padding-top: 1em; border-top: 1px solid var(--muted-border-color);">
+                                <div>
+                                    <label for="network_other_fees" style="font-size: 0.9em;">
+                                        Other Fees (c/kWh)
+                                        <small>Environmental, market fees</small>
+                                        <input type="number" id="network_other_fees" name="network_other_fees"
+                                               value="{{ current_user.network_other_fees or 1.5 }}" step="0.1" min="0"
+                                               style="max-width: 100px;">
+                                    </label>
+                                </div>
+                                <div style="display: flex; align-items: center;">
+                                    <label style="font-size: 0.9em;">
+                                        <input type="checkbox" id="network_include_gst" name="network_include_gst"
+                                               {% if current_user.network_include_gst is not defined or current_user.network_include_gst %}checked{% endif %}>
+                                        Include GST (10%)
+                                    </label>
+                                </div>
+                            </div>
+                        </fieldset>
+                    </div>
+
                     <article style="background: rgba(100, 200, 150, 0.15); padding: 0.8em; border-radius: 0.5em; margin-top: 1em; border-left: 4px solid #51cf66;">
                         <p style="margin: 0; font-size: 0.85em;">
                             <strong>Flow Power Happy Hour:</strong> 5:30pm - 7:30pm daily<br>
@@ -1139,8 +1246,28 @@
         function toggleFlowPowerAmberToken() {
             const priceSource = document.getElementById('flow_power_price_source').value;
             const amberTokenDiv = document.getElementById('flowPowerAmberToken');
+            const networkTariffDiv = document.getElementById('networkTariffConfig');
+
             if (amberTokenDiv) {
                 amberTokenDiv.style.display = (priceSource === 'aemo') ? 'none' : 'block';
+            }
+            // Show network tariff config only when using AEMO (no network fees in AEMO data)
+            if (networkTariffDiv) {
+                networkTariffDiv.style.display = (priceSource === 'aemo') ? 'block' : 'none';
+            }
+        }
+
+        // Toggle between flat rate and TOU network tariff configuration
+        function toggleNetworkTariffType() {
+            const tariffType = document.getElementById('network_tariff_type').value;
+            const flatConfig = document.getElementById('networkFlatRateConfig');
+            const touConfig = document.getElementById('networkTOUConfig');
+
+            if (flatConfig) {
+                flatConfig.style.display = (tariffType === 'flat') ? 'block' : 'none';
+            }
+            if (touConfig) {
+                touConfig.style.display = (tariffType === 'tou') ? 'block' : 'none';
             }
         }
 

@@ -839,6 +839,126 @@ class AmberTariffConverter:
             return start_minutes <= time_minutes < end_minutes
 
 
+# Network Tariff Support
+# For Flow Power + AEMO, apply user-configured network (DNSP) charges
+# since AEMO wholesale prices don't include network fees
+
+def apply_network_tariff(tariff: Dict, user) -> Dict:
+    """
+    Apply network tariff (DNSP) charges to wholesale prices.
+
+    AEMO wholesale prices only include energy costs. This function adds:
+    - Network (DNSP) charges (flat rate or TOU)
+    - Other fees (environmental, market fees)
+    - GST (optional)
+
+    Args:
+        tariff: Tesla tariff structure with wholesale prices
+        user: User object with network tariff configuration
+
+    Returns:
+        Modified tariff with network charges applied to buy prices
+    """
+    if not tariff:
+        logger.warning("No tariff provided for network tariff adjustment")
+        return tariff
+
+    # Check if network tariff is configured
+    tariff_type = getattr(user, 'network_tariff_type', 'flat') or 'flat'
+    other_fees = getattr(user, 'network_other_fees', 0) or 0
+    include_gst = getattr(user, 'network_include_gst', True)
+
+    logger.info(f"Applying network tariff: type={tariff_type}, other_fees={other_fees}c/kWh, gst={include_gst}")
+
+    # Get rate configuration
+    if tariff_type == 'flat':
+        flat_rate = getattr(user, 'network_flat_rate', 8.0) or 8.0
+        logger.info(f"Network flat rate: {flat_rate}c/kWh")
+    else:
+        # TOU rates
+        peak_rate = getattr(user, 'network_peak_rate', 15.0) or 15.0
+        shoulder_rate = getattr(user, 'network_shoulder_rate', 5.0) or 5.0
+        offpeak_rate = getattr(user, 'network_offpeak_rate', 2.0) or 2.0
+
+        # Time periods
+        peak_start = getattr(user, 'network_peak_start', '16:00') or '16:00'
+        peak_end = getattr(user, 'network_peak_end', '21:00') or '21:00'
+        offpeak_start = getattr(user, 'network_offpeak_start', '10:00') or '10:00'
+        offpeak_end = getattr(user, 'network_offpeak_end', '15:00') or '15:00'
+
+        # Parse times
+        peak_start_hour, peak_start_min = map(int, peak_start.split(':'))
+        peak_end_hour, peak_end_min = map(int, peak_end.split(':'))
+        offpeak_start_hour, offpeak_start_min = map(int, offpeak_start.split(':'))
+        offpeak_end_hour, offpeak_end_min = map(int, offpeak_end.split(':'))
+
+        logger.info(f"Network TOU: peak={peak_rate}c ({peak_start}-{peak_end}), "
+                   f"shoulder={shoulder_rate}c, offpeak={offpeak_rate}c ({offpeak_start}-{offpeak_end})")
+
+    # Apply to Summer season buy rates (energy_charges)
+    for season in ['Summer']:
+        if season not in tariff.get('energy_charges', {}):
+            continue
+
+        rates = tariff['energy_charges'][season].get('rates', {})
+        modified_count = 0
+
+        for period, price in list(rates.items()):
+            # Extract hour and minute from PERIOD_HH_MM
+            try:
+                parts = period.split('_')
+                hour = int(parts[1])
+                minute = int(parts[2])
+            except (IndexError, ValueError):
+                continue
+
+            # Calculate network charge based on tariff type
+            if tariff_type == 'flat':
+                network_charge_cents = flat_rate
+            else:
+                # TOU - determine which rate applies
+                time_minutes = hour * 60 + minute
+
+                # Check peak period
+                peak_start_mins = peak_start_hour * 60 + peak_start_min
+                peak_end_mins = peak_end_hour * 60 + peak_end_min
+
+                # Check off-peak period
+                offpeak_start_mins = offpeak_start_hour * 60 + offpeak_start_min
+                offpeak_end_mins = offpeak_end_hour * 60 + offpeak_end_min
+
+                if peak_start_mins <= time_minutes < peak_end_mins:
+                    network_charge_cents = peak_rate
+                elif offpeak_start_mins <= time_minutes < offpeak_end_mins:
+                    network_charge_cents = offpeak_rate
+                else:
+                    network_charge_cents = shoulder_rate
+
+            # Add other fees
+            total_charge_cents = network_charge_cents + other_fees
+
+            # Apply GST (10%)
+            if include_gst:
+                total_charge_cents = total_charge_cents * 1.10
+
+            # Convert wholesale price ($/kWh) to cents, add network charges, convert back
+            wholesale_cents = price * 100
+            total_cents = wholesale_cents + total_charge_cents
+            new_price = round(total_cents / 100, 4)
+
+            # Tesla restriction: no negative prices
+            new_price = max(0, new_price)
+
+            if rates[period] != new_price:
+                modified_count += 1
+                logger.debug(f"{period}: ${price:.4f} + {total_charge_cents:.2f}c network = ${new_price:.4f}")
+                rates[period] = new_price
+
+        logger.info(f"Network tariff applied to {modified_count} periods in {season}")
+
+    return tariff
+
+
 # Flow Power Electricity Provider Support
 # Flow Power offers fixed export rates during "Happy Hour" (5:30pm-7:30pm)
 # Outside Happy Hour, export rate is 0c/kWh

@@ -56,6 +56,18 @@ from .const import (
     CONF_AEMO_SENSOR_30MIN,
     AEMO_SENSOR_5MIN_PATTERN,
     AEMO_SENSOR_30MIN_PATTERN,
+    # Network Tariff configuration
+    CONF_NETWORK_TARIFF_TYPE,
+    CONF_NETWORK_FLAT_RATE,
+    CONF_NETWORK_PEAK_RATE,
+    CONF_NETWORK_SHOULDER_RATE,
+    CONF_NETWORK_OFFPEAK_RATE,
+    CONF_NETWORK_PEAK_START,
+    CONF_NETWORK_PEAK_END,
+    CONF_NETWORK_OFFPEAK_START,
+    CONF_NETWORK_OFFPEAK_END,
+    CONF_NETWORK_OTHER_FEES,
+    CONF_NETWORK_INCLUDE_GST,
 )
 from .coordinator import (
     AmberPriceCoordinator,
@@ -1467,7 +1479,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error("Failed to convert prices to Tesla tariff")
             return
 
-        # Apply Flow Power export rates if configured
+        # Apply Flow Power export rates and network tariff if configured
         electricity_provider = entry.options.get(
             CONF_ELECTRICITY_PROVIDER,
             entry.data.get(CONF_ELECTRICITY_PROVIDER, "amber")
@@ -1476,6 +1488,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             CONF_FLOW_POWER_STATE,
             entry.data.get(CONF_FLOW_POWER_STATE, "")
         )
+        flow_power_price_source = entry.options.get(
+            CONF_FLOW_POWER_PRICE_SOURCE,
+            entry.data.get(CONF_FLOW_POWER_PRICE_SOURCE, "amber")
+        )
+
+        # Apply network tariff if using AEMO wholesale prices (no network fees included)
+        if electricity_provider == "flow_power" and flow_power_price_source == "aemo_sensor":
+            from .tariff_converter import apply_network_tariff
+            _LOGGER.info("Applying network tariff to AEMO wholesale prices")
+
+            # Get network tariff config from options
+            tariff = apply_network_tariff(
+                tariff,
+                tariff_type=entry.options.get(CONF_NETWORK_TARIFF_TYPE, "flat"),
+                flat_rate=entry.options.get(CONF_NETWORK_FLAT_RATE, 8.0),
+                peak_rate=entry.options.get(CONF_NETWORK_PEAK_RATE, 15.0),
+                shoulder_rate=entry.options.get(CONF_NETWORK_SHOULDER_RATE, 5.0),
+                offpeak_rate=entry.options.get(CONF_NETWORK_OFFPEAK_RATE, 2.0),
+                peak_start=entry.options.get(CONF_NETWORK_PEAK_START, "16:00"),
+                peak_end=entry.options.get(CONF_NETWORK_PEAK_END, "21:00"),
+                offpeak_start=entry.options.get(CONF_NETWORK_OFFPEAK_START, "10:00"),
+                offpeak_end=entry.options.get(CONF_NETWORK_OFFPEAK_END, "15:00"),
+                other_fees=entry.options.get(CONF_NETWORK_OTHER_FEES, 1.5),
+                include_gst=entry.options.get(CONF_NETWORK_INCLUDE_GST, True),
+            )
 
         if electricity_provider == "flow_power" and flow_power_state:
             from .tariff_converter import apply_flow_power_export

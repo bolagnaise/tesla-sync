@@ -90,6 +90,26 @@ FLOW_POWER_PRICE_SOURCES = {
     "aemo_sensor": "AEMO NEM Data Sensor",
 }
 
+# Network Tariff configuration (for Flow Power + AEMO)
+# AEMO wholesale prices don't include DNSP network fees
+CONF_NETWORK_TARIFF_TYPE = "network_tariff_type"
+CONF_NETWORK_FLAT_RATE = "network_flat_rate"
+CONF_NETWORK_PEAK_RATE = "network_peak_rate"
+CONF_NETWORK_SHOULDER_RATE = "network_shoulder_rate"
+CONF_NETWORK_OFFPEAK_RATE = "network_offpeak_rate"
+CONF_NETWORK_PEAK_START = "network_peak_start"
+CONF_NETWORK_PEAK_END = "network_peak_end"
+CONF_NETWORK_OFFPEAK_START = "network_offpeak_start"
+CONF_NETWORK_OFFPEAK_END = "network_offpeak_end"
+CONF_NETWORK_OTHER_FEES = "network_other_fees"
+CONF_NETWORK_INCLUDE_GST = "network_include_gst"
+
+# Network tariff type options
+NETWORK_TARIFF_TYPES = {
+    "flat": "Flat Rate (single rate all day)",
+    "tou": "Time of Use (peak/shoulder/off-peak)",
+}
+
 # Flow Power Happy Hour export rates ($/kWh)
 FLOW_POWER_EXPORT_RATES = {
     "NSW1": 0.45,   # 45c/kWh
