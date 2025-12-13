@@ -124,15 +124,140 @@ NETWORK_DISTRIBUTORS = {
     "ausgrid": "Ausgrid (NSW)",
     "endeavour": "Endeavour Energy (NSW)",
     "essential": "Essential Energy (NSW Regional)",
-    "sapn": "SA Power Networks (SA)",
+    "sapower": "SA Power Networks (SA)",
     "powercor": "Powercor (VIC)",
-    "citipower": "CitiPower (VIC)",
     "ausnet": "AusNet Services (VIC)",
     "jemena": "Jemena (VIC)",
-    "united": "United Energy (VIC)",
     "tasnetworks": "TasNetworks (TAS)",
     "evoenergy": "Evoenergy (ACT)",
 }
+
+# Network tariffs per distributor (from aemo_to_tariff library)
+# Format: {distributor: {code: name, ...}}
+NETWORK_TARIFFS = {
+    "energex": {
+        "6900": "Residential Time of Use",
+        "8400": "Residential Flat",
+        "3700": "Residential Demand",
+        "3900": "Residential Transitional Demand",
+        "6800": "Small Business ToU",
+        "8500": "Small Business Flat",
+        "3600": "Small Business Demand",
+        "3800": "Small Business Transitional Demand",
+        "6000": "Small Business Wide IFT",
+        "8800": "Small 8800 TOU",
+        "8900": "Small 8900 TOU",
+        "6600": "Large Residential Energy",
+        "6700": "Large Business Energy",
+        "7200": "LV Demand Time-of-Use",
+        "8100": "Demand Large",
+        "8300": "SAC Demand Small",
+        "94300": "Large TOU Energy",
+    },
+    "ergon": {
+        "6900": "Residential Time of Use",
+        "ERTOUET1": "Residential Battery ToU",
+        "WRTOUET1": "Residential Wide ToU",
+        "MRTOUET4": "Residential Multi ToU",
+    },
+    "ausgrid": {
+        "EA025": "Residential ToU",
+        "EA010": "Residential Flat",
+        "EA111": "Residential Demand (Intro)",
+        "EA116": "Residential Demand",
+        "EA225": "Small Business ToU",
+        "EA305": "Small Business LV",
+    },
+    "endeavour": {
+        "N71": "Residential Seasonal TOU",
+        "N70": "Residential Flat",
+        "N90": "General Supply Block",
+        "N91": "GS Seasonal TOU",
+        "N19": "LV Seasonal STOU Demand",
+        "N95": "Storage",
+    },
+    "essential": {
+        "BLNT3AU": "Residential TOU (Basic)",
+        "BLNT3AL": "Residential TOU (Interval)",
+        "BLNN2AU": "Residential Anytime",
+        "BLNRSS2": "Residential Sun Soaker",
+        "BLND1AR": "Residential Demand",
+        "BLNT2AU": "Small Business TOU (Basic)",
+        "BLNT2AL": "Small Business TOU (Interval)",
+        "BLNN1AU": "Small Business Anytime",
+        "BLNBSS1": "Small Business Sun Soaker",
+        "BLND1AB": "Small Business Demand",
+        "BLNC1AU": "Controlled Load 1",
+        "BLNC2AU": "Controlled Load 2",
+        "BLNT1AO": "Small Business TOU (100-160 MWh)",
+    },
+    "sapower": {
+        "RTOU": "Residential Time of Use",
+        "RSR": "Residential Single Rate",
+        "RTOUNE": "Residential TOU (New)",
+        "RPRO": "Residential Prosumer",
+        "RELE": "Residential Electrify",
+        "RESELE": "Residential Electrify (Alt)",
+        "RELE2W": "Residential Electrify 2W",
+        "SBTOU": "Small Business Time of Use",
+        "SBTOUNE": "Small Business TOU (New)",
+        "SBELE": "Small Business Electrify",
+        "B2R": "Business Two Rate",
+    },
+    "powercor": {
+        "PRTOU": "Residential TOU",
+        "D1": "Residential Single Rate",
+        "NDMO21": "NDMO21 TOU",
+        "NDTOU": "NDTOU TOU",
+        "PRDS": "Residential Daytime Saver",
+    },
+    "ausnet": {
+        "NAST11S": "Small Business Time of Use",
+    },
+    "jemena": {
+        "PRTOU": "Residential TOU",
+        "D1": "Residential Single Rate",
+    },
+    "tasnetworks": {
+        "TAS93": "Residential TOU Consumption",
+        "TAS87": "Residential TOU Demand",
+        "TAS97": "Residential TOU CER",
+        "TAS94": "Small Business TOU Consumption",
+        "TAS88": "Small Business TOU Demand",
+    },
+    "evoenergy": {
+        "017": "Residential TOU Network",
+        "018": "Residential TOU Network XMC",
+        "015": "Residential TOU (Closed)",
+        "016": "Residential TOU XMC (Closed)",
+        "026": "Residential Demand",
+        "090": "Component Charge",
+    },
+}
+
+
+def get_tariff_options(distributor: str) -> dict[str, str]:
+    """Get tariff options for a specific distributor."""
+    tariffs = NETWORK_TARIFFS.get(distributor, {})
+    return {code: f"{code} - {name}" for code, name in tariffs.items()}
+
+
+def get_all_tariff_options() -> dict[str, str]:
+    """Get all tariff options as distributor:code -> description."""
+    options = {}
+    for distributor, tariffs in NETWORK_TARIFFS.items():
+        dist_name = NETWORK_DISTRIBUTORS.get(distributor, distributor)
+        # Extract short name (before the parenthesis)
+        short_name = dist_name.split(" (")[0] if " (" in dist_name else dist_name
+        for code, name in tariffs.items():
+            key = f"{distributor}:{code}"
+            options[key] = f"{short_name} - {code} ({name})"
+    return options
+
+
+# Pre-built flat list of all tariffs for dropdown
+# Format: "distributor:code" -> "Distributor - Code (Name)"
+ALL_NETWORK_TARIFFS = get_all_tariff_options()
 
 # Flow Power Happy Hour export rates ($/kWh)
 FLOW_POWER_EXPORT_RATES = {

@@ -14,12 +14,11 @@
       },
       "flow_power_setup": {
         "title": "Flow Power Configuration",
-        "description": "Configure your Flow Power settings.\n\nNetwork tariff is automatically calculated from your distributor (DNSP) and tariff code. Find your tariff code on your electricity bill (e.g., NTC6900, EA025).\n\nCheck 'Use manual rates' if you prefer to enter rates manually.",
+        "description": "Configure your Flow Power settings.\n\nSelect your network tariff from the dropdown. This is automatically calculated using the aemo_to_tariff library.\n\nCheck 'Use manual rates' if you prefer to enter rates manually.",
         "data": {
           "flow_power_state": "State / NEM Region",
           "flow_power_price_source": "Price Source",
-          "network_distributor": "Network Distributor (DNSP)",
-          "network_tariff_code": "Tariff Code (from your bill)",
+          "network_tariff_combined": "Network Tariff",
           "network_use_manual_rates": "Use manual rates instead of automatic lookup",
           "network_tariff_type": "Network Tariff Type",
           "network_flat_rate": "Flat Network Rate (c/kWh)",
@@ -129,12 +128,11 @@
       },
       "flow_power_options": {
         "title": "Flow Power Options",
-        "description": "Configure Flow Power wholesale electricity with Happy Hour export rates (5:30pm-7:30pm: 45c NSW/QLD/SA, 35c VIC).\n\nNetwork tariff is automatically calculated from your distributor and tariff code. Check 'Use manual rates' to enter rates manually.",
+        "description": "Configure Flow Power wholesale electricity with Happy Hour export rates (5:30pm-7:30pm: 45c NSW/QLD/SA, 35c VIC).\n\nSelect your network tariff from the dropdown. Check 'Use manual rates' to enter rates manually.",
         "data": {
           "flow_power_state": "State / NEM Region",
           "flow_power_price_source": "Import Price Source",
-          "network_distributor": "Network Distributor (DNSP)",
-          "network_tariff_code": "Tariff Code (from your bill)",
+          "network_tariff_combined": "Network Tariff",
           "network_use_manual_rates": "Use manual rates instead of automatic lookup",
           "auto_sync_enabled": "Enable automatic TOU schedule syncing",
           "solar_curtailment_enabled": "Enable Solar Curtailment (stop export at negative prices)",

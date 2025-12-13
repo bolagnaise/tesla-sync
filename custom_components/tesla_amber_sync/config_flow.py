@@ -72,7 +72,11 @@ from .const import (
     CONF_NETWORK_INCLUDE_GST,
     NETWORK_TARIFF_TYPES,
     NETWORK_DISTRIBUTORS,
+    ALL_NETWORK_TARIFFS,
 )
+
+# Combined network tariff key for config flow
+CONF_NETWORK_TARIFF_COMBINED = "network_tariff_combined"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -277,6 +281,15 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            # Parse combined tariff selection (format: "distributor:code")
+            combined = user_input.get(CONF_NETWORK_TARIFF_COMBINED, "energex:6900")
+            if ":" in combined:
+                distributor, tariff_code = combined.split(":", 1)
+                user_input[CONF_NETWORK_DISTRIBUTOR] = distributor
+                user_input[CONF_NETWORK_TARIFF_CODE] = tariff_code
+            # Remove combined key before storing
+            user_input.pop(CONF_NETWORK_TARIFF_COMBINED, None)
+
             # Store Flow Power configuration
             self._flow_power_data = user_input
 
@@ -297,15 +310,14 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({
                 vol.Required(CONF_FLOW_POWER_STATE, default="QLD1"): vol.In(FLOW_POWER_STATES),
                 vol.Required(CONF_FLOW_POWER_PRICE_SOURCE, default="aemo"): vol.In(FLOW_POWER_PRICE_SOURCES),
-                # Network Tariff - Auto via aemo_to_tariff library
-                vol.Required(CONF_NETWORK_DISTRIBUTOR, default="energex"): vol.In(NETWORK_DISTRIBUTORS),
-                vol.Required(CONF_NETWORK_TARIFF_CODE, default="NTC6900"): str,
+                # Network Tariff - Combined dropdown with all distributors and tariffs
+                vol.Required(CONF_NETWORK_TARIFF_COMBINED, default="energex:6900"): vol.In(ALL_NETWORK_TARIFFS),
                 # Manual override - enable to enter rates manually instead of using library
                 vol.Optional(CONF_NETWORK_USE_MANUAL_RATES, default=False): bool,
             }),
             errors=errors,
             description_placeholders={
-                "rate_hint": "Select your distributor and tariff code for automatic rate calculation",
+                "rate_hint": "Select your network tariff from the dropdown",
             },
         )
 
@@ -896,6 +908,15 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
             if was_curtailment_enabled and not new_curtailment_enabled:
                 await self._restore_export_rule()
 
+            # Parse combined tariff selection (format: "distributor:code")
+            combined = user_input.get(CONF_NETWORK_TARIFF_COMBINED)
+            if combined and ":" in combined:
+                distributor, tariff_code = combined.split(":", 1)
+                user_input[CONF_NETWORK_DISTRIBUTOR] = distributor
+                user_input[CONF_NETWORK_TARIFF_CODE] = tariff_code
+            # Remove combined key before storing
+            user_input.pop(CONF_NETWORK_TARIFF_COMBINED, None)
+
             # Auto-generate AEMO sensor entity names if using AEMO sensor source
             if user_input.get(CONF_FLOW_POWER_PRICE_SOURCE) == "aemo_sensor":
                 region = user_input.get(CONF_FLOW_POWER_STATE, "NSW1").lower()
@@ -912,6 +933,14 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
             user_input[CONF_ELECTRICITY_PROVIDER] = "flow_power"
             return self.async_create_entry(title="", data=user_input)
 
+        # Build current combined tariff value from stored options
+        current_distributor = self._get_option(CONF_NETWORK_DISTRIBUTOR, "energex")
+        current_tariff_code = self._get_option(CONF_NETWORK_TARIFF_CODE, "6900")
+        current_combined = f"{current_distributor}:{current_tariff_code}"
+        # Validate it exists in options, otherwise use default
+        if current_combined not in ALL_NETWORK_TARIFFS:
+            current_combined = "energex:6900"
+
         return self.async_show_form(
             step_id="flow_power_options",
             data_schema=vol.Schema(
@@ -924,15 +953,11 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                         CONF_FLOW_POWER_PRICE_SOURCE,
                         default=self._get_option(CONF_FLOW_POWER_PRICE_SOURCE, "amber"),
                     ): vol.In(FLOW_POWER_PRICE_SOURCES),
-                    # Network Tariff - Primary: aemo_to_tariff library (auto-calculates from distributor + tariff)
+                    # Network Tariff - Combined dropdown with all distributors and tariffs
                     vol.Optional(
-                        CONF_NETWORK_DISTRIBUTOR,
-                        default=self._get_option(CONF_NETWORK_DISTRIBUTOR, "energex"),
-                    ): vol.In(NETWORK_DISTRIBUTORS),
-                    vol.Optional(
-                        CONF_NETWORK_TARIFF_CODE,
-                        default=self._get_option(CONF_NETWORK_TARIFF_CODE, "NTC6900"),
-                    ): str,
+                        CONF_NETWORK_TARIFF_COMBINED,
+                        default=current_combined,
+                    ): vol.In(ALL_NETWORK_TARIFFS),
                     vol.Optional(
                         CONF_NETWORK_USE_MANUAL_RATES,
                         default=self._get_option(CONF_NETWORK_USE_MANUAL_RATES, False),
