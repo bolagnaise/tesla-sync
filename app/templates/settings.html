@@ -343,11 +343,11 @@
         <form action="{{ url_for('main.settings') }}" method="post" novalidate>
             {{ form.hidden_tag() }}
 
-            <fieldset id="amberFieldset" style="{% if current_user.electricity_provider in ['flow_power', 'globird'] %}display: none;{% endif %}">
-                <legend>Amber Electric</legend>
+            <fieldset id="amberFieldset" style="{% if current_user.electricity_provider == 'globird' %}display: none;{% endif %}">
+                <legend>Amber API Token</legend>
                 <label for="amber_token">
                     {{ form.amber_token.label }}
-                    <small>Get this from your Amber developer settings.</small>
+                    <small>Get this from your Amber developer settings. Required for Amber Electric and Flow Power (if using Amber as price source).</small>
                 </label>
                 <div style="display: flex; align-items: center; gap: 0.5em;">
                     {{ form.amber_token(size=64, type='password', class='secure-field', style='width: 100%;') }}
