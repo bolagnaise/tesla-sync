@@ -949,6 +949,12 @@ def _apply_network_tariff_library(tariff: Dict, user) -> Dict:
     distributor = getattr(user, 'network_distributor', 'energex') or 'energex'
     tariff_code = getattr(user, 'network_tariff_code', '6900') or '6900'
 
+    # Strip common prefixes from tariff code (e.g., NTC6900 -> 6900, EA025 -> EA025)
+    # The aemo_to_tariff library expects codes without the NTC prefix
+    if tariff_code.upper().startswith('NTC'):
+        tariff_code = tariff_code[3:]
+        logger.info(f"Stripped NTC prefix from tariff code: {tariff_code}")
+
     # Map distributors to library module names
     # CitiPower and United Energy use the generic Victoria module
     library_distributor_map = {
@@ -1003,12 +1009,16 @@ def _apply_network_tariff_library(tariff: Dict, user) -> Dict:
                         rates[period] = new_price
 
                 except Exception as e:
-                    logger.warning(f"{period}: Library error for {distributor}/{tariff_code}: {e}, keeping wholesale price")
+                    logger.warning(f"{period}: Library error for {library_distributor}/{tariff_code}: {e}, keeping wholesale price")
 
             except (IndexError, ValueError):
                 continue
 
-        logger.info(f"Network tariff (library) applied to {modified_count} periods in {season}")
+        total_periods = len(rates)
+        if modified_count == 0 and total_periods > 0:
+            logger.error(f"Network tariff library failed for ALL {total_periods} periods! Check distributor={library_distributor}, tariff={tariff_code}")
+        else:
+            logger.info(f"Network tariff (library) applied to {modified_count}/{total_periods} periods in {season}")
 
     return tariff
 

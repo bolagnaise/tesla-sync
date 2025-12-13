@@ -102,7 +102,7 @@ class User(UserMixin, db.Model):
     # Primary: Use aemo_to_tariff library with distributor + tariff code
     # Fallback: Manual rate entry when use_manual_rates is True
     network_distributor = db.Column(db.String(20), default='energex')  # DNSP: energex, ausgrid, endeavour, etc.
-    network_tariff_code = db.Column(db.String(20), default='NTC6900')  # Tariff code: NTC6900, EA025, etc.
+    network_tariff_code = db.Column(db.String(20), default='6900')  # Tariff code: 6900, EA025, etc. (NTC prefix auto-stripped)
     network_use_manual_rates = db.Column(db.Boolean, default=False)  # True = use manual rates below instead of library
 
     # Manual rate entry (used when network_use_manual_rates is True)
