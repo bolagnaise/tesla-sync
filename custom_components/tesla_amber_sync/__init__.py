@@ -983,19 +983,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tesla Sync from a config entry."""
     _LOGGER.info("Setting up Tesla Sync integration")
 
-    # Check if this is AEMO-only mode (no Amber API token)
+    # Check pricing source configuration
     has_amber = bool(entry.data.get(CONF_AMBER_API_TOKEN))
-    aemo_enabled = entry.options.get(
+    aemo_spike_enabled = entry.options.get(
         CONF_AEMO_SPIKE_ENABLED,
         entry.data.get(CONF_AEMO_SPIKE_ENABLED, False)
     )
 
+    # Check for Flow Power with AEMO sensor price source
+    electricity_provider = entry.options.get(
+        CONF_ELECTRICITY_PROVIDER,
+        entry.data.get(CONF_ELECTRICITY_PROVIDER, "amber")
+    )
+    flow_power_price_source = entry.options.get(
+        CONF_FLOW_POWER_PRICE_SOURCE,
+        entry.data.get(CONF_FLOW_POWER_PRICE_SOURCE, "amber")
+    )
+    has_flow_power_aemo = (
+        electricity_provider == "flow_power" and
+        flow_power_price_source == "aemo_sensor"
+    )
+
     if has_amber:
-        _LOGGER.info("Running in Amber TOU Sync mode")
-    elif aemo_enabled:
-        _LOGGER.info("Running in AEMO Spike Detection only mode (no Amber)")
+        _LOGGER.info("Running in Amber TOU Sync mode (provider: %s)", electricity_provider)
+    elif has_flow_power_aemo:
+        _LOGGER.info("Running in Flow Power mode with AEMO sensor pricing")
+    elif aemo_spike_enabled:
+        _LOGGER.info("Running in AEMO Spike Detection only mode (Globird)")
     else:
-        _LOGGER.error("No Amber API token and AEMO spike detection not enabled")
+        _LOGGER.error("No pricing source configured")
         raise ConfigEntryNotReady("No pricing source configured")
 
     # Initialize sync coordinator for wait-with-timeout pattern
@@ -1136,9 +1152,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await demand_charge_coordinator.async_config_entry_first_refresh()
         _LOGGER.info("Demand charge coordinator initialized")
 
-    # Initialize AEMO Spike Manager if enabled
+    # Initialize AEMO Spike Manager if enabled (for Globird users)
     aemo_spike_manager = None
-    if aemo_enabled:
+    if aemo_spike_enabled:
         aemo_region = entry.options.get(
             CONF_AEMO_REGION,
             entry.data.get(CONF_AEMO_REGION)
@@ -1167,12 +1183,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             _LOGGER.warning("AEMO spike detection enabled but no region configured")
 
-    # Initialize AEMO Sensor Coordinator for Flow Power AEMO-only mode
+    # Initialize AEMO Sensor Coordinator for Flow Power AEMO sensor mode
     aemo_sensor_coordinator = None
-    flow_power_price_source = entry.options.get(
-        CONF_FLOW_POWER_PRICE_SOURCE,
-        entry.data.get(CONF_FLOW_POWER_PRICE_SOURCE, "amber")
-    )
+    # flow_power_price_source already defined at top of function
     flow_power_state = entry.options.get(
         CONF_FLOW_POWER_STATE,
         entry.data.get(CONF_FLOW_POWER_STATE, "NSW1")
