@@ -123,24 +123,37 @@ This feature is particularly useful with Amber's wholesale pricing to avoid payi
 Full support for **Flow Power** and other wholesale electricity retailers that pass through AEMO NEM spot prices.
 
 **How It Works:**
-AEMO wholesale prices only include the energy cost - they don't include network (DNSP) charges, environmental fees, or GST. Tesla Sync lets you configure these additional charges so your Powerwall sees accurate total prices.
+AEMO wholesale prices only include the energy cost - they don't include network (DNSP) charges, environmental fees, or GST. Tesla Sync automatically calculates your total retail price using the [aemo_to_tariff](https://github.com/powston/aemo_to_tariff) library.
 
 **Configuration:**
 1. Select **Flow Power** as your electricity provider
 2. Choose your **NEM Region** (QLD1, NSW1, VIC1, SA1)
 3. Select **AEMO NEM Wholesale** as the price source
 4. Configure your **Network Tariff**:
-   - **Flat Rate**: Single rate all day (e.g., 8c/kWh)
-   - **Time of Use**: Peak/Shoulder/Off-Peak rates with time windows
-   - **Other Fees**: Environmental levies, market charges (~3-4c/kWh typical)
-   - **GST**: Automatically adds 10%
 
-**Example - Energex NTC6900 Tariff:**
-| Period | Time | Rate |
-|--------|------|------|
-| Peak | 4pm - 9pm | 19.37 c/kWh |
-| Shoulder | Other times | 4.87 c/kWh |
-| Off-Peak | 11am - 4pm | 0.48 c/kWh |
+   **Option A: Automatic (Recommended)**
+   - Select your **Network Distributor** (DNSP) from the dropdown:
+     - Energex, Ergon, Ausgrid, Endeavour, Essential, SA Power Networks
+     - Powercor, CitiPower, AusNet, Jemena, United Energy
+     - TasNetworks, Evoenergy
+   - Enter your **Tariff Code** from your electricity bill (e.g., NTC6900, EA025)
+   - The system automatically calculates network fees, market charges, and GST
+
+   **Option B: Manual Rates**
+   - Check "Use manual rates instead of automatic lookup"
+   - Enter your rates manually:
+     - **Flat Rate**: Single rate all day (e.g., 8c/kWh)
+     - **Time of Use**: Peak/Shoulder/Off-Peak rates with time windows
+     - **Other Fees**: Environmental levies, market charges (~3-4c/kWh typical)
+     - **GST**: Automatically adds 10%
+
+**Finding Your Tariff Code:**
+Look on your electricity bill for the network tariff code. Common examples:
+| Distributor | Example Tariffs |
+|-------------|-----------------|
+| Energex (QLD) | NTC6900, NTC8400, NTC8500 |
+| Ausgrid (NSW) | EA025, EA050, EA116 |
+| SA Power Networks | RTOU, RELE |
 
 **Flow Power Happy Hour:**
 Export rates during Happy Hour (5:30pm - 7:30pm daily):
@@ -148,13 +161,13 @@ Export rates during Happy Hour (5:30pm - 7:30pm daily):
 - VIC: 35c/kWh
 - Outside Happy Hour: 0c/kWh
 
-**Total Price Calculation:**
+**Total Price Calculation (Automatic):**
+The aemo_to_tariff library handles all calculations:
 ```
-Total = AEMO Wholesale + Network Charges + Other Fees + GST
-Example: 8c + 5c + 3c + 10% = 17.6c/kWh
+Total = AEMO Wholesale + Network Charges + Market Fees + Environmental Levies + GST
 ```
 
-**Note:** Enter all rates in **cents/kWh**. If your tariff shows $0.19367/kWh, enter `19.367`.
+**Note:** When using manual rates, enter all values in **cents/kWh**. If your tariff shows $0.19367/kWh, enter `19.367`.
 
 ### Custom TOU Schedules
 Not using Amber Electric? No problem! Create custom time-of-use schedules for any Australian electricity provider:
