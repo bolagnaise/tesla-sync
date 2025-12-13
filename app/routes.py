@@ -603,6 +603,12 @@ def settings():
         try:
             db.session.commit()
             logger.info("Settings saved successfully to database")
+
+            # Clear TOU schedule cache so new settings take effect immediately
+            cache_key = f'tou_schedule_{current_user.id}'
+            cache.delete(cache_key)
+            logger.info("Cleared TOU schedule cache after settings update")
+
             flash('Your settings have been saved.')
         except Exception as e:
             logger.error(f"Error saving settings to database: {e}")
@@ -1786,10 +1792,20 @@ def energy_calendar_history(tesla_client):
 
 @bp.route('/api/tou-schedule')
 @login_required
-@cache.cached(timeout=300, key_prefix=lambda: f'tou_schedule_{current_user.id}')
 def tou_schedule():
     """Get the rolling 24-hour tariff schedule that will be sent to Tesla"""
-    logger.info(f"TOU tariff schedule requested by user: {current_user.email}")
+    # Check for cache bypass (used after settings changes)
+    bypass_cache = request.args.get('refresh') == '1'
+
+    if not bypass_cache:
+        # Try to get from cache
+        cache_key = f'tou_schedule_{current_user.id}'
+        cached_result = cache.get(cache_key)
+        if cached_result:
+            logger.debug(f"TOU schedule served from cache for user: {current_user.email}")
+            return cached_result
+
+    logger.info(f"TOU tariff schedule requested by user: {current_user.email} (bypass_cache={bypass_cache})")
 
     # Determine price source based on user settings
     use_aemo = (
@@ -1959,11 +1975,17 @@ def tou_schedule():
 
     logger.info(f"Generated tariff schedule with {len(periods)} periods")
 
-    return jsonify({
+    result = jsonify({
         'periods': periods,
         'stats': stats,
         'tariff_name': tariff.get('name', 'Unknown')
     })
+
+    # Cache the result for 5 minutes (unless bypassed)
+    cache_key = f'tou_schedule_{current_user.id}'
+    cache.set(cache_key, result, timeout=300)
+
+    return result
 
 
 @bp.route('/api/sync-tesla-schedule', methods=['POST'])
