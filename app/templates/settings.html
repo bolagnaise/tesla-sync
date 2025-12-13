@@ -151,11 +151,17 @@
                                         <label style="font-size: 0.9em;">
                                             Peak Period
                                             <div style="display: flex; gap: 0.5em; align-items: center;">
-                                                <input type="time" id="network_peak_start" name="network_peak_start"
-                                                       value="{{ current_user.network_peak_start or '16:00' }}" style="width: 100px;">
+                                                <select id="network_peak_start" name="network_peak_start" style="width: 80px;">
+                                                    {% for h in range(24) %}
+                                                    <option value="{{ '%02d:00'|format(h) }}" {% if (current_user.network_peak_start or '16:00')[:2]|int == h %}selected{% endif %}>{{ '%02d:00'|format(h) }}</option>
+                                                    {% endfor %}
+                                                </select>
                                                 <span>to</span>
-                                                <input type="time" id="network_peak_end" name="network_peak_end"
-                                                       value="{{ current_user.network_peak_end or '21:00' }}" style="width: 100px;">
+                                                <select id="network_peak_end" name="network_peak_end" style="width: 80px;">
+                                                    {% for h in range(24) %}
+                                                    <option value="{{ '%02d:00'|format(h) }}" {% if (current_user.network_peak_end or '21:00')[:2]|int == h %}selected{% endif %}>{{ '%02d:00'|format(h) }}</option>
+                                                    {% endfor %}
+                                                </select>
                                             </div>
                                         </label>
                                     </div>
@@ -163,11 +169,17 @@
                                         <label style="font-size: 0.9em;">
                                             Off-Peak Period
                                             <div style="display: flex; gap: 0.5em; align-items: center;">
-                                                <input type="time" id="network_offpeak_start" name="network_offpeak_start"
-                                                       value="{{ current_user.network_offpeak_start or '10:00' }}" style="width: 100px;">
+                                                <select id="network_offpeak_start" name="network_offpeak_start" style="width: 80px;">
+                                                    {% for h in range(24) %}
+                                                    <option value="{{ '%02d:00'|format(h) }}" {% if (current_user.network_offpeak_start or '10:00')[:2]|int == h %}selected{% endif %}>{{ '%02d:00'|format(h) }}</option>
+                                                    {% endfor %}
+                                                </select>
                                                 <span>to</span>
-                                                <input type="time" id="network_offpeak_end" name="network_offpeak_end"
-                                                       value="{{ current_user.network_offpeak_end or '15:00' }}" style="width: 100px;">
+                                                <select id="network_offpeak_end" name="network_offpeak_end" style="width: 80px;">
+                                                    {% for h in range(24) %}
+                                                    <option value="{{ '%02d:00'|format(h) }}" {% if (current_user.network_offpeak_end or '15:00')[:2]|int == h %}selected{% endif %}>{{ '%02d:00'|format(h) }}</option>
+                                                    {% endfor %}
+                                                </select>
                                             </div>
                                         </label>
                                     </div>

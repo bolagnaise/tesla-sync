@@ -889,19 +889,19 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         CONF_NETWORK_PEAK_START,
                         default=self._get_option(CONF_NETWORK_PEAK_START, "16:00"),
-                    ): str,
+                    ): vol.In({f"{h:02d}:00": f"{h:02d}:00" for h in range(24)}),
                     vol.Optional(
                         CONF_NETWORK_PEAK_END,
                         default=self._get_option(CONF_NETWORK_PEAK_END, "21:00"),
-                    ): str,
+                    ): vol.In({f"{h:02d}:00": f"{h:02d}:00" for h in range(24)}),
                     vol.Optional(
                         CONF_NETWORK_OFFPEAK_START,
                         default=self._get_option(CONF_NETWORK_OFFPEAK_START, "10:00"),
-                    ): str,
+                    ): vol.In({f"{h:02d}:00": f"{h:02d}:00" for h in range(24)}),
                     vol.Optional(
                         CONF_NETWORK_OFFPEAK_END,
                         default=self._get_option(CONF_NETWORK_OFFPEAK_END, "15:00"),
-                    ): str,
+                    ): vol.In({f"{h:02d}:00": f"{h:02d}:00" for h in range(24)}),
                     vol.Optional(
                         CONF_NETWORK_OTHER_FEES,
                         default=self._get_option(CONF_NETWORK_OTHER_FEES, 1.5),
