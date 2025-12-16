@@ -1,7 +1,7 @@
 """Add export boost fields for Amber users
 
 Revision ID: i2b3c4d5e6f7
-Revises: h1a2b3c4d5e6
+Revises: 546b2ceef0e5
 Create Date: 2025-12-16
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'i2b3c4d5e6f7'
-down_revision = 'h1a2b3c4d5e6'
+down_revision = '546b2ceef0e5'
 branch_labels = None
 depends_on = None
 

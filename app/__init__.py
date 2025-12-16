@@ -289,11 +289,16 @@ def _repair_missing_columns(db, logger):
     # Define columns that should exist with their SQL definitions
     # Format: (column_name, sql_type, default_value)
     required_columns = [
+        # Export boost fields (i2b3c4d5e6f7)
         ('export_boost_enabled', 'BOOLEAN', '0'),
         ('export_price_offset', 'FLOAT', '0.0'),
         ('export_min_price', 'FLOAT', '0.0'),
         ('export_boost_start', 'VARCHAR(5)', "'17:00'"),
         ('export_boost_end', 'VARCHAR(5)', "'21:00'"),
+        # Flow Power PEA fields (546b2ceef0e5)
+        ('flow_power_base_rate', 'FLOAT', 'NULL'),
+        ('pea_enabled', 'BOOLEAN', 'NULL'),
+        ('pea_custom_value', 'FLOAT', 'NULL'),
     ]
 
     missing_columns = [col for col in required_columns if col[0] not in existing_columns]
@@ -347,12 +352,14 @@ def create_app(config_class=Config):
                 logger.debug("Database schema is up to date")
 
             conn.close()
-
-            # Repair schema if columns are missing (handles alembic_version mismatch)
-            _repair_missing_columns(db, logger)
-
         except Exception as e:
             logger.warning(f"Auto-migration check skipped: {e}")
+
+        # Always run schema repair - handles cases where migrations failed or were skipped
+        try:
+            _repair_missing_columns(db, logger)
+        except Exception as e:
+            logger.warning(f"Schema repair skipped: {e}")
 
     # Initialize Flask-Caching for API response caching
     app.config['CACHE_TYPE'] = 'SimpleCache'  # In-memory cache
