@@ -275,6 +275,43 @@ login = LoginManager()
 login.login_view = 'main.login' # Redirect to login page if user is not authenticated
 cache = Cache()
 
+
+def _repair_missing_columns(db, logger):
+    """
+    Repair schema if columns are missing but alembic_version says migration is done.
+    This handles edge cases where migrations were recorded but not actually applied.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(db.engine)
+    existing_columns = {col['name'] for col in inspector.get_columns('user')}
+
+    # Define columns that should exist with their SQL definitions
+    # Format: (column_name, sql_type, default_value)
+    required_columns = [
+        ('export_boost_enabled', 'BOOLEAN', '0'),
+        ('export_price_offset', 'FLOAT', '0.0'),
+        ('export_min_price', 'FLOAT', '0.0'),
+        ('export_boost_start', 'VARCHAR(5)', "'17:00'"),
+        ('export_boost_end', 'VARCHAR(5)', "'21:00'"),
+    ]
+
+    missing_columns = [col for col in required_columns if col[0] not in existing_columns]
+
+    if missing_columns:
+        logger.warning(f"🔧 Schema repair needed: {len(missing_columns)} missing column(s) detected")
+        with db.engine.connect() as conn:
+            for col_name, col_type, default_val in missing_columns:
+                try:
+                    sql = f"ALTER TABLE user ADD COLUMN {col_name} {col_type} DEFAULT {default_val}"
+                    conn.execute(text(sql))
+                    conn.commit()
+                    logger.info(f"  ✅ Added missing column: {col_name}")
+                except Exception as e:
+                    logger.error(f"  ❌ Failed to add column {col_name}: {e}")
+        logger.info("🔧 Schema repair completed")
+
+
 def create_app(config_class=Config):
     logger.info("Creating Flask application")
     app = Flask(__name__)
@@ -310,6 +347,10 @@ def create_app(config_class=Config):
                 logger.debug("Database schema is up to date")
 
             conn.close()
+
+            # Repair schema if columns are missing (handles alembic_version mismatch)
+            _repair_missing_columns(db, logger)
+
         except Exception as e:
             logger.warning(f"Auto-migration check skipped: {e}")
 
