@@ -766,6 +766,10 @@
         }
 
         async function copyBatteryHealthToken() {
+            const status = document.getElementById('battery-health-token-status');
+            status.style.display = 'block';
+            status.innerHTML = '<span style="color: #fcc419;">Fetching token...</span>';
+
             try {
                 const response = await fetch('/api/battery-health/generate-token', {
                     method: 'POST',
@@ -774,14 +778,25 @@
                 const data = await response.json();
 
                 if (data.token) {
-                    await navigator.clipboard.writeText(data.token);
-                    const status = document.getElementById('battery-health-token-status');
-                    status.style.display = 'block';
-                    status.innerHTML = '<span style="color: #51cf66;">✓ Token copied to clipboard!</span>';
-                    setTimeout(() => { status.style.display = 'none'; }, 3000);
+                    // Try clipboard API first, fallback to showing token
+                    try {
+                        await navigator.clipboard.writeText(data.token);
+                        status.innerHTML = '<span style="color: #51cf66;">✓ Token copied to clipboard!</span>';
+                        setTimeout(() => { status.style.display = 'none'; }, 3000);
+                    } catch (clipboardError) {
+                        // Clipboard API not available (HTTP), show token in copyable field
+                        status.innerHTML = `
+                            <span style="color: #51cf66;">✓ Token retrieved! Select and copy:</span><br>
+                            <input type="text" value="${data.token}" readonly
+                                   style="width: 100%; margin-top: 0.5em; padding: 0.5em; font-family: monospace; font-size: 0.75em;"
+                                   onclick="this.select()">
+                        `;
+                    }
+                } else {
+                    status.innerHTML = '<span style="color: #ff6b6b;">✗ ' + (data.error || 'Failed to get token') + '</span>';
                 }
             } catch (error) {
-                alert('Failed to copy token: ' + error.message);
+                status.innerHTML = '<span style="color: #ff6b6b;">✗ Error: ' + error.message + '</span>';
             }
         }
     </script>
