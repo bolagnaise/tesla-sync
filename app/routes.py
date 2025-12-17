@@ -4234,3 +4234,277 @@ def get_tunnel_config():
         'domain': current_user.cloudflare_tunnel_domain,
         'auto_start': current_user.cloudflare_tunnel_enabled
     })
+
+
+# ============================================================================
+# Battery Health API (for mobile app sync)
+# ============================================================================
+
+@bp.route('/api/battery-health', methods=['POST'])
+def api_battery_health_update():
+    """
+    Receive battery health data from mobile app.
+
+    Authentication: Bearer token in Authorization header
+    The token is generated per-user via /api/battery-health/generate-token
+
+    Request body:
+    {
+        "originalCapacityWh": 27000,
+        "currentCapacityWh": 26100,
+        "degradationPercent": 3.33,
+        "batteryCount": 2,
+        "scannedAt": "2025-01-15T10:30:00Z"
+    }
+    """
+    # Check for Bearer token
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'error': 'Missing or invalid Authorization header'}), 401
+
+    token = auth_header.split(' ', 1)[1]
+    if not token:
+        return jsonify({'error': 'Empty token'}), 401
+
+    # Find user by API token
+    user = User.query.filter_by(battery_health_api_token=token).first()
+    if not user:
+        return jsonify({'error': 'Invalid API token'}), 401
+
+    # Parse request data
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    # Update battery health fields
+    try:
+        user.battery_original_capacity_wh = data.get('originalCapacityWh')
+        user.battery_current_capacity_wh = data.get('currentCapacityWh')
+        user.battery_degradation_percent = data.get('degradationPercent')
+        user.battery_count = data.get('batteryCount')
+        user.battery_health_updated = datetime.utcnow()
+
+        db.session.commit()
+
+        logger.info(f"Battery health updated for user {user.email}: {user.battery_degradation_percent}% degradation")
+
+        return jsonify({
+            'status': 'ok',
+            'message': 'Battery health updated successfully'
+        })
+
+    except Exception as e:
+        logger.error(f"Error updating battery health: {e}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/api/battery-health', methods=['GET'])
+@login_required
+def api_battery_health_get():
+    """
+    Get current battery health data for the logged-in user.
+    """
+    if not current_user.battery_health_updated:
+        return jsonify({
+            'has_data': False,
+            'message': 'No battery health data available'
+        })
+
+    return jsonify({
+        'has_data': True,
+        'originalCapacityWh': current_user.battery_original_capacity_wh,
+        'currentCapacityWh': current_user.battery_current_capacity_wh,
+        'degradationPercent': current_user.battery_degradation_percent,
+        'batteryCount': current_user.battery_count,
+        'updatedAt': current_user.battery_health_updated.isoformat() if current_user.battery_health_updated else None
+    })
+
+
+@bp.route('/api/battery-health/generate-token', methods=['POST'])
+@login_required
+def api_battery_health_generate_token():
+    """
+    Generate a new API token for battery health sync from mobile app.
+    This replaces any existing token.
+    """
+    try:
+        # Generate a secure random token
+        new_token = secrets.token_urlsafe(32)
+        current_user.battery_health_api_token = new_token
+        db.session.commit()
+
+        logger.info(f"Generated new battery health API token for user {current_user.email}")
+
+        return jsonify({
+            'success': True,
+            'token': new_token,
+            'message': 'New API token generated. Save this token - it will only be shown once.'
+        })
+
+    except Exception as e:
+        logger.error(f"Error generating battery health token: {e}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/api/battery-health/revoke-token', methods=['POST'])
+@login_required
+def api_battery_health_revoke_token():
+    """
+    Revoke the current API token for battery health sync.
+    """
+    try:
+        current_user.battery_health_api_token = None
+        db.session.commit()
+
+        logger.info(f"Revoked battery health API token for user {current_user.email}")
+
+        return jsonify({
+            'success': True,
+            'message': 'API token revoked'
+        })
+
+    except Exception as e:
+        logger.error(f"Error revoking battery health token: {e}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/api/battery-health/from-cloud', methods=['GET'])
+def api_battery_health_from_cloud():
+    """
+    Fetch actual battery capacity from Tesla Fleet API / Teslemetry.
+
+    This endpoint provides the real battery capacity data that the local
+    TEDAPI cannot access (requires signed payloads).
+
+    Authentication: Bearer token in Authorization header (same as battery-health POST)
+
+    Response:
+    {
+        "success": true,
+        "totalPackEnergyWh": 43200,      # total_pack_energy from live_status
+        "energyLeftWh": 41500,            # energy_left from live_status
+        "percentageCharged": 96.1,        # percentage_charged
+        "batteryCount": 3,                # from site_info
+        "nominalSystemEnergyWh": 40500,   # from site_info (rated capacity)
+        "degradationPercent": 0.0,        # calculated: (1 - energyLeft/totalPack) * 100
+        "dataSource": "teslemetry"        # or "fleet_api"
+    }
+    """
+    from app.api_clients import get_tesla_client
+
+    # Check for Bearer token
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Missing or invalid Authorization header'}), 401
+
+    token = auth_header.split(' ', 1)[1]
+    if not token:
+        return jsonify({'success': False, 'error': 'Empty token'}), 401
+
+    # Find user by API token
+    user = User.query.filter_by(battery_health_api_token=token).first()
+    if not user:
+        return jsonify({'success': False, 'error': 'Invalid API token'}), 401
+
+    # Get Tesla API client for this user
+    tesla_client = get_tesla_client(user)
+    if not tesla_client:
+        return jsonify({
+            'success': False,
+            'error': 'Tesla API not configured. Please set up Fleet API or Teslemetry in settings.'
+        }), 400
+
+    try:
+        # Get energy sites
+        energy_sites = tesla_client.get_energy_sites()
+        if not energy_sites:
+            return jsonify({
+                'success': False,
+                'error': 'No energy sites found in Tesla account'
+            }), 404
+
+        # Use first energy site (or user's selected site if configured)
+        site_id = user.tesla_site_id or energy_sites[0].get('energy_site_id')
+
+        # Get live status for battery capacity data
+        live_status = tesla_client.get_site_status(site_id)
+        if not live_status:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to fetch site status from Tesla API'
+            }), 500
+
+        # Get site info for additional details
+        site_info = tesla_client.get_site_info(site_id)
+
+        # Extract capacity data from live_status
+        total_pack_energy = live_status.get('total_pack_energy', 0)  # Wh
+        energy_left = live_status.get('energy_left', 0)  # Wh
+        percentage_charged = live_status.get('percentage_charged', 0)
+
+        # Get battery count from site_info if available
+        battery_count = 1
+        nominal_system_energy = 0
+        if site_info:
+            # Count powerwalls from components or backup capability
+            battery_count = site_info.get('backup_reserve_percent', 0) > 0 and 1 or 1
+            # Get nominal capacity from site_info
+            nominal_system_energy = site_info.get('nominal_system_energy_kWh', 0) * 1000  # Convert to Wh
+            if nominal_system_energy == 0:
+                nominal_system_energy = site_info.get('backup_capability_kWh', 0) * 1000
+
+            # Try to get battery count from components
+            components = site_info.get('components', {})
+            if components:
+                battery_count = components.get('battery_count', 1) or 1
+
+        # Calculate degradation if we have total pack energy
+        degradation_percent = 0.0
+        if total_pack_energy > 0 and energy_left > 0:
+            # At 100% charge, energy_left should equal total_pack_energy
+            # If percentage_charged is 100 and energy_left < total_pack_energy, that's degradation
+            # But normally we calculate based on nominal vs actual capacity
+            if nominal_system_energy > 0:
+                # Compare actual capacity to nominal (rated) capacity
+                actual_capacity = total_pack_energy
+                degradation_percent = max(0, (1 - actual_capacity / nominal_system_energy) * 100)
+
+        # Determine data source
+        data_source = 'fleet_api' if hasattr(tesla_client, 'refresh_token') else 'teslemetry'
+
+        logger.info(f"Battery health from cloud for user {user.email}: total={total_pack_energy}Wh, left={energy_left}Wh, charged={percentage_charged}%")
+
+        return jsonify({
+            'success': True,
+            'totalPackEnergyWh': total_pack_energy,
+            'energyLeftWh': energy_left,
+            'percentageCharged': percentage_charged,
+            'batteryCount': battery_count,
+            'nominalSystemEnergyWh': nominal_system_energy,
+            'degradationPercent': round(degradation_percent, 2),
+            'dataSource': data_source,
+            'siteId': site_id
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching battery health from cloud: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@bp.route('/api/health')
+def api_health():
+    """
+    Simple health check endpoint for the mobile app to test connectivity.
+    No authentication required.
+    """
+    return jsonify({
+        'status': 'ok',
+        'service': 'Tesla Sync',
+        'timestamp': datetime.utcnow().isoformat()
+    })

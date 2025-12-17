@@ -133,6 +133,14 @@ class User(UserMixin, db.Model):
     network_other_fees = db.Column(db.Float, default=1.5)  # Environmental/market fees in c/kWh
     network_include_gst = db.Column(db.Boolean, default=True)  # Include 10% GST in calculations
 
+    # Battery Health Data (from mobile app)
+    battery_original_capacity_wh = db.Column(db.Float, nullable=True)  # Original battery capacity in Wh
+    battery_current_capacity_wh = db.Column(db.Float, nullable=True)  # Current usable capacity in Wh
+    battery_degradation_percent = db.Column(db.Float, nullable=True)  # Calculated degradation percentage
+    battery_count = db.Column(db.Integer, nullable=True)  # Number of Powerwall units
+    battery_health_updated = db.Column(db.DateTime, nullable=True)  # When health was last updated
+    battery_health_api_token = db.Column(db.String(64), nullable=True)  # API token for mobile app sync
+
     # Relationships
     price_records = db.relationship('PriceRecord', backref='user', lazy='dynamic')
     energy_records = db.relationship('EnergyRecord', backref='user', lazy='dynamic')
