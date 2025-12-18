@@ -2439,7 +2439,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error(f"Error in force discharge: {e}", exc_info=True)
 
     def _create_discharge_tariff(duration_minutes: int) -> dict:
-        """Create a Tesla tariff optimized for exporting (force discharge)."""
+        """Create a Tesla tariff optimized for exporting (force discharge).
+
+        Uses the same tariff structure as the working Flask implementation.
+        """
         from homeassistant.util import dt as dt_util
 
         # Very high sell rate to encourage Powerwall to export all energy
@@ -2449,83 +2452,128 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Buy rate to discourage import during discharge
         buy_rate = 0.30  # 30c/kWh
 
-        # Get current 30-minute period
+        _LOGGER.info(f"Creating discharge tariff: sell=${sell_rate_discharge}/kWh, buy=${buy_rate}/kWh for {duration_minutes} min")
+
+        # Build rates dictionaries for all 48 x 30-minute periods (24 hours)
+        buy_rates = {}
+        sell_rates = {}
+        tou_periods = {}
+
+        # Get current time to determine discharge window
         now = dt_util.now()
         current_period_index = (now.hour * 2) + (1 if now.minute >= 30 else 0)
 
         # Calculate how many 30-min periods the discharge covers
         discharge_periods = (duration_minutes + 29) // 30  # Round up
+        discharge_start = current_period_index
+        discharge_end = (current_period_index + discharge_periods) % 48
 
-        # Create rate periods
-        buy_rates = []
-        sell_rates = []
+        _LOGGER.info(f"Discharge window: periods {discharge_start} to {discharge_end} (current time: {now.hour:02d}:{now.minute:02d})")
 
         for i in range(48):
-            buy_rates.append(buy_rate)
+            hour = i // 2
+            minute = 30 if i % 2 else 0
+            period_name = f"{hour:02d}:{minute:02d}"
 
-            # Apply discharge sell rate for duration window
-            periods_from_now = (i - current_period_index) % 48
-            if periods_from_now < discharge_periods:
-                sell_rates.append(sell_rate_discharge)
+            # Check if this period is in the discharge window
+            is_discharge_period = False
+            if discharge_start < discharge_end:
+                is_discharge_period = discharge_start <= i < discharge_end
+            else:  # Wrap around midnight
+                is_discharge_period = i >= discharge_start or i < discharge_end
+
+            # Set rates based on whether we're in discharge window
+            if is_discharge_period:
+                buy_rates[period_name] = buy_rate
+                sell_rates[period_name] = sell_rate_discharge
             else:
-                sell_rates.append(sell_rate_normal)
+                buy_rates[period_name] = buy_rate
+                sell_rates[period_name] = sell_rate_normal
 
+            # Calculate end time (30 minutes later)
+            if minute == 0:
+                to_hour = hour
+                to_minute = 30
+            else:  # minute == 30
+                to_hour = (hour + 1) % 24  # Wrap around at midnight
+                to_minute = 0
+
+            # TOU period definition for seasons
+            tou_periods[period_name] = {
+                "periods": [{
+                    "fromDayOfWeek": 0,
+                    "toDayOfWeek": 6,
+                    "fromHour": hour,
+                    "fromMinute": minute,
+                    "toHour": to_hour,
+                    "toMinute": to_minute
+                }]
+            }
+
+        # Create Tesla tariff structure (matching Flask implementation)
         tariff = {
-            "code": "FORCE-DISCHARGE",
-            "utility": "Tesla Sync",
             "name": f"Force Discharge ({duration_minutes}min)",
-            "daily_charges": [{"name": "Grid Connection", "amount": 1.0}],
-            "demand_charges": {"ALL": {"ALL": 0}},
-            "energy_charges": {"ALL": {"ALL": 0}},
-            "seasons": {
-                "Winter": {
-                    "fromMonth": 1,
-                    "fromDay": 1,
-                    "toMonth": 12,
-                    "toDay": 31,
-                }
+            "utility": "Tesla Sync",
+            "code": f"DISCHARGE_{duration_minutes}",
+            "currency": "AUD",
+            "daily_charges": [{"name": "Supply Charge"}],
+            "demand_charges": {
+                "ALL": {"rates": {"ALL": 0}},
+                "Summer": {},
+                "Winter": {}
             },
-            "tou_periods": {
+            "energy_charges": {
+                "ALL": {"rates": {"ALL": 0}},
+                "Summer": {"rates": buy_rates},
+                "Winter": {}
+            },
+            "seasons": {
+                "Summer": {
+                    "fromMonth": 1,
+                    "toMonth": 12,
+                    "fromDay": 1,
+                    "toDay": 31,
+                    "tou_periods": tou_periods
+                },
                 "Winter": {
-                    "ALL": [
-                        {"fromHour": 0, "fromMinute": 0, "toHour": 0, "toMinute": 0}
-                    ]
+                    "fromDay": 0,
+                    "toDay": 0,
+                    "fromMonth": 0,
+                    "toMonth": 0,
+                    "tou_periods": {}
                 }
             },
             "sell_tariff": {
-                "name": "Force Discharge Export",
+                "name": f"Force Discharge Export ({duration_minutes}min)",
                 "utility": "Tesla Sync",
-                "code": "FORCE-DISCHARGE-EXPORT",
-                "daily_charges": [],
-                "demand_charges": {"ALL": {"ALL": 0}},
+                "daily_charges": [{"name": "Charge"}],
+                "demand_charges": {
+                    "ALL": {"rates": {"ALL": 0}},
+                    "Summer": {},
+                    "Winter": {}
+                },
                 "energy_charges": {
-                    "ALL": {f"PERIOD_{h:02d}_{m:02d}": sell_rates[h * 2 + (1 if m >= 30 else 0)]
-                        for h in range(24) for m in [0, 30]}
+                    "ALL": {"rates": {"ALL": 0}},
+                    "Summer": {"rates": sell_rates},
+                    "Winter": {}
                 },
                 "seasons": {
-                    "Winter": {"fromMonth": 1, "fromDay": 1, "toMonth": 12, "toDay": 31}
-                },
-                "tou_periods": {
+                    "Summer": {
+                        "fromMonth": 1,
+                        "toMonth": 12,
+                        "fromDay": 1,
+                        "toDay": 31,
+                        "tou_periods": tou_periods
+                    },
                     "Winter": {
-                        **{f"PERIOD_{h:02d}_{m:02d}": [
-                            {"fromHour": h, "fromMinute": m, "toHour": h, "toMinute": m + 30 if m == 0 else 0}
-                        ] for h in range(24) for m in [0, 30]}
+                        "fromDay": 0,
+                        "toDay": 0,
+                        "fromMonth": 0,
+                        "toMonth": 0,
+                        "tou_periods": {}
                     }
-                },
-            },
-        }
-
-        # Build proper buy rates in energy_charges
-        tariff["energy_charges"]["ALL"] = {
-            f"PERIOD_{h:02d}_{m:02d}": buy_rates[h * 2 + (1 if m >= 30 else 0)]
-            for h in range(24) for m in [0, 30]
-        }
-
-        # Build proper TOU periods
-        tariff["tou_periods"]["Winter"] = {
-            f"PERIOD_{h:02d}_{m:02d}": [
-                {"fromHour": h, "fromMinute": m, "toHour": h if m == 0 else h + 1, "toMinute": 30 if m == 0 else 0}
-            ] for h in range(24) for m in [0, 30]
+                }
+            }
         }
 
         _LOGGER.info(f"Created discharge tariff: buy=${buy_rate}/kWh, sell=${sell_rate_discharge}/kWh for {discharge_periods} periods")
