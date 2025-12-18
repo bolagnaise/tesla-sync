@@ -16,25 +16,36 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade():
-    # Add manual discharge mode fields
-    op.add_column('user', sa.Column('manual_discharge_active', sa.Boolean(), nullable=True, server_default='0'))
-    op.add_column('user', sa.Column('manual_discharge_expires_at', sa.DateTime(), nullable=True))
-    op.add_column('user', sa.Column('manual_discharge_saved_tariff_id', sa.Integer(), nullable=True))
+def column_exists(table_name, column_name):
+    """Check if a column exists in a table."""
+    bind = op.get_bind()
+    result = bind.execute(sa.text(f"PRAGMA table_info({table_name})"))
+    columns = [row[1] for row in result]
+    return column_name in columns
 
-    # Add foreign key constraint
-    op.create_foreign_key(
-        'fk_manual_discharge_saved_tariff',
-        'user', 'saved_tou_profile',
-        ['manual_discharge_saved_tariff_id'], ['id']
-    )
+
+def upgrade():
+    # Add manual discharge mode fields (check if they exist first)
+    if not column_exists('user', 'manual_discharge_active'):
+        op.add_column('user', sa.Column('manual_discharge_active', sa.Boolean(), nullable=True, server_default='0'))
+
+    if not column_exists('user', 'manual_discharge_expires_at'):
+        op.add_column('user', sa.Column('manual_discharge_expires_at', sa.DateTime(), nullable=True))
+
+    if not column_exists('user', 'manual_discharge_saved_tariff_id'):
+        op.add_column('user', sa.Column('manual_discharge_saved_tariff_id', sa.Integer(), nullable=True))
+
+    # Note: SQLite doesn't support adding foreign key constraints to existing tables
+    # The constraint is defined in the model but won't be enforced at the DB level for SQLite
 
 
 def downgrade():
-    # Remove foreign key constraint
-    op.drop_constraint('fk_manual_discharge_saved_tariff', 'user', type_='foreignkey')
+    # Remove columns (check if they exist first)
+    if column_exists('user', 'manual_discharge_saved_tariff_id'):
+        op.drop_column('user', 'manual_discharge_saved_tariff_id')
 
-    # Remove columns
-    op.drop_column('user', 'manual_discharge_saved_tariff_id')
-    op.drop_column('user', 'manual_discharge_expires_at')
-    op.drop_column('user', 'manual_discharge_active')
+    if column_exists('user', 'manual_discharge_expires_at'):
+        op.drop_column('user', 'manual_discharge_expires_at')
+
+    if column_exists('user', 'manual_discharge_active'):
+        op.drop_column('user', 'manual_discharge_active')
