@@ -535,6 +535,11 @@ def settings():
                 logger.info(f"Saving electricity provider: {provider}")
                 current_user.electricity_provider = provider
 
+        # Amber Spike Protection (checkbox - only saved when Amber form is submitted)
+        if 'electricity_provider' in submitted_fields:
+            current_user.spike_protection_enabled = 'spike_protection_enabled' in request.form
+            logger.info(f"Saving spike protection enabled: {current_user.spike_protection_enabled}")
+
         if 'flow_power_state' in submitted_fields:
             state = request.form.get('flow_power_state')
             if state in ['NSW1', 'VIC1', 'QLD1', 'SA1']:

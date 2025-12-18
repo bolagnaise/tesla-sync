@@ -497,6 +497,35 @@ class AmberTariffConverter:
             if feedin_prices[key] is None:
                 feedin_prices[key] = 0
 
+        # SPIKE PROTECTION: Prevent grid charging during Amber price spikes
+        # When Amber reports spikeStatus='potential' or 'spike', the Powerwall may see an
+        # arbitrage opportunity (cheap now, expensive later) and charge from grid.
+        # This defeats the purpose of buying cheap and selling high during the spike.
+        # Solution: Override buy prices to max(all_sell_prices) + $1.00 to eliminate arbitrage.
+        spike_protection_enabled = getattr(user, 'spike_protection_enabled', True) if user else True
+        if spike_protection_enabled and current_actual_interval:
+            spike_status = current_actual_interval.get('general', {}).get('spikeStatus', 'none')
+            if spike_status in ['potential', 'spike']:
+                # Find maximum sell price across all periods
+                max_sell_price = max(feedin_prices.values()) if feedin_prices else 0
+
+                # Override all buy prices to max(sell) + $1.00
+                # This guarantees at least $1/kWh loss if Powerwall tries to charge from grid
+                override_buy = max_sell_price + 1.00
+                periods_overridden = 0
+
+                for period_key, buy_price in list(general_prices.items()):
+                    if override_buy > buy_price:
+                        logger.info(f"{period_key}: SPIKE OVERRIDE - BUY ${buy_price:.4f} -> ${override_buy:.4f} (max_sell=${max_sell_price:.4f})")
+                        general_prices[period_key] = override_buy
+                        periods_overridden += 1
+
+                logger.warning(
+                    f"⚡ SPIKE PROTECTION ACTIVE (status={spike_status}): "
+                    f"Overriding {periods_overridden} buy prices to ${override_buy:.4f}/kWh "
+                    f"(max_sell=${max_sell_price:.4f} + $1.00 margin) to prevent grid charging"
+                )
+
         # Apply artificial price increase during demand periods if enabled (ALPHA feature)
         if user and getattr(user, 'demand_artificial_price_enabled', False) and getattr(user, 'enable_demand_charges', False):
             artificial_increase = 2.0  # $2/kWh increase during demand periods

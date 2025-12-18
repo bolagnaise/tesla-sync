@@ -102,6 +102,11 @@ class User(UserMixin, db.Model):
     aemo_saved_tariff_id = db.Column(db.Integer, db.ForeignKey('saved_tou_profile.id'))  # Tariff to restore after spike
     aemo_pre_spike_operation_mode = db.Column(db.String(20))  # Operation mode before spike (self_consumption, autonomous, backup)
 
+    # Amber Spike Protection (anti-arbitrage)
+    # When Amber reports spikeStatus='potential' or 'spike', inflate buy prices to max(sell)+$1
+    # This prevents Powerwall from charging from grid during spikes to arbitrage
+    spike_protection_enabled = db.Column(db.Boolean, default=True)
+
     # Manual Discharge Mode (Force Discharge button)
     manual_discharge_active = db.Column(db.Boolean, default=False)  # Currently in manual discharge mode
     manual_discharge_expires_at = db.Column(db.DateTime, nullable=True)  # When to auto-restore normal operation
