@@ -3045,6 +3045,9 @@ def api_force_discharge(tesla_client):
             # Update user state
             current_user.manual_discharge_active = True
             current_user.manual_discharge_expires_at = expires_at
+            # Clear tariff hash so restore normal will force a re-sync
+            # (prevents deduplication from skipping the restore)
+            current_user.last_tariff_hash = None
             db_commit_with_retry()
 
             # Force Powerwall to apply the tariff immediately
