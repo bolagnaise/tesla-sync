@@ -23,21 +23,21 @@ force_discharge:
         select:
           options:
             - label: "15 minutes"
-              value: 15
+              value: "15"
             - label: "30 minutes"
-              value: 30
+              value: "30"
             - label: "45 minutes"
-              value: 45
+              value: "45"
             - label: "1 hour"
-              value: 60
+              value: "60"
             - label: "1 hour 15 min"
-              value: 75
+              value: "75"
             - label: "1 hour 30 min"
-              value: 90
+              value: "90"
             - label: "1 hour 45 min"
-              value: 105
+              value: "105"
             - label: "2 hours"
-              value: 120
+              value: "120"
 
 restore_normal:
   name: Restore Normal
