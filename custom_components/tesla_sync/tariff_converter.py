@@ -774,19 +774,46 @@ def _build_rolling_24h_tariff(
                     spike_status, current_buy_dollars, NEGATIVE_PRICE_THRESHOLD
                 )
             else:
-                # Find maximum sell price across all periods
+                # Only override ADJACENT periods (current + next 2 hours = 4 periods)
+                # This prevents immediate arbitrage but allows charging later when spike is over
+                SPIKE_PROTECTION_PERIODS = 4  # 2 hours of protection
+
+                # Find maximum sell price across all periods (for override calculation)
                 max_sell_price = max(feedin_prices.values()) if feedin_prices else 0
 
                 # Override buy prices to max(sell) + $1.00
-                # Only override positive prices - keep negative prices as-is for free charging
                 override_buy = max_sell_price + 1.00
                 periods_overridden = 0
-                periods_skipped = 0
+                periods_skipped_low_price = 0
+                periods_skipped_not_adjacent = 0
+
+                # Build list of periods to protect (current + next N)
+                # Period keys are like PERIOD_HH_MM
+                protected_periods = set()
+                current_total_minutes = current_hour * 60 + current_minute
+
+                for i in range(SPIKE_PROTECTION_PERIODS + 1):  # +1 to include current
+                    # Calculate period time (30-min increments)
+                    period_minutes = current_total_minutes + (i * 30)
+                    # Handle day rollover
+                    period_minutes = period_minutes % (24 * 60)
+                    period_hour = period_minutes // 60
+                    period_min = period_minutes % 60
+                    # Round to 30-min boundary
+                    period_min = 0 if period_min < 30 else 30
+                    protected_periods.add(f"PERIOD_{period_hour:02d}_{period_min:02d}")
+
+                _LOGGER.info("Spike protection covering periods: %s", sorted(protected_periods))
 
                 for period_key, buy_price in list(general_prices.items()):
+                    # Only protect adjacent periods
+                    if period_key not in protected_periods:
+                        periods_skipped_not_adjacent += 1
+                        continue
+
                     # Skip negative/very low prices - we want to allow charging during those
                     if buy_price < NEGATIVE_PRICE_THRESHOLD:
-                        periods_skipped += 1
+                        periods_skipped_low_price += 1
                         continue
 
                     if override_buy > buy_price:
@@ -797,10 +824,10 @@ def _build_rolling_24h_tariff(
                         general_prices[period_key] = override_buy
                         periods_overridden += 1
 
-                skip_msg = f" (skipped {periods_skipped} negative/low price periods)" if periods_skipped else ""
+                skip_msg = f" (skipped {periods_skipped_low_price} low-price periods)" if periods_skipped_low_price else ""
                 _LOGGER.warning(
-                    "SPIKE PROTECTION ACTIVE (status=%s): Overriding %d buy prices to $%.4f/kWh "
-                    "(max_sell=$%.4f + $1.00 margin) to prevent grid charging%s",
+                    "SPIKE PROTECTION ACTIVE (status=%s): Overriding %d buy prices to $%.4f/kWh for next 2 hours "
+                    "(max_sell=$%.4f + $1.00 margin)%s",
                     spike_status, periods_overridden, override_buy, max_sell_price, skip_msg
                 )
 
