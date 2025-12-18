@@ -410,15 +410,6 @@
         </form>
     </article>
 
-    <!-- Amber Settings Link - Only shown for Amber users -->
-    {% if not current_user.electricity_provider or current_user.electricity_provider == 'amber' %}
-    <article>
-        <header><strong>Amber Settings</strong></header>
-        <p>Configure Amber-specific features including spike protection, export boost, and solar curtailment.</p>
-        <a href="{{ url_for('main.amber_settings') }}" role="button" class="outline">Open Amber Settings</a>
-    </article>
-    {% endif %}
-
     <!-- Tesla Configuration - Combined Section -->
     <article>
         <header><strong>Tesla Configuration</strong></header>
