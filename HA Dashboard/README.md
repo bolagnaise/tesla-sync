@@ -31,18 +31,18 @@ The battery control buttons require two `input_select` helpers for duration sele
 1. Go to **Settings → Devices & Services → Helpers**
 2. Click **+ Create Helper → Dropdown**
 3. Configure:
-   - Name: `force_discharge_duration`
+   - Name: `Force Discharge Duration`
    - Options: `15`, `30`, `45`, `60`, `90`, `120`
 4. Click **Create**
 
 **Helper 2: Force Charge Duration**
 1. Click **+ Create Helper → Dropdown** again
 2. Configure:
-   - Name: `force_charge_duration`
+   - Name: `Force Charge Duration`
    - Options: `15`, `30`, `45`, `60`, `90`, `120`
 3. Click **Create**
 
-These create entities `input_select.force_discharge_duration` and `input_select.force_charge_duration` used by the duration selector chips.
+The entity IDs are automatically derived from the names (`input_select.force_discharge_duration` and `input_select.force_charge_duration`).
 
 ## Installation
 

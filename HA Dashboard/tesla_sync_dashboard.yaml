@@ -57,8 +57,8 @@ views:
                 }
       # Battery Control Buttons
       # NOTE: Requires input_select helpers. Create via Settings > Devices > Helpers > Dropdown
-      #       Helper 1: Name: force_discharge_duration | Options: 15, 30, 45, 60, 90, 120
-      #       Helper 2: Name: force_charge_duration | Options: 15, 30, 45, 60, 90, 120
+      #       Helper 1: Name: Force Discharge Duration | Options: 15, 30, 45, 60, 90, 120
+      #       Helper 2: Name: Force Charge Duration | Options: 15, 30, 45, 60, 90, 120
       - type: custom:mushroom-chips-card
         alignment: center
         chips:
