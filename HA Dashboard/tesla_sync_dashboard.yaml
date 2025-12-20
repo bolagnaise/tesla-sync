@@ -55,12 +55,33 @@ views:
                 ha-card {
                   height: 140px;
                 }
-      # Force Discharge Controls
-      # NOTE: Requires input_select helper. Create via Settings > Devices > Helpers > Dropdown
-      #       Name: force_discharge_duration | Options: 15, 30, 45, 60, 90, 120
+      # Battery Control Buttons
+      # NOTE: Requires input_select helpers. Create via Settings > Devices > Helpers > Dropdown
+      #       Helper 1: Name: force_discharge_duration | Options: 15, 30, 45, 60, 90, 120
+      #       Helper 2: Name: force_charge_duration | Options: 15, 30, 45, 60, 90, 120
       - type: custom:mushroom-chips-card
         alignment: center
         chips:
+          # Force Charge
+          - type: template
+            icon: mdi:timer-outline
+            icon_color: blue
+            content: "{{ states('input_select.force_charge_duration') }} min"
+            tap_action:
+              action: more-info
+              entity: input_select.force_charge_duration
+          - type: template
+            icon: mdi:battery-charging
+            icon_color: blue
+            content: Force Charge
+            tap_action:
+              action: call-service
+              service: tesla_sync.force_charge
+              data:
+                duration: "{{ states('input_select.force_charge_duration') | int }}"
+              confirmation:
+                text: "Force charge for {{ states('input_select.force_charge_duration') }} minutes?"
+          # Force Discharge
           - type: template
             icon: mdi:timer-outline
             icon_color: orange
@@ -79,6 +100,7 @@ views:
                 duration: "{{ states('input_select.force_discharge_duration') | int }}"
               confirmation:
                 text: "Force discharge for {{ states('input_select.force_discharge_duration') }} minutes?"
+          # Restore Normal
           - type: template
             icon: mdi:battery-sync
             icon_color: green

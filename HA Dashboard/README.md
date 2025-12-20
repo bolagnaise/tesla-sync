@@ -6,7 +6,7 @@ A pre-built Lovelace dashboard for visualizing your Tesla Powerwall and Amber El
 
 The dashboard includes:
 - **Price Gauges** - Compact gauges for import price, feed-in price, and battery level
-- **Force Discharge Controls** - Duration selector, force discharge, and restore buttons
+- **Battery Control** - Force charge, force discharge, and restore normal buttons with duration selectors
 - **Power Flow Card** - Real-time energy flow visualization
 - **Price Charts** - Amber prices and TOU schedule sent to Tesla
 - **Energy Charts** - Solar, Battery, Grid, and Home load graphs
@@ -23,10 +23,11 @@ Install these from HACS (Frontend) before setting up the dashboard:
 3. **[power-flow-card-plus](https://github.com/flixlix/power-flow-card-plus)** - For the real-time energy flow visualization
 4. **[apexcharts-card](https://github.com/RomRider/apexcharts-card)** - For all the price and energy charts
 
-### Required Helper Entity
+### Required Helper Entities
 
-The Force Discharge controls require an `input_select` helper:
+The battery control buttons require two `input_select` helpers for duration selection:
 
+**Helper 1: Force Discharge Duration**
 1. Go to **Settings → Devices & Services → Helpers**
 2. Click **+ Create Helper → Dropdown**
 3. Configure:
@@ -34,7 +35,14 @@ The Force Discharge controls require an `input_select` helper:
    - Options: `15`, `30`, `45`, `60`, `90`, `120`
 4. Click **Create**
 
-This creates entity `input_select.force_discharge_duration` used by the duration selector chip.
+**Helper 2: Force Charge Duration**
+1. Click **+ Create Helper → Dropdown** again
+2. Configure:
+   - Name: `force_charge_duration`
+   - Options: `15`, `30`, `45`, `60`, `90`, `120`
+3. Click **Create**
+
+These create entities `input_select.force_discharge_duration` and `input_select.force_charge_duration` used by the duration selector chips.
 
 ## Installation
 
@@ -101,9 +109,11 @@ This means a required HACS card isn't installed. Install the missing integration
 
 Install the **card-mod** HACS integration for full styling support.
 
-### Force Discharge controls not working
+### Battery control buttons not working
 
-Ensure you've created the `input_select.force_discharge_duration` helper entity (see Requirements above).
+Ensure you've created both helper entities (see Requirements above):
+- `input_select.force_discharge_duration`
+- `input_select.force_charge_duration`
 
 ### Charts showing no data
 

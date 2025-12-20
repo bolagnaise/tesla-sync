@@ -42,6 +42,7 @@ from .const import (
     SERVICE_SYNC_TOU,
     SERVICE_SYNC_NOW,
     SERVICE_FORCE_DISCHARGE,
+    SERVICE_FORCE_CHARGE,
     SERVICE_RESTORE_NORMAL,
     DISCHARGE_DURATIONS,
     DEFAULT_DISCHARGE_DURATION,
@@ -1451,6 +1452,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.info("⏭️  TOU sync skipped - Force discharge active")
             return
 
+        # Skip TOU sync if force charge is active - don't overwrite the charge tariff
+        if force_charge_state.get("active"):
+            expires_at = force_charge_state.get("expires_at")
+            if expires_at:
+                from homeassistant.util import dt as dt_util
+                remaining = (expires_at - dt_util.utcnow()).total_seconds() / 60
+                _LOGGER.info(f"⏭️  TOU sync skipped - Force charge active ({remaining:.1f} min remaining)")
+            else:
+                _LOGGER.info("⏭️  TOU sync skipped - Force charge active")
+            return
+
         _LOGGER.info("=== Starting TOU sync ===")
 
         # Import tariff converter from existing code
@@ -2335,6 +2347,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "cancel_expiry_timer": None,
     }
 
+    # Storage for saved tariff and operation mode during force charge
+    force_charge_state = {
+        "active": False,
+        "saved_tariff": None,
+        "saved_operation_mode": None,
+        "expires_at": None,
+        "cancel_expiry_timer": None,
+    }
+
     async def handle_force_discharge(call: ServiceCall) -> None:
         """Force discharge mode - switches to autonomous with high export tariff."""
         from homeassistant.util import dt as dt_util
@@ -2601,14 +2622,293 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         return tariff
 
+    async def handle_force_charge(call: ServiceCall) -> None:
+        """Force charge mode - switches to autonomous with free import tariff."""
+        from homeassistant.util import dt as dt_util
+
+        duration = call.data.get("duration", DEFAULT_DISCHARGE_DURATION)
+        if duration not in DISCHARGE_DURATIONS:
+            duration = DEFAULT_DISCHARGE_DURATION
+
+        _LOGGER.info(f"🔌 FORCE CHARGE: Activating for {duration} minutes")
+
+        try:
+            # Get current token and provider
+            provider = entry.options.get(
+                CONF_TESLA_API_PROVIDER,
+                entry.data.get(CONF_TESLA_API_PROVIDER, TESLA_PROVIDER_TESLEMETRY)
+            )
+            if provider == TESLA_PROVIDER_TESLEMETRY:
+                current_token = entry.options.get(
+                    CONF_TESLEMETRY_API_TOKEN,
+                    entry.data.get(CONF_TESLEMETRY_API_TOKEN)
+                )
+            else:
+                current_token = entry.options.get(
+                    CONF_FLEET_API_ACCESS_TOKEN,
+                    entry.data.get(CONF_FLEET_API_ACCESS_TOKEN)
+                )
+
+            site_id = entry.data.get(CONF_TESLA_ENERGY_SITE_ID)
+            if not site_id or not current_token:
+                _LOGGER.error("Missing Tesla site ID or token for force charge")
+                return
+
+            session = async_get_clientsession(hass)
+            headers = {
+                "Authorization": f"Bearer {current_token}",
+                "Content-Type": "application/json",
+            }
+            api_base = TESLEMETRY_API_BASE_URL if provider == TESLA_PROVIDER_TESLEMETRY else FLEET_API_BASE_URL
+
+            # Cancel active discharge mode if switching to charge
+            if force_discharge_state["active"]:
+                _LOGGER.info("Canceling active discharge mode to enable charge mode")
+                if force_discharge_state.get("cancel_expiry_timer"):
+                    force_discharge_state["cancel_expiry_timer"]()
+                    force_discharge_state["cancel_expiry_timer"] = None
+                force_discharge_state["active"] = False
+                force_discharge_state["expires_at"] = None
+
+            # Step 1: Save current tariff (if not already in charge mode)
+            if not force_charge_state["active"]:
+                _LOGGER.info("Saving current tariff before force charge...")
+                async with session.get(
+                    f"{api_base}/api/1/energy_sites/{site_id}/tariff_rate",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        force_charge_state["saved_tariff"] = data.get("response", {}).get("tariff_content_v2")
+                        _LOGGER.info("Saved current tariff for restoration after charge")
+                    else:
+                        _LOGGER.warning("Could not save current tariff: %s", response.status)
+
+                # Step 2: Get and save current operation mode
+                async with session.get(
+                    f"{api_base}/api/1/energy_sites/{site_id}/site_info",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        force_charge_state["saved_operation_mode"] = data.get("response", {}).get("default_real_mode")
+                        _LOGGER.info("Saved operation mode: %s", force_charge_state["saved_operation_mode"])
+
+            # Step 3: Switch to autonomous mode for best charging behavior
+            if force_charge_state.get("saved_operation_mode") != "autonomous":
+                _LOGGER.info("Switching to autonomous mode for optimal charging...")
+                async with session.post(
+                    f"{api_base}/api/1/energy_sites/{site_id}/operation",
+                    headers=headers,
+                    json={"default_real_mode": "autonomous"},
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
+                    if response.status == 200:
+                        _LOGGER.info("Switched to autonomous mode")
+                    else:
+                        _LOGGER.warning("Could not switch operation mode: %s", response.status)
+
+            # Step 4: Create and upload charge tariff (free import, no export incentive)
+            charge_tariff = _create_charge_tariff(duration)
+            success = await send_tariff_to_tesla(
+                hass,
+                site_id,
+                charge_tariff,
+                current_token,
+                provider,
+            )
+
+            if success:
+                force_charge_state["active"] = True
+                force_charge_state["expires_at"] = dt_util.utcnow() + timedelta(minutes=duration)
+                _LOGGER.info(f"✅ FORCE CHARGE ACTIVE: Tariff uploaded for {duration} min")
+
+                # Dispatch event for UI
+                async_dispatcher_send(hass, f"{DOMAIN}_force_charge_state", {
+                    "active": True,
+                    "expires_at": force_charge_state["expires_at"].isoformat(),
+                    "duration": duration,
+                })
+
+                # Schedule auto-restore
+                if force_charge_state["cancel_expiry_timer"]:
+                    force_charge_state["cancel_expiry_timer"]()
+
+                async def auto_restore_charge(_now):
+                    """Auto-restore normal operation when charge expires."""
+                    if force_charge_state["active"]:
+                        _LOGGER.info("⏰ Force charge expired, auto-restoring normal operation")
+                        await handle_restore_normal(ServiceCall(DOMAIN, SERVICE_RESTORE_NORMAL, {}))
+
+                force_charge_state["cancel_expiry_timer"] = async_track_utc_time_change(
+                    hass,
+                    auto_restore_charge,
+                    hour=force_charge_state["expires_at"].hour,
+                    minute=force_charge_state["expires_at"].minute,
+                    second=force_charge_state["expires_at"].second,
+                )
+            else:
+                _LOGGER.error("Failed to upload charge tariff")
+
+        except Exception as e:
+            _LOGGER.error(f"Error in force charge: {e}", exc_info=True)
+
+    def _create_charge_tariff(duration_minutes: int) -> dict:
+        """Create a Tesla tariff optimized for charging from grid (force charge).
+
+        Uses the same tariff structure as the working Flask implementation.
+        """
+        from homeassistant.util import dt as dt_util
+
+        # Rates during charge window - free to buy, no sell incentive
+        buy_rate_charge = 0.00    # $0/kWh - maximum incentive to charge
+        sell_rate_charge = 0.00   # $0/kWh - no incentive to export
+
+        # Rates outside charge window - expensive to buy, no sell
+        buy_rate_normal = 10.00   # $10/kWh - huge disincentive to charge
+        sell_rate_normal = 0.00   # $0/kWh - no incentive to export
+
+        _LOGGER.info(f"Creating charge tariff: buy=${buy_rate_charge}/kWh during charge, ${buy_rate_normal}/kWh outside for {duration_minutes} min")
+
+        # Build rates dictionaries for all 48 x 30-minute periods (24 hours)
+        buy_rates = {}
+        sell_rates = {}
+        tou_periods = {}
+
+        # Get current time to determine charge window
+        now = dt_util.now()
+        current_period_index = (now.hour * 2) + (1 if now.minute >= 30 else 0)
+
+        # Calculate how many 30-min periods the charge covers
+        charge_periods = (duration_minutes + 29) // 30  # Round up
+        charge_start = current_period_index
+        charge_end = (current_period_index + charge_periods) % 48
+
+        _LOGGER.info(f"Charge window: periods {charge_start} to {charge_end} (current time: {now.hour:02d}:{now.minute:02d})")
+
+        for i in range(48):
+            hour = i // 2
+            minute = 30 if i % 2 else 0
+            period_name = f"{hour:02d}:{minute:02d}"
+
+            # Check if this period is in the charge window
+            is_charge_period = False
+            if charge_start < charge_end:
+                is_charge_period = charge_start <= i < charge_end
+            else:  # Wrap around midnight
+                is_charge_period = i >= charge_start or i < charge_end
+
+            # Set rates based on whether we're in charge window
+            if is_charge_period:
+                buy_rates[period_name] = buy_rate_charge
+                sell_rates[period_name] = sell_rate_charge
+            else:
+                buy_rates[period_name] = buy_rate_normal
+                sell_rates[period_name] = sell_rate_normal
+
+            # Calculate end time (30 minutes later)
+            if minute == 0:
+                to_hour = hour
+                to_minute = 30
+            else:  # minute == 30
+                to_hour = (hour + 1) % 24  # Wrap around at midnight
+                to_minute = 0
+
+            # TOU period definition for seasons
+            tou_periods[period_name] = {
+                "periods": [{
+                    "fromDayOfWeek": 0,
+                    "toDayOfWeek": 6,
+                    "fromHour": hour,
+                    "fromMinute": minute,
+                    "toHour": to_hour,
+                    "toMinute": to_minute
+                }]
+            }
+
+        # Create Tesla tariff structure (matching Flask implementation)
+        tariff = {
+            "name": f"Force Charge ({duration_minutes}min)",
+            "utility": "Tesla Sync",
+            "code": f"CHARGE_{duration_minutes}",
+            "currency": "AUD",
+            "daily_charges": [{"name": "Supply Charge"}],
+            "demand_charges": {
+                "ALL": {"rates": {"ALL": 0}},
+                "Summer": {},
+                "Winter": {}
+            },
+            "energy_charges": {
+                "ALL": {"rates": {"ALL": 0}},
+                "Summer": {"rates": buy_rates},
+                "Winter": {}
+            },
+            "seasons": {
+                "Summer": {
+                    "fromMonth": 1,
+                    "toMonth": 12,
+                    "fromDay": 1,
+                    "toDay": 31,
+                    "tou_periods": tou_periods
+                },
+                "Winter": {
+                    "fromDay": 0,
+                    "toDay": 0,
+                    "fromMonth": 0,
+                    "toMonth": 0,
+                    "tou_periods": {}
+                }
+            },
+            "sell_tariff": {
+                "name": f"Force Charge Export ({duration_minutes}min)",
+                "utility": "Tesla Sync",
+                "daily_charges": [{"name": "Charge"}],
+                "demand_charges": {
+                    "ALL": {"rates": {"ALL": 0}},
+                    "Summer": {},
+                    "Winter": {}
+                },
+                "energy_charges": {
+                    "ALL": {"rates": {"ALL": 0}},
+                    "Summer": {"rates": sell_rates},
+                    "Winter": {}
+                },
+                "seasons": {
+                    "Summer": {
+                        "fromMonth": 1,
+                        "toMonth": 12,
+                        "fromDay": 1,
+                        "toDay": 31,
+                        "tou_periods": tou_periods
+                    },
+                    "Winter": {
+                        "fromDay": 0,
+                        "toDay": 0,
+                        "fromMonth": 0,
+                        "toMonth": 0,
+                        "tou_periods": {}
+                    }
+                }
+            }
+        }
+
+        _LOGGER.info(f"Created charge tariff: buy=${buy_rate_charge}/kWh during charge, ${buy_rate_normal}/kWh outside for {charge_periods} periods")
+
+        return tariff
+
     async def handle_restore_normal(call: ServiceCall) -> None:
         """Restore normal operation - restore saved tariff or trigger Amber sync."""
         _LOGGER.info("🔄 RESTORE NORMAL: Restoring normal operation")
 
-        # Cancel any pending expiry timer
+        # Cancel any pending expiry timers (discharge and charge)
         if force_discharge_state.get("cancel_expiry_timer"):
             force_discharge_state["cancel_expiry_timer"]()
             force_discharge_state["cancel_expiry_timer"] = None
+        if force_charge_state.get("cancel_expiry_timer"):
+            force_charge_state["cancel_expiry_timer"]()
+            force_charge_state["cancel_expiry_timer"] = None
 
         try:
             # Get current token and provider
@@ -2645,17 +2945,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 entry.data.get(CONF_ELECTRICITY_PROVIDER, "amber")
             )
 
+            # Find saved tariff (prefer discharge, then charge)
+            saved_tariff = force_discharge_state.get("saved_tariff") or force_charge_state.get("saved_tariff")
+
             if electricity_provider == "amber":
                 # Amber users - trigger a fresh sync to get current prices
                 _LOGGER.info("Amber user - triggering sync to restore normal operation")
                 await handle_sync_tou(ServiceCall(DOMAIN, SERVICE_SYNC_TOU, {}))
-            elif force_discharge_state["saved_tariff"]:
+            elif saved_tariff:
                 # Non-Amber users - restore the saved tariff
                 _LOGGER.info("Restoring saved tariff...")
                 success = await send_tariff_to_tesla(
                     hass,
                     site_id,
-                    force_discharge_state["saved_tariff"],
+                    saved_tariff,
                     current_token,
                     provider,
                 )
@@ -2667,8 +2970,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.warning("No saved tariff to restore, triggering sync")
                 await handle_sync_tou(ServiceCall(DOMAIN, SERVICE_SYNC_TOU, {}))
 
-            # Restore operation mode
-            restore_mode = force_discharge_state.get("saved_operation_mode") or "autonomous"
+            # Restore operation mode (prefer discharge saved mode, then charge)
+            restore_mode = (
+                force_discharge_state.get("saved_operation_mode") or
+                force_charge_state.get("saved_operation_mode") or
+                "autonomous"
+            )
             _LOGGER.info(f"Restoring operation mode to: {restore_mode}")
             async with session.post(
                 f"{api_base}/api/1/energy_sites/{site_id}/operation",
@@ -2687,10 +2994,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             force_discharge_state["saved_operation_mode"] = None
             force_discharge_state["expires_at"] = None
 
+            # Clear charge state
+            force_charge_state["active"] = False
+            force_charge_state["saved_tariff"] = None
+            force_charge_state["saved_operation_mode"] = None
+            force_charge_state["expires_at"] = None
+
             _LOGGER.info("✅ NORMAL OPERATION RESTORED")
 
-            # Dispatch event for switch entity
+            # Dispatch events for UI
             async_dispatcher_send(hass, f"{DOMAIN}_force_discharge_state", {
+                "active": False,
+                "expires_at": None,
+                "duration": 0,
+            })
+            async_dispatcher_send(hass, f"{DOMAIN}_force_charge_state", {
                 "active": False,
                 "expires_at": None,
                 "duration": 0,
@@ -2699,11 +3017,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.error(f"Error in restore normal: {e}", exc_info=True)
 
-    # Register force discharge and restore normal services
+    # Register force discharge, force charge, and restore normal services
     hass.services.async_register(DOMAIN, SERVICE_FORCE_DISCHARGE, handle_force_discharge)
+    hass.services.async_register(DOMAIN, SERVICE_FORCE_CHARGE, handle_force_charge)
     hass.services.async_register(DOMAIN, SERVICE_RESTORE_NORMAL, handle_restore_normal)
 
-    _LOGGER.info("🔋 Force discharge and restore services registered")
+    _LOGGER.info("🔋 Force discharge, force charge, and restore services registered")
 
     # Wire up WebSocket sync callback now that handlers are defined
     if ws_client:
