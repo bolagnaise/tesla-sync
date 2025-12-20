@@ -484,9 +484,7 @@
                     <div style="padding: 0.8em; background: rgba(0, 255, 0, 0.1); border-radius: 0.5em; margin-bottom: 1em;">
                         <p style="margin: 0; color: #51cf66; font-size: 0.9em;">✅ <strong>Connected to Tesla</strong></p>
                         <p style="font-size: 0.8em; margin: 0.3em 0 0 0; color: var(--muted-color);">
-                            {% if current_user.fleet_api_token_expires_at %}
-                            Token expires: {{ current_user.fleet_api_token_expires_at.strftime('%Y-%m-%d %H:%M UTC') }}
-                            {% endif %}
+                            Token auto-refreshes when needed
                         </p>
                         <div style="display: flex; gap: 0.5em; margin-top: 0.8em;">
                             <a href="{{ url_for('main.fleet_api_oauth_start') }}" class="outline" style="flex: 1; text-align: center; font-size: 0.85em;">Reconnect</a>

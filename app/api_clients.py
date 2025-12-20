@@ -406,7 +406,7 @@ class FleetAPIClient(TeslaAPIClientBase):
     AUTH_URL = "https://auth.tesla.com/oauth2/v3"
     TOKEN_URL = "https://auth.tesla.com/oauth2/v3/token"
 
-    def __init__(self, access_token, refresh_token=None, client_id=None, client_secret=None):
+    def __init__(self, access_token, refresh_token=None, client_id=None, client_secret=None, on_token_refresh=None):
         """
         Initialize Fleet API client
 
@@ -415,11 +415,13 @@ class FleetAPIClient(TeslaAPIClientBase):
             refresh_token: OAuth refresh token (for automatic token refresh)
             client_id: Tesla app client ID (required for token refresh)
             client_secret: Tesla app client secret (required for token refresh)
+            on_token_refresh: Optional callback(access_token, refresh_token, expires_in) called after token refresh
         """
         self.access_token = access_token
         self.refresh_token = refresh_token
         self.client_id = client_id
         self.client_secret = client_secret
+        self.on_token_refresh = on_token_refresh
         self.base_url = self.BASE_URL
         self.headers = {
             "Authorization": f"Bearer {access_token}",
@@ -461,6 +463,15 @@ class FleetAPIClient(TeslaAPIClientBase):
             self.headers["Authorization"] = f"Bearer {self.access_token}"
 
             logger.info("Successfully refreshed Fleet API access token")
+
+            # Call the callback to persist tokens to database
+            if self.on_token_refresh:
+                try:
+                    expires_in = data.get("expires_in", 28800)  # Default 8 hours
+                    self.on_token_refresh(self.access_token, self.refresh_token, expires_in)
+                except Exception as e:
+                    logger.error(f"Error in token refresh callback: {e}")
+
             return data
         except requests.exceptions.RequestException as e:
             logger.error(f"Error refreshing access token: {e}")
@@ -2226,11 +2237,27 @@ def get_tesla_client(user):
             if not client_secret:
                 client_secret = os.getenv('TESLA_CLIENT_SECRET')
 
+            # Callback to persist refreshed tokens to database
+            def on_token_refresh(new_access_token, new_refresh_token, expires_in):
+                from app import db
+                from datetime import datetime, timedelta, timezone
+                try:
+                    user.fleet_api_access_token_encrypted = encrypt_token(new_access_token)
+                    if new_refresh_token:
+                        user.fleet_api_refresh_token_encrypted = encrypt_token(new_refresh_token)
+                    user.fleet_api_token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+                    db.session.commit()
+                    logger.info(f"Persisted refreshed Fleet API tokens for {user.email}, expires in {expires_in}s")
+                except Exception as e:
+                    logger.error(f"Failed to persist refreshed tokens for {user.email}: {e}")
+                    db.session.rollback()
+
             return FleetAPIClient(
                 access_token=access_token,
                 refresh_token=refresh_token,
                 client_id=client_id,
-                client_secret=client_secret
+                client_secret=client_secret,
+                on_token_refresh=on_token_refresh
             )
         except Exception as e:
             logger.error(f"Error creating Fleet API client: {e}")
