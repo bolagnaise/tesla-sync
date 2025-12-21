@@ -230,17 +230,13 @@
                         <div id="rated-capacity" style="font-size: 1.5em; font-weight: bold;">-- kWh</div>
                     </div>
                 </div>
-                <!-- Install Date -->
+                <!-- Install Date (auto-fetched from Tesla API) -->
                 <div style="margin-bottom: 1em; padding: 0.75em; background: rgba(0, 0, 0, 0.03); border-radius: 8px;">
-                    <div style="display: flex; align-items: center; gap: 1em; flex-wrap: wrap;">
-                        <label for="install-date-input" style="margin: 0; font-size: 0.9em;">Install Date:</label>
-                        <input type="date" id="install-date-input" style="padding: 0.4em; font-size: 0.9em;">
-                        <button id="save-install-date-btn" class="secondary" style="font-size: 0.85em; padding: 0.4em 0.8em;">Save</button>
-                        <span id="install-date-status" style="font-size: 0.85em;"></span>
+                    <div style="display: flex; align-items: center; gap: 0.5em; flex-wrap: wrap;">
+                        <span style="font-size: 0.9em; color: var(--muted-color);">Install Date:</span>
+                        <span id="install-date-display" style="font-size: 0.9em; font-weight: 500;">Loading...</span>
+                        <span style="font-size: 0.75em; color: var(--muted-color);">(from Tesla API)</span>
                     </div>
-                    <p id="install-date-source" style="font-size: 0.75em; margin: 0.5em 0 0 0; color: var(--muted-color); display: none;">
-                        Auto-fetched from Tesla API
-                    </p>
                 </div>
                 <!-- Degradation Graph -->
                 <details id="degradation-graph-details" open>
@@ -2621,9 +2617,10 @@
 
                 // Set install date if available
                 if (data.installDate) {
-                    document.getElementById('install-date-input').value = data.installDate;
-                    // Show "Auto-fetched" indicator
-                    document.getElementById('install-date-source').style.display = 'block';
+                    const installDate = new Date(data.installDate);
+                    document.getElementById('install-date-display').textContent = installDate.toLocaleDateString();
+                } else {
+                    document.getElementById('install-date-display').textContent = 'Not available';
                 }
 
                 // Update last updated timestamp
@@ -2789,50 +2786,8 @@
             }
         }
 
-        async function saveInstallDate() {
-            const dateInput = document.getElementById('install-date-input');
-            const statusEl = document.getElementById('install-date-status');
-            const saveBtn = document.getElementById('save-install-date-btn');
-
-            if (!dateInput.value) {
-                statusEl.textContent = 'Please select a date';
-                statusEl.style.color = '#ef4444';
-                return;
-            }
-
-            saveBtn.setAttribute('aria-busy', 'true');
-            saveBtn.disabled = true;
-
-            try {
-                const response = await fetch('/api/battery-health/install-date', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ installDate: dateInput.value })
-                });
-
-                const result = await response.json();
-
-                if (result.status === 'ok') {
-                    statusEl.textContent = 'Saved!';
-                    statusEl.style.color = '#22c55e';
-                    // Reload the history to update the graph
-                    loadBatteryHealthHistory();
-                } else {
-                    statusEl.textContent = result.error || 'Failed to save';
-                    statusEl.style.color = '#ef4444';
-                }
-            } catch (error) {
-                statusEl.textContent = 'Error: ' + error.message;
-                statusEl.style.color = '#ef4444';
-            } finally {
-                saveBtn.removeAttribute('aria-busy');
-                saveBtn.disabled = false;
-            }
-        }
-
         // Initialize battery health on page load
         document.addEventListener('DOMContentLoaded', loadBatteryHealth);
-        document.getElementById('save-install-date-btn').addEventListener('click', saveInstallDate);
     </script>
 
     <style>

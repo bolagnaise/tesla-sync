@@ -4927,19 +4927,16 @@ def api_battery_health_get(api_user=None, **kwargs):
         try:
             tesla_client = get_tesla_client(user)
             if tesla_client:
-                history = tesla_client.get_calendar_history(
-                    user.tesla_energy_site_id,
-                    kind='energy',
-                    period='day'
-                )
-                if history and history.get('installation_date'):
+                # Get install date from site_info (more reliable than calendar_history)
+                site_info = tesla_client.get_site_info(user.tesla_energy_site_id)
+                if site_info and site_info.get('installation_date'):
                     from datetime import date
-                    install_date_str = history['installation_date']
-                    # Parse ISO date format (e.g., "2024-01-15T00:00:00+10:00")
+                    install_date_str = site_info['installation_date']
+                    # Parse ISO date format (e.g., "2025-02-21T10:28:47+10:00")
                     install_date = date.fromisoformat(install_date_str[:10])
                     user.powerwall_install_date = install_date
                     db.session.commit()
-                    logger.info(f"Auto-fetched install date for {user.email}: {install_date}")
+                    logger.info(f"Auto-fetched install date from site_info for {user.email}: {install_date}")
         except Exception as e:
             logger.warning(f"Could not auto-fetch install date: {e}")
 
