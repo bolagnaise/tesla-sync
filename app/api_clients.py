@@ -3,7 +3,7 @@
 import requests
 import logging
 from datetime import datetime, timedelta
-from app.utils import decrypt_token
+from app.utils import decrypt_token, encrypt_token
 import time
 import os
 from abc import ABC, abstractmethod
