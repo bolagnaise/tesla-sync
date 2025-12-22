@@ -298,7 +298,7 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_flow_power_setup(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle Flow Power specific setup - region, price source, network tariff."""
+        """Handle Flow Power specific setup - region, price source, network tariff, PEA."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -335,6 +335,47 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_NETWORK_TARIFF_COMBINED, default="energex:6900"): vol.In(ALL_NETWORK_TARIFFS),
                 # Manual override - enable to enter rates manually instead of using library
                 vol.Optional(CONF_NETWORK_USE_MANUAL_RATES, default=False): bool,
+                # Manual rate entry (used when use_manual_rates=True)
+                vol.Optional(CONF_NETWORK_TARIFF_TYPE, default="flat"): vol.In(NETWORK_TARIFF_TYPES),
+                vol.Optional(CONF_NETWORK_FLAT_RATE, default=8.0): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.0, max=50.0)
+                ),
+                vol.Optional(CONF_NETWORK_PEAK_RATE, default=15.0): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.0, max=50.0)
+                ),
+                vol.Optional(CONF_NETWORK_SHOULDER_RATE, default=5.0): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.0, max=50.0)
+                ),
+                vol.Optional(CONF_NETWORK_OFFPEAK_RATE, default=2.0): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.0, max=50.0)
+                ),
+                vol.Optional(CONF_NETWORK_PEAK_START, default="16:00"): vol.In(
+                    {f"{h:02d}:00": f"{h:02d}:00" for h in range(24)}
+                ),
+                vol.Optional(CONF_NETWORK_PEAK_END, default="21:00"): vol.In(
+                    {f"{h:02d}:00": f"{h:02d}:00" for h in range(24)}
+                ),
+                vol.Optional(CONF_NETWORK_OFFPEAK_START, default="10:00"): vol.In(
+                    {f"{h:02d}:00": f"{h:02d}:00" for h in range(24)}
+                ),
+                vol.Optional(CONF_NETWORK_OFFPEAK_END, default="15:00"): vol.In(
+                    {f"{h:02d}:00": f"{h:02d}:00" for h in range(24)}
+                ),
+                vol.Optional(CONF_NETWORK_OTHER_FEES, default=1.5): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.0, max=20.0)
+                ),
+                vol.Optional(CONF_NETWORK_INCLUDE_GST, default=True): bool,
+                # Flow Power PEA (Price Efficiency Adjustment)
+                vol.Optional(CONF_PEA_ENABLED, default=True): bool,
+                vol.Optional(CONF_FLOW_POWER_BASE_RATE, default=FLOW_POWER_DEFAULT_BASE_RATE): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.0, max=100.0)
+                ),
+                vol.Optional(CONF_PEA_CUSTOM_VALUE, default=None): vol.Any(
+                    None, vol.All(vol.Coerce(float), vol.Range(min=-50.0, max=50.0))
+                ),
+                # Sync and other settings
+                vol.Optional(CONF_AUTO_SYNC_ENABLED, default=True): bool,
+                vol.Optional(CONF_SOLAR_CURTAILMENT_ENABLED, default=False): bool,
             }),
             errors=errors,
             description_placeholders={
@@ -380,9 +421,12 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_amber_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle Amber-specific settings (export boost, etc.) during initial setup."""
+        """Handle Amber-specific settings (export boost, spike protection, etc.) during initial setup."""
         if user_input is not None:
             # Store Amber settings in _amber_data
+            self._amber_data[CONF_SPIKE_PROTECTION_ENABLED] = user_input.get(CONF_SPIKE_PROTECTION_ENABLED, False)
+            self._amber_data[CONF_SETTLED_PRICES_ONLY] = user_input.get(CONF_SETTLED_PRICES_ONLY, False)
+            self._amber_data[CONF_FORCE_TARIFF_MODE_TOGGLE] = user_input.get(CONF_FORCE_TARIFF_MODE_TOGGLE, False)
             self._amber_data[CONF_EXPORT_BOOST_ENABLED] = user_input.get(CONF_EXPORT_BOOST_ENABLED, False)
             self._amber_data[CONF_EXPORT_PRICE_OFFSET] = user_input.get(CONF_EXPORT_PRICE_OFFSET, 0.0)
             self._amber_data[CONF_EXPORT_MIN_PRICE] = user_input.get(CONF_EXPORT_MIN_PRICE, 0.0)
@@ -395,6 +439,11 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         data_schema = vol.Schema(
             {
+                # Spike and price protection settings
+                vol.Optional(CONF_SPIKE_PROTECTION_ENABLED, default=False): bool,
+                vol.Optional(CONF_SETTLED_PRICES_ONLY, default=False): bool,
+                vol.Optional(CONF_FORCE_TARIFF_MODE_TOGGLE, default=False): bool,
+                # Export boost settings
                 vol.Optional(CONF_EXPORT_BOOST_ENABLED, default=False): bool,
                 vol.Optional(CONF_EXPORT_PRICE_OFFSET, default=0.0): vol.All(
                     vol.Coerce(float), vol.Range(min=0.0, max=50.0)
@@ -602,10 +651,16 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle site selection for both Amber and Tesla."""
         errors: dict[str, str] = {}
 
+        # Determine if we should show Amber-specific options
+        # Show only if: not AEMO-only mode AND we have Amber sites AND not Flow Power (which handles settings separately)
+        has_amber_sites = bool(self._amber_sites)
+        is_flow_power = self._selected_electricity_provider == "flow_power"
+        show_amber_options = not self._aemo_only_mode and has_amber_sites and not is_flow_power
+
         if user_input is not None:
-            # Handle Amber site selection (only for Amber mode)
+            # Handle Amber site selection (only if we have Amber sites)
             amber_site_id = None
-            if not self._aemo_only_mode:
+            if has_amber_sites:
                 amber_site_id = user_input.get(CONF_AMBER_SITE_ID)
                 if not amber_site_id:
                     # Auto-select: prefer active site, or fall back to first site
@@ -620,17 +675,21 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Store site selection data
             self._site_data = {
                 CONF_TESLA_ENERGY_SITE_ID: user_input[CONF_TESLA_ENERGY_SITE_ID],
-                CONF_SOLAR_CURTAILMENT_ENABLED: user_input.get(CONF_SOLAR_CURTAILMENT_ENABLED, False),
             }
 
-            # Amber-specific options only in Amber mode
-            if not self._aemo_only_mode:
+            # Add Amber site if we have one
+            if amber_site_id:
                 self._site_data[CONF_AMBER_SITE_ID] = amber_site_id
+
+            # For Amber provider (not Flow Power), get settings from this form
+            if show_amber_options:
                 self._site_data[CONF_AUTO_SYNC_ENABLED] = user_input.get(CONF_AUTO_SYNC_ENABLED, True)
                 self._site_data[CONF_AMBER_FORECAST_TYPE] = user_input.get(CONF_AMBER_FORECAST_TYPE, "predicted")
-            else:
+                self._site_data[CONF_SOLAR_CURTAILMENT_ENABLED] = user_input.get(CONF_SOLAR_CURTAILMENT_ENABLED, False)
+            elif self._aemo_only_mode:
                 # AEMO-only mode doesn't use Amber sync
                 self._site_data[CONF_AUTO_SYNC_ENABLED] = False
+            # For Flow Power, these settings are already in _flow_power_data
 
             # Go to optional demand charge configuration
             return await self.async_step_demand_charges()
@@ -651,8 +710,8 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.error("No Tesla energy sites found in Teslemetry account")
             return self.async_abort(reason="no_energy_sites")
 
-        # Only add Amber-specific options in Amber mode
-        if not self._aemo_only_mode:
+        # Only add Amber-specific options for Amber provider with Amber sites
+        if show_amber_options:
             # Build Amber site options with status indicator
             amber_site_options = {}
             default_amber_site = None
@@ -686,8 +745,29 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "low": "Low (Conservative)",
                 "high": "High (Optimistic)"
             })
+            data_schema_dict[vol.Optional(CONF_SOLAR_CURTAILMENT_ENABLED, default=False)] = bool
+        elif has_amber_sites and is_flow_power:
+            # Flow Power with Amber pricing - show Amber site selection only
+            amber_site_options = {}
+            default_amber_site = None
+            for site in self._amber_sites:
+                site_id = site["id"]
+                site_nmi = site.get("nmi", site_id)
+                site_status = site.get("status", "unknown")
+                if site_status == "active":
+                    label = f"{site_nmi} (Active)"
+                    if default_amber_site is None:
+                        default_amber_site = site_id
+                elif site_status == "closed":
+                    label = f"{site_nmi} (Closed)"
+                else:
+                    label = f"{site_nmi} ({site_status})"
+                amber_site_options[site_id] = label
 
-        data_schema_dict[vol.Optional(CONF_SOLAR_CURTAILMENT_ENABLED, default=False)] = bool
+            if amber_site_options:
+                data_schema_dict[vol.Required(CONF_AMBER_SITE_ID, default=default_amber_site)] = vol.In(
+                    amber_site_options
+                )
 
         data_schema = vol.Schema(data_schema_dict)
 

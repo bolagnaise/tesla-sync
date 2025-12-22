@@ -14,7 +14,7 @@
       },
       "flow_power_setup": {
         "title": "Flow Power Configuration",
-        "description": "Configure your Flow Power settings.\n\nSelect your network tariff from the dropdown. This is automatically calculated using the aemo_to_tariff library.\n\nCheck 'Use manual rates' if you prefer to enter rates manually.",
+        "description": "Configure your Flow Power settings.\n\nPEA (Price Efficiency Adjustment) uses Flow Power's actual billing model: Final Rate = Base Rate + (Wholesale - 9.7c).\n\nSelect your network tariff from the dropdown for fallback rates when PEA is disabled.",
         "data": {
           "flow_power_state": "State / NEM Region",
           "flow_power_price_source": "Price Source",
@@ -30,7 +30,12 @@
           "network_offpeak_start": "Off-Peak Start Time",
           "network_offpeak_end": "Off-Peak End Time",
           "network_other_fees": "Other Fees (c/kWh)",
-          "network_include_gst": "Include GST (10%)"
+          "network_include_gst": "Include GST (10%)",
+          "pea_enabled": "Enable PEA Pricing (Recommended)",
+          "flow_power_base_rate": "Base Rate (c/kWh)",
+          "pea_custom_value": "Custom PEA Override (c/kWh, leave empty for auto)",
+          "auto_sync_enabled": "Enable automatic TOU schedule syncing",
+          "solar_curtailment_enabled": "Enable Solar Curtailment (stop export at negative prices)"
         }
       },
       "amber": {
@@ -41,9 +46,12 @@
         }
       },
       "amber_settings": {
-        "title": "Amber Export Settings",
-        "description": "Configure export price boost to trigger Powerwall exports at lower price points. Leave disabled to skip.",
+        "title": "Amber Settings",
+        "description": "Configure spike protection and export boost settings.\n\nSpike protection prevents grid charging during high prices.\nExport boost triggers Powerwall exports at lower price points.",
         "data": {
+          "spike_protection_enabled": "Enable Spike Protection",
+          "settled_prices_only": "Settled Prices Only (skip forecast sync)",
+          "force_tariff_mode_toggle": "Force Mode Toggle (faster PW response)",
           "export_boost_enabled": "Enable Export Price Boost",
           "export_price_offset": "Price Offset (c/kWh)",
           "export_min_price": "Minimum Price (c/kWh)",
@@ -52,6 +60,9 @@
           "export_boost_threshold": "Activation Threshold (c/kWh)"
         },
         "data_description": {
+          "spike_protection_enabled": "When Amber detects a price spike, artificially inflate buy prices to prevent Powerwall from charging from grid",
+          "settled_prices_only": "Skip forecast sync at :00 and only sync when actual prices arrive at :35/:60",
+          "force_tariff_mode_toggle": "After uploading a new tariff, briefly toggle Powerwall mode to force immediate recalculation",
           "export_boost_threshold": "Boost only applies if actual price is at or above this value (0 = always apply)"
         }
       },
@@ -80,11 +91,13 @@
       },
       "site_selection": {
         "title": "Site Selection",
-        "description": "Select your Tesla energy site and Amber site (if you have multiple), and configure auto-sync.",
+        "description": "Select your Tesla energy site and Amber site (if you have multiple), and configure sync options.",
         "data": {
           "tesla_energy_site_id": "Tesla Energy Site",
           "amber_site_id": "Amber Site (if you have multiple)",
-          "auto_sync_enabled": "Enable automatic TOU schedule syncing"
+          "auto_sync_enabled": "Enable automatic TOU schedule syncing",
+          "amber_forecast_type": "Amber Forecast Type",
+          "solar_curtailment_enabled": "Enable Solar Curtailment (stop export at negative prices)"
         }
       },
       "demand_charges": {
