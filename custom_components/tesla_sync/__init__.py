@@ -2418,21 +2418,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info(f"🔋 FORCE DISCHARGE: Activating for {duration} minutes")
 
         try:
-            # Get current token and provider
-            provider = entry.options.get(
-                CONF_TESLA_API_PROVIDER,
-                entry.data.get(CONF_TESLA_API_PROVIDER, TESLA_PROVIDER_TESLEMETRY)
-            )
-            if provider == TESLA_PROVIDER_TESLEMETRY:
-                current_token = entry.options.get(
-                    CONF_TESLEMETRY_API_TOKEN,
-                    entry.data.get(CONF_TESLEMETRY_API_TOKEN)
-                )
-            else:
-                current_token = entry.options.get(
-                    CONF_FLEET_API_ACCESS_TOKEN,
-                    entry.data.get(CONF_FLEET_API_ACCESS_TOKEN)
-                )
+            # Get current token and provider using helper function
+            current_token, provider = get_tesla_api_token(hass, entry)
 
             site_id = entry.data.get(CONF_TESLA_ENERGY_SITE_ID)
             if not site_id or not current_token:
@@ -2684,21 +2671,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info(f"🔌 FORCE CHARGE: Activating for {duration} minutes")
 
         try:
-            # Get current token and provider
-            provider = entry.options.get(
-                CONF_TESLA_API_PROVIDER,
-                entry.data.get(CONF_TESLA_API_PROVIDER, TESLA_PROVIDER_TESLEMETRY)
-            )
-            if provider == TESLA_PROVIDER_TESLEMETRY:
-                current_token = entry.options.get(
-                    CONF_TESLEMETRY_API_TOKEN,
-                    entry.data.get(CONF_TESLEMETRY_API_TOKEN)
-                )
-            else:
-                current_token = entry.options.get(
-                    CONF_FLEET_API_ACCESS_TOKEN,
-                    entry.data.get(CONF_FLEET_API_ACCESS_TOKEN)
-                )
+            # Get current token and provider using helper function
+            current_token, provider = get_tesla_api_token(hass, entry)
 
             site_id = entry.data.get(CONF_TESLA_ENERGY_SITE_ID)
             if not site_id or not current_token:
@@ -2962,21 +2936,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             force_charge_state["cancel_expiry_timer"] = None
 
         try:
-            # Get current token and provider
-            provider = entry.options.get(
-                CONF_TESLA_API_PROVIDER,
-                entry.data.get(CONF_TESLA_API_PROVIDER, TESLA_PROVIDER_TESLEMETRY)
-            )
-            if provider == TESLA_PROVIDER_TESLEMETRY:
-                current_token = entry.options.get(
-                    CONF_TESLEMETRY_API_TOKEN,
-                    entry.data.get(CONF_TESLEMETRY_API_TOKEN)
-                )
-            else:
-                current_token = entry.options.get(
-                    CONF_FLEET_API_ACCESS_TOKEN,
-                    entry.data.get(CONF_FLEET_API_ACCESS_TOKEN)
-                )
+            # Get current token and provider using helper function
+            current_token, provider = get_tesla_api_token(hass, entry)
 
             site_id = entry.data.get(CONF_TESLA_ENERGY_SITE_ID)
             if not site_id or not current_token:
