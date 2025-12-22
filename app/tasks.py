@@ -719,9 +719,8 @@ def check_manual_discharge_expiry():
             use_amber_sync = bool(user.amber_api_token_encrypted and user.auto_sync_enabled)
 
             if use_amber_sync:
-                # For Amber users, trigger a sync to get fresh prices
-                logger.info(f"Amber user {user.email} - triggering price sync for restore")
-                # The sync will happen on the next scheduled sync
+                # For Amber users, we'll trigger an immediate sync after clearing the state
+                logger.info(f"Amber user {user.email} - will trigger immediate price sync")
             else:
                 # Restore saved tariff
                 backup_profile = None
@@ -756,6 +755,9 @@ def check_manual_discharge_expiry():
 
     if expired_users:
         logger.info(f"Processed {len(expired_users)} expired discharge modes")
+        # Trigger immediate sync to update tariffs for all users (especially Amber users)
+        logger.info("🔄 Triggering immediate sync after force discharge expiry")
+        _sync_all_users_internal(None, sync_mode='rest_api_check')
 
 
 def check_manual_charge_expiry():
@@ -794,9 +796,8 @@ def check_manual_charge_expiry():
             use_amber_sync = bool(user.amber_api_token_encrypted and user.auto_sync_enabled)
 
             if use_amber_sync:
-                # For Amber users, trigger a sync to get fresh prices
-                logger.info(f"Amber user {user.email} - triggering price sync for restore")
-                # The sync will happen on the next scheduled sync
+                # For Amber users, we'll trigger an immediate sync after clearing the state
+                logger.info(f"Amber user {user.email} - will trigger immediate price sync")
             else:
                 # Restore saved tariff
                 backup_profile = None
@@ -831,6 +832,9 @@ def check_manual_charge_expiry():
 
     if expired_users:
         logger.info(f"Processed {len(expired_users)} expired charge modes")
+        # Trigger immediate sync to update tariffs for all users (especially Amber users)
+        logger.info("🔄 Triggering immediate sync after force charge expiry")
+        _sync_all_users_internal(None, sync_mode='rest_api_check')
 
 
 def save_price_history_with_websocket_data(websocket_data):
