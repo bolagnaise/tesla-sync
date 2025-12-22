@@ -759,70 +759,57 @@ def create_app(config_class=Config):
         app.config['WEBSOCKET_LOCK_ACQUIRED'] = False
 
     # Auto-start named Cloudflare tunnel if configured
-    # Use a lock file to prevent repeated startup attempts on app reload
     if not app.config.get('TESTING'):
         with app.app_context():
             try:
                 from app.models import User
+                import subprocess
 
-                tunnel_lock_file = '/tmp/cloudflared_tunnel.lock'
-                tunnel_started_recently = False
+                user = User.query.filter_by(cloudflare_tunnel_enabled=True).first()
+                if user and user.cloudflare_tunnel_token_encrypted and user.cloudflare_tunnel_domain:
+                    from app.routes import CloudflareTunnel, get_cloudflared_path
+                    import app.routes as routes_module
 
-                # Check if we've already tried to start the tunnel recently (within 5 min)
-                if os.path.exists(tunnel_lock_file):
+                    logger.info(f"🚇 Checking tunnel auto-start for {user.cloudflare_tunnel_domain}")
+
+                    # Check if cloudflared tunnel is already running
+                    tunnel_already_running = False
                     try:
-                        lock_age = time.time() - os.path.getmtime(tunnel_lock_file)
-                        tunnel_started_recently = lock_age < 300  # 5 minutes
-                    except Exception:
-                        pass
+                        result = subprocess.run(
+                            ['ps', 'aux'],
+                            capture_output=True, text=True, timeout=5
+                        )
+                        if 'cloudflared' in result.stdout and 'tunnel' in result.stdout:
+                            tunnel_already_running = True
+                            logger.info("Found existing cloudflared process")
+                    except Exception as e:
+                        logger.debug(f"Process check failed: {e}")
 
-                if tunnel_started_recently:
-                    logger.debug("Tunnel lock file exists - skipping auto-start check")
-                else:
-                    user = User.query.filter_by(cloudflare_tunnel_enabled=True).first()
-                    if user and user.cloudflare_tunnel_token_encrypted and user.cloudflare_tunnel_domain:
-                        from app.routes import CloudflareTunnel, get_cloudflared_path
-                        import app.routes as routes_module
-                        import subprocess
-
-                        # Check if cloudflared tunnel is already running
-                        tunnel_already_running = False
-                        try:
-                            # Use ps + grep which is available on slim images
-                            result = subprocess.run(
-                                'ps aux | grep -v grep | grep "cloudflared.*tunnel.*run"',
-                                shell=True, capture_output=True, text=True, timeout=5
-                            )
-                            tunnel_already_running = result.returncode == 0 and result.stdout.strip() != ''
-                        except Exception:
-                            tunnel_already_running = False
-
-                        if tunnel_already_running:
-                            # Tunnel already running - just set the reference
-                            logger.info(f"🚇 Cloudflare tunnel already running for {user.cloudflare_tunnel_domain}")
-                            tunnel = CloudflareTunnel()
-                            tunnel.public_url = f"https://{user.cloudflare_tunnel_domain}"
-                            tunnel.tunnel_type = 'named'
-                            routes_module._cloudflare_tunnel = tunnel
-                            # Touch lock file to prevent future checks
-                            open(tunnel_lock_file, 'w').close()
+                    if tunnel_already_running:
+                        # Tunnel already running - just set the reference
+                        logger.info(f"🚇 Cloudflare tunnel already running for {user.cloudflare_tunnel_domain}")
+                        tunnel = CloudflareTunnel()
+                        tunnel.public_url = f"https://{user.cloudflare_tunnel_domain}"
+                        tunnel.tunnel_type = 'named'
+                        routes_module._cloudflare_tunnel = tunnel
+                    else:
+                        cloudflared_bin = get_cloudflared_path()
+                        if cloudflared_bin:
+                            logger.info(f"Starting cloudflared from {cloudflared_bin}")
+                            try:
+                                from app.utils import decrypt_token
+                                token = decrypt_token(user.cloudflare_tunnel_token_encrypted)
+                                tunnel = CloudflareTunnel()
+                                tunnel.start_named_tunnel(token)
+                                tunnel.public_url = f"https://{user.cloudflare_tunnel_domain}"
+                                routes_module._cloudflare_tunnel = tunnel
+                                logger.info(f"🚇 Auto-started named tunnel for {user.cloudflare_tunnel_domain}")
+                            except Exception as e:
+                                logger.error(f"Failed to auto-start named tunnel: {e}")
                         else:
-                            cloudflared_bin = get_cloudflared_path()
-                            if cloudflared_bin:
-                                # Touch lock file BEFORE attempting to start (prevents retries on failure)
-                                open(tunnel_lock_file, 'w').close()
-                                try:
-                                    from app.utils import decrypt_token
-                                    token = decrypt_token(user.cloudflare_tunnel_token_encrypted)
-                                    tunnel = CloudflareTunnel()
-                                    tunnel.start_named_tunnel(token)
-                                    tunnel.public_url = f"https://{user.cloudflare_tunnel_domain}"
-                                    routes_module._cloudflare_tunnel = tunnel
-                                    logger.info(f"🚇 Auto-started named tunnel for {user.cloudflare_tunnel_domain}")
-                                except Exception as e:
-                                    logger.error(f"Failed to auto-start named tunnel: {e}")
-                            else:
-                                logger.warning("cloudflared not found - cannot auto-start named tunnel")
+                            logger.warning("cloudflared not found - cannot auto-start named tunnel")
+                else:
+                    logger.debug("No user with tunnel auto-start enabled")
             except Exception as e:
                 logger.error(f"Error checking for auto-start tunnel: {e}")
 
