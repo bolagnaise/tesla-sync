@@ -308,76 +308,83 @@ views:
               {% endif %}
             }
       # Battery Health Card - shows overall and individual battery health
-      # Auto-detects number of batteries (up to 4) from sensor attributes
+      # Dynamically shows batteries based on battery_count attribute
       - type: custom:apexcharts-card
         header:
           show: true
           title: Battery Health
-          show_states: true
-        chart_type: radialBar
+          show_states: false
+        chart_type: bar
+        all_series_config:
+          stroke_width: 0
         series:
           - entity: sensor.battery_health
-            name: Overall
-            color: '#4CAF50'
-          - entity: sensor.battery_health
-            name: Battery 1
-            color: '#2196F3'
-            attribute: battery_1_health_percent
-          - entity: sensor.battery_health
-            name: Battery 2
-            color: '#FF9800'
-            attribute: battery_2_health_percent
-          - entity: sensor.battery_health
-            name: Battery 3
-            color: '#9C27B0'
-            attribute: battery_3_health_percent
-          - entity: sensor.battery_health
-            name: Battery 4
-            color: '#00BCD4'
-            attribute: battery_4_health_percent
+            type: column
+            name: Health
+            data_generator: |
+              const attrs = entity.attributes;
+              const count = attrs.battery_count || 0;
+              const overall = parseFloat(entity.state) || 0;
+              const data = [];
+
+              // Add overall health
+              data.push({ x: 'Overall', y: overall, fillColor: '#4CAF50' });
+
+              // Add individual batteries based on count
+              const colors = ['#2196F3', '#FF9800', '#9C27B0', '#00BCD4'];
+              for (let i = 1; i <= count && i <= 4; i++) {
+                const health = attrs['battery_' + i + '_health_percent'];
+                if (health !== undefined && health !== null) {
+                  data.push({ x: 'Battery ' + i, y: health, fillColor: colors[i-1] });
+                }
+              }
+
+              return data;
         apex_config:
           chart:
-            height: 280
+            height: 180
           plotOptions:
-            radialBar:
-              offsetY: -10
-              startAngle: -135
-              endAngle: 135
-              hollow:
-                size: '40%'
-              track:
-                background: '#333'
-                strokeWidth: '100%'
+            bar:
+              horizontal: true
+              barHeight: '65%'
+              distributed: true
               dataLabels:
-                name:
-                  fontSize: '14px'
-                  offsetY: 20
-                value:
-                  fontSize: '24px'
-                  offsetY: -15
-                  formatter: |
-                    EVAL:function(val) {
-                      return val.toFixed(1) + '%';
-                    }
+                position: center
+          dataLabels:
+            enabled: true
+            formatter: |
+              EVAL:function(val) {
+                return val ? val.toFixed(1) + '%' : '';
+              }
+            style:
+              fontSize: '13px'
+              fontWeight: bold
+              colors:
+                - '#fff'
+          xaxis:
+            min: 0
+            max: 115
+            labels:
+              formatter: |
+                EVAL:function(val) {
+                  return val + '%';
+                }
+          yaxis:
+            labels:
+              style:
+                fontSize: '12px'
           legend:
-            show: true
-            position: bottom
-            fontSize: '12px'
-          fill:
-            type: gradient
-            gradient:
-              shade: dark
-              type: horizontal
-              shadeIntensity: 0.5
-              gradientToColors:
-                - '#8BC34A'
-                - '#03A9F4'
-                - '#FFC107'
-                - '#E040FB'
-                - '#00E5FF'
-              stops:
-                - 0
-                - 100
+            show: false
+          grid:
+            padding:
+              left: 10
+              right: 10
+          tooltip:
+            y:
+              formatter: |
+                EVAL:function(val) {
+                  return val ? val.toFixed(1) + '% health' : 'N/A';
+                }
       # Battery Health Details - capacity info
       - type: markdown
         content: >-
