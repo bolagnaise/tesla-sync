@@ -346,7 +346,9 @@ SERVICE_SYNC_TOU = "sync_tou_schedule"
 SERVICE_SYNC_NOW = "sync_now"
 
 # Sensor types
-SENSOR_TYPE_CURRENT_PRICE = "current_price"
+SENSOR_TYPE_CURRENT_PRICE = "current_price"  # Legacy - kept for compatibility
+SENSOR_TYPE_CURRENT_IMPORT_PRICE = "current_import_price"
+SENSOR_TYPE_CURRENT_EXPORT_PRICE = "current_export_price"
 SENSOR_TYPE_FORECAST_PRICE = "forecast_price"
 SENSOR_TYPE_SOLAR_POWER = "solar_power"
 SENSOR_TYPE_GRID_POWER = "grid_power"

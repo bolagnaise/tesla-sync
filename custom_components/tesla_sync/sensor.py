@@ -29,6 +29,8 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DOMAIN,
     SENSOR_TYPE_CURRENT_PRICE,
+    SENSOR_TYPE_CURRENT_IMPORT_PRICE,
+    SENSOR_TYPE_CURRENT_EXPORT_PRICE,
     SENSOR_TYPE_SOLAR_POWER,
     SENSOR_TYPE_GRID_POWER,
     SENSOR_TYPE_BATTERY_POWER,
@@ -88,18 +90,35 @@ class TeslaSyncSensorEntityDescription(SensorEntityDescription):
     attr_fn: Callable[[Any], dict[str, Any]] | None = None
 
 
+def _get_import_price(data):
+    """Extract import (general) price from Amber data."""
+    if not data or not data.get("current"):
+        return None
+    for price in data.get("current", []):
+        if price.get("channelType") == "general":
+            return price.get("perKwh", 0) / 100
+    return None
+
+
+def _get_export_price(data):
+    """Extract export (feedIn) price from Amber data."""
+    if not data or not data.get("current"):
+        return None
+    for price in data.get("current", []):
+        if price.get("channelType") == "feedIn":
+            # Amber returns negative for feed-in, negate to show earnings
+            return -price.get("perKwh", 0) / 100
+    return None
+
+
 PRICE_SENSORS: tuple[TeslaSyncSensorEntityDescription, ...] = (
     TeslaSyncSensorEntityDescription(
-        key=SENSOR_TYPE_CURRENT_PRICE,
-        name="Current Electricity Price",
+        key=SENSOR_TYPE_CURRENT_IMPORT_PRICE,
+        name="Current Import Price",
         native_unit_of_measurement=f"{CURRENCY_DOLLAR}/{UnitOfEnergy.KILO_WATT_HOUR}",
         device_class=SensorDeviceClass.MONETARY,
         suggested_display_precision=4,
-        value_fn=lambda data: (
-            data.get("current", [{}])[0].get("perKwh", 0) / 100
-            if data and data.get("current")
-            else None
-        ),
+        value_fn=_get_import_price,
         attr_fn=lambda data: {
             ATTR_PRICE_SPIKE: data.get("current", [{}])[0].get("spikeStatus")
             if data and data.get("current")
@@ -110,6 +129,18 @@ PRICE_SENSORS: tuple[TeslaSyncSensorEntityDescription, ...] = (
             ATTR_NETWORK_PRICE: data.get("current", [{}])[0].get("networkKWHPrice", 0) / 100
             if data and data.get("current")
             else 0,
+        },
+    ),
+    TeslaSyncSensorEntityDescription(
+        key=SENSOR_TYPE_CURRENT_EXPORT_PRICE,
+        name="Current Export Price",
+        native_unit_of_measurement=f"{CURRENCY_DOLLAR}/{UnitOfEnergy.KILO_WATT_HOUR}",
+        device_class=SensorDeviceClass.MONETARY,
+        suggested_display_precision=4,
+        icon="mdi:transmission-tower-export",
+        value_fn=_get_export_price,
+        attr_fn=lambda data: {
+            "channel_type": "feedIn",
         },
     ),
 )
