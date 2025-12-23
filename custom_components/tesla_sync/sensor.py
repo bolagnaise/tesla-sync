@@ -106,9 +106,9 @@ def _get_export_price(data):
         return None
     for price in data.get("current", []):
         if price.get("channelType") == "feedIn":
-            # Export price should always be positive (what you earn)
-            # Amber uses negative to indicate earnings, so use abs()
-            return abs(price.get("perKwh", 0)) / 100
+            # Pass through as-is to match Flask behavior
+            # Negative = earning money, Positive = paying to export
+            return price.get("perKwh", 0) / 100
     return None
 
 
