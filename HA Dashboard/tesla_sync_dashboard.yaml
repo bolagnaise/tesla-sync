@@ -307,77 +307,10 @@ views:
               border-left: 4px solid #4CAF50;
               {% endif %}
             }
-      # Battery Health Card - horizontal bars showing health percentages
-      - type: custom:apexcharts-card
-        header:
-          show: true
-          title: Battery Health
-          show_states: false
-        series:
-          - entity: sensor.battery_health
-            type: column
-            name: Health
-            data_generator: |
-              const attrs = entity.attributes;
-              const count = attrs.battery_count || 0;
-              const overall = parseFloat(entity.state) || 0;
-              const data = [];
-              data.push({ x: 'Overall', y: overall, fillColor: '#4CAF50' });
-              const colors = ['#2196F3', '#FF9800', '#9C27B0', '#00BCD4'];
-              for (let i = 1; i <= count && i <= 4; i++) {
-                const health = attrs['battery_' + i + '_health_percent'];
-                if (health !== undefined && health !== null) {
-                  data.push({ x: 'Battery ' + i, y: health, fillColor: colors[i-1] });
-                }
-              }
-              return data;
-        apex_config:
-          chart:
-            height: 200
-            type: bar
-          plotOptions:
-            bar:
-              horizontal: true
-              barHeight: '70%'
-              distributed: true
-              dataLabels:
-                position: top
-          dataLabels:
-            enabled: true
-            offsetX: -10
-            style:
-              fontSize: '12px'
-              colors:
-                - '#fff'
-            formatter: |
-              EVAL:function(val) {
-                return val ? val.toFixed(1) + '%' : '';
-              }
-          xaxis:
-            min: 0
-            max: 115
-            labels:
-              formatter: |
-                EVAL:function(val) {
-                  return val + '%';
-                }
-          yaxis:
-            labels:
-              style:
-                fontSize: '12px'
-          legend:
-            show: false
-          tooltip:
-            y:
-              formatter: |
-                EVAL:function(val) {
-                  return val ? val.toFixed(1) + '% health' : 'N/A';
-                }
-      # Battery Health Details - capacity info
+      # Battery Health Details
       - type: markdown
-        content: >-
-          ## Battery Capacity Details
-
+        content: |
+          ## Battery Health
           {% set health = states('sensor.battery_health') %}
           {% set original = state_attr('sensor.battery_health', 'original_capacity_kwh') %}
           {% set current = state_attr('sensor.battery_health', 'current_capacity_kwh') %}
@@ -403,12 +336,6 @@ views:
           {% else %}
           No battery health data available. Scan from the Tesla Sync Mobile app while connected to Powerwall WiFi.
           {% endif %}
-        card_mod:
-          style: |
-            ha-card {
-              background: linear-gradient(135deg, rgba(76, 175, 80, 0.1) 0%, rgba(33, 150, 243, 0.05) 100%);
-              border-left: 4px solid #4CAF50;
-            }
       - type: custom:apexcharts-card
         header:
           show: true
