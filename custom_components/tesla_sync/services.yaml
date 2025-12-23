@@ -95,3 +95,56 @@ get_calendar_history:
               value: "month"
             - label: "Year"
               value: "year"
+
+sync_battery_health:
+  name: Sync Battery Health
+  description: Receive battery health data from mobile app TEDAPI scan and update sensors
+  fields:
+    original_capacity_wh:
+      name: Original Capacity (Wh)
+      description: Original battery capacity in Wh when new
+      required: true
+      example: 40500
+      selector:
+        number:
+          min: 0
+          max: 500000
+          unit_of_measurement: Wh
+    current_capacity_wh:
+      name: Current Capacity (Wh)
+      description: Current battery capacity in Wh
+      required: true
+      example: 38475
+      selector:
+        number:
+          min: 0
+          max: 500000
+          unit_of_measurement: Wh
+    degradation_percent:
+      name: Degradation Percent
+      description: Battery degradation percentage
+      required: true
+      example: 5.0
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 0.1
+          unit_of_measurement: "%"
+    battery_count:
+      name: Battery Count
+      description: Number of Powerwall units
+      required: false
+      default: 1
+      example: 2
+      selector:
+        number:
+          min: 1
+          max: 20
+    scanned_at:
+      name: Scanned At
+      description: ISO timestamp of when the scan was performed
+      required: false
+      example: "2024-12-23T10:30:00Z"
+      selector:
+        text:

@@ -383,6 +383,7 @@ SERVICE_FORCE_DISCHARGE = "force_discharge"
 SERVICE_FORCE_CHARGE = "force_charge"
 SERVICE_RESTORE_NORMAL = "restore_normal"
 SERVICE_GET_CALENDAR_HISTORY = "get_calendar_history"
+SERVICE_SYNC_BATTERY_HEALTH = "sync_battery_health"
 
 # Manual discharge/charge duration options (minutes)
 DISCHARGE_DURATIONS = [15, 30, 45, 60, 75, 90, 105, 120]
@@ -401,6 +402,9 @@ SENSOR_TYPE_SOLAR_CURTAILMENT = "solar_curtailment"
 # Flow Power price sensors
 SENSOR_TYPE_FLOW_POWER_PRICE = "flow_power_price"
 SENSOR_TYPE_FLOW_POWER_EXPORT_PRICE = "flow_power_export_price"
+
+# Battery health sensor (from mobile app TEDAPI scans)
+SENSOR_TYPE_BATTERY_HEALTH = "battery_health"
 
 # Amber Export Price Boost configuration
 # Artificially increase export prices to trigger Powerwall exports

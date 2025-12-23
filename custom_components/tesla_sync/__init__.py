@@ -45,6 +45,7 @@ from .const import (
     SERVICE_FORCE_CHARGE,
     SERVICE_RESTORE_NORMAL,
     SERVICE_GET_CALENDAR_HISTORY,
+    SERVICE_SYNC_BATTERY_HEALTH,
     DISCHARGE_DURATIONS,
     DEFAULT_DISCHARGE_DURATION,
     TESLEMETRY_API_BASE_URL,
@@ -1341,6 +1342,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if cached_export_rule:
         _LOGGER.info(f"Restored cached_export_rule='{cached_export_rule}' from persistent storage")
 
+    # Restore battery health data from storage
+    battery_health = stored_data.get("battery_health")
+    if battery_health:
+        _LOGGER.info(f"Restored battery health from storage: {battery_health.get('degradation_percent')}% degradation")
+
     # Store coordinators and WebSocket client in hass.data
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
@@ -1356,6 +1362,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "demand_charging_cancel": None,  # Will store the demand period grid charging cancel function
         "grid_charging_disabled_for_demand": False,  # Track if grid charging is disabled for demand period
         "cached_export_rule": cached_export_rule,  # Restored from persistent storage
+        "battery_health": battery_health,  # Restored from persistent storage (from mobile app TEDAPI scans)
         "store": store,  # Reference to Store for saving updates
         "token_getter": token_getter,  # Function to get fresh Tesla API token
     }
@@ -1365,7 +1372,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Update the cached export rule in memory and persist to storage."""
         hass.data[DOMAIN][entry.entry_id]["cached_export_rule"] = new_rule
         store = hass.data[DOMAIN][entry.entry_id]["store"]
-        await store.async_save({"cached_export_rule": new_rule})
+        # Preserve other stored data (like battery_health)
+        stored_data = await store.async_load() or {}
+        stored_data["cached_export_rule"] = new_rule
+        await store.async_save(stored_data)
         _LOGGER.debug(f"Persisted cached_export_rule='{new_rule}' to storage")
         # Signal sensor to update
         async_dispatcher_send(hass, f"tesla_sync_curtailment_updated_{entry.entry_id}")
@@ -3181,6 +3191,71 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     _LOGGER.info("📊 Calendar history service registered")
+
+    # ======================================================================
+    # SYNC BATTERY HEALTH SERVICE (from mobile app TEDAPI scans)
+    # ======================================================================
+
+    async def handle_sync_battery_health(call: ServiceCall) -> dict:
+        """Handle sync_battery_health service call - receives battery health from mobile app."""
+        original_capacity_wh = call.data.get("original_capacity_wh")
+        current_capacity_wh = call.data.get("current_capacity_wh")
+        degradation_percent = call.data.get("degradation_percent")
+        battery_count = call.data.get("battery_count", 1)
+        scanned_at = call.data.get("scanned_at", datetime.now().isoformat())
+
+        # Validate required fields
+        if original_capacity_wh is None or current_capacity_wh is None or degradation_percent is None:
+            _LOGGER.error("Missing required battery health fields")
+            return {"success": False, "error": "Missing required fields: original_capacity_wh, current_capacity_wh, degradation_percent"}
+
+        _LOGGER.info(
+            f"🔋 Battery health received: {degradation_percent}% degradation, "
+            f"{current_capacity_wh}Wh / {original_capacity_wh}Wh ({battery_count} units)"
+        )
+
+        # Build battery health data
+        battery_health_data = {
+            "original_capacity_wh": original_capacity_wh,
+            "current_capacity_wh": current_capacity_wh,
+            "degradation_percent": degradation_percent,
+            "battery_count": battery_count,
+            "scanned_at": scanned_at,
+        }
+
+        # Store in hass.data for sensor to read on startup
+        hass.data[DOMAIN][entry.entry_id]["battery_health"] = battery_health_data
+
+        # Persist to storage
+        store = hass.data[DOMAIN][entry.entry_id].get("store")
+        if store:
+            stored_data = await store.async_load() or {}
+            stored_data["battery_health"] = battery_health_data
+            await store.async_save(stored_data)
+            _LOGGER.debug("Battery health persisted to storage")
+
+        # Notify sensor via dispatcher
+        async_dispatcher_send(
+            hass,
+            f"{DOMAIN}_battery_health_update_{entry.entry_id}",
+            battery_health_data,
+        )
+
+        return {
+            "success": True,
+            "message": f"Battery health synced: {degradation_percent}% degradation",
+            "data": battery_health_data,
+        }
+
+    # Register with response support
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SYNC_BATTERY_HEALTH,
+        handle_sync_battery_health,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    _LOGGER.info("🔋 Battery health sync service registered")
 
     # Wire up WebSocket sync callback now that handlers are defined
     if ws_client:
