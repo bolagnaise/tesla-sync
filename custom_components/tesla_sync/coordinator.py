@@ -628,6 +628,83 @@ class TeslaEnergyCoordinator(DataUpdateCoordinator):
             _LOGGER.error(f"Error setting grid charging: {err}")
             return False
 
+    async def async_get_calendar_history(
+        self,
+        period: str = "day",
+        kind: str = "energy",
+    ) -> dict[str, Any] | None:
+        """
+        Fetch calendar history from Tesla API.
+
+        Args:
+            period: 'day', 'week', 'month', 'year', or 'lifetime'
+            kind: 'energy' or 'power'
+
+        Returns:
+            Calendar history data with time_series array, or None if fetch fails
+        """
+        current_token = self._get_current_token()
+        headers = {
+            "Authorization": f"Bearer {current_token}",
+            "Content-Type": "application/json",
+            "User-Agent": TESLA_SYNC_USER_AGENT,
+        }
+
+        try:
+            # Get site timezone from site_info
+            site_info = await self.async_get_site_info()
+            timezone = "Australia/Brisbane"  # Default fallback
+            if site_info:
+                timezone = site_info.get("installation_time_zone", timezone)
+
+            # Calculate end_date in site's timezone
+            from zoneinfo import ZoneInfo
+            user_tz = ZoneInfo(timezone)
+            now = datetime.now(user_tz)
+            end_dt = now.replace(hour=23, minute=59, second=59)
+            end_date = end_dt.isoformat()
+
+            _LOGGER.info(f"Fetching calendar history for site {self.site_id}: period={period}, kind={kind}")
+
+            params = {
+                "kind": kind,
+                "period": period,
+                "end_date": end_date,
+                "time_zone": timezone,
+            }
+
+            url = f"{self.api_base_url}/api/1/energy_sites/{self.site_id}/calendar_history"
+
+            async with self.session.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    _LOGGER.error(f"Failed to fetch calendar history: {response.status} - {text}")
+                    return None
+
+                data = await response.json()
+                result = data.get("response", {})
+                time_series = result.get("time_series", [])
+                _LOGGER.info(f"Successfully fetched calendar history: {len(time_series)} records for period='{period}'")
+
+                return {
+                    "period": period,
+                    "time_series": time_series,
+                    "serial_number": result.get("serial_number"),
+                    "installation_date": result.get("installation_date"),
+                }
+
+        except asyncio.TimeoutError:
+            _LOGGER.error("Timeout fetching calendar history")
+            return None
+        except Exception as err:
+            _LOGGER.error(f"Error fetching calendar history: {err}")
+            return None
+
 
 class DemandChargeCoordinator(DataUpdateCoordinator):
     """Coordinator to track demand charges."""

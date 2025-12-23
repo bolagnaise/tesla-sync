@@ -382,6 +382,7 @@ SWITCH_TYPE_FORCE_CHARGE = "force_charge"
 SERVICE_FORCE_DISCHARGE = "force_discharge"
 SERVICE_FORCE_CHARGE = "force_charge"
 SERVICE_RESTORE_NORMAL = "restore_normal"
+SERVICE_GET_CALENDAR_HISTORY = "get_calendar_history"
 
 # Manual discharge/charge duration options (minutes)
 DISCHARGE_DURATIONS = [15, 30, 45, 60, 75, 90, 105, 120]

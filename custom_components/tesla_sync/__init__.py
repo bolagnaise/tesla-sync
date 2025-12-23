@@ -9,7 +9,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform, CONF_ACCESS_TOKEN, CONF_TOKEN
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -44,6 +44,7 @@ from .const import (
     SERVICE_FORCE_DISCHARGE,
     SERVICE_FORCE_CHARGE,
     SERVICE_RESTORE_NORMAL,
+    SERVICE_GET_CALENDAR_HISTORY,
     DISCHARGE_DURATIONS,
     DEFAULT_DISCHARGE_DURATION,
     TESLEMETRY_API_BASE_URL,
@@ -3117,6 +3118,69 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.services.async_register(DOMAIN, SERVICE_RESTORE_NORMAL, handle_restore_normal)
 
     _LOGGER.info("🔋 Force discharge, force charge, and restore services registered")
+
+    # ======================================================================
+    # CALENDAR HISTORY SERVICE (for mobile app energy summaries)
+    # ======================================================================
+
+    async def handle_get_calendar_history(call: ServiceCall) -> dict:
+        """Handle get_calendar_history service call - returns energy history data."""
+        period = call.data.get("period", "day")
+
+        # Validate period
+        valid_periods = ["day", "week", "month", "year"]
+        if period not in valid_periods:
+            _LOGGER.error(f"Invalid period '{period}'. Must be one of: {valid_periods}")
+            return {"success": False, "error": f"Invalid period. Must be one of: {valid_periods}"}
+
+        _LOGGER.info(f"📊 Calendar history requested for period: {period}")
+
+        # Get Tesla coordinator
+        tesla_coordinator = hass.data[DOMAIN][entry.entry_id].get("tesla_coordinator")
+        if not tesla_coordinator:
+            _LOGGER.error("Tesla coordinator not available")
+            return {"success": False, "error": "Tesla coordinator not available"}
+
+        # Fetch calendar history
+        history = await tesla_coordinator.async_get_calendar_history(period=period)
+
+        if not history:
+            _LOGGER.error("Failed to fetch calendar history")
+            return {"success": False, "error": "Failed to fetch calendar history from Tesla API"}
+
+        # Transform time_series to match mobile app format
+        time_series = []
+        for entry_data in history.get("time_series", []):
+            time_series.append({
+                "timestamp": entry_data.get("timestamp", ""),
+                "solar_generation": entry_data.get("solar_energy_exported", 0),
+                "battery_discharge": entry_data.get("battery_energy_exported", 0),
+                "battery_charge": entry_data.get("battery_energy_imported", 0),
+                "grid_import": entry_data.get("grid_energy_imported", 0),
+                "grid_export": entry_data.get("grid_energy_exported_from_solar", 0) + entry_data.get("grid_energy_exported_from_battery", 0),
+                "home_consumption": entry_data.get("consumer_energy_imported_from_grid", 0) + entry_data.get("consumer_energy_imported_from_solar", 0) + entry_data.get("consumer_energy_imported_from_battery", 0),
+            })
+
+        result = {
+            "success": True,
+            "period": period,
+            "time_series": time_series,
+            "serial_number": history.get("serial_number"),
+            "installation_date": history.get("installation_date"),
+        }
+
+        _LOGGER.info(f"✅ Calendar history returned: {len(time_series)} records for period '{period}'")
+        return result
+
+    # Register with response support (HA 2024.1+)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_CALENDAR_HISTORY,
+        handle_get_calendar_history,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+    _LOGGER.info("📊 Calendar history service registered")
 
     # Wire up WebSocket sync callback now that handlers are defined
     if ws_client:

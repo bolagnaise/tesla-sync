@@ -73,3 +73,25 @@ restore_normal:
   name: Restore Normal
   description: Restore normal operation - restores saved tariff or triggers Amber sync for Amber users
   fields: {}
+
+get_calendar_history:
+  name: Get Calendar History
+  description: Fetch energy history from Tesla API for mobile app energy summaries
+  fields:
+    period:
+      name: Period
+      description: Time period for history (day, week, month, year)
+      required: false
+      default: "day"
+      example: "week"
+      selector:
+        select:
+          options:
+            - label: "Day"
+              value: "day"
+            - label: "Week"
+              value: "week"
+            - label: "Month"
+              value: "month"
+            - label: "Year"
+              value: "year"
