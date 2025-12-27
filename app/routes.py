@@ -14,7 +14,8 @@ from app.route_helpers import (
     db_transaction,
     db_commit_with_retry,
     start_background_task,
-    restore_tariff_background
+    restore_tariff_background,
+    get_api_user
 )
 import os
 import requests
@@ -3401,6 +3402,17 @@ def api_restore_normal(tesla_client, api_user=None):
         logger.info("Immediately switching to self_consumption to stop forced charge/discharge")
         tesla_client.set_operation_mode(user.tesla_energy_site_id, 'self_consumption')
 
+        # Clear all discharge/charge/spike states FIRST (before sync, so sync doesn't skip this user)
+        user.manual_discharge_active = False
+        user.manual_discharge_expires_at = None
+        user.manual_charge_active = False
+        user.manual_charge_expires_at = None
+        user.aemo_in_spike_mode = False
+        user.aemo_spike_test_mode = False
+        user.aemo_spike_start_time = None
+        db_commit_with_retry()
+        logger.info(f"Cleared force charge/discharge flags for {user.email}")
+
         # Check if user has Amber configured (should sync instead of restore static tariff)
         use_amber_sync = bool(user.amber_api_token_encrypted and user.sync_enabled)
 
@@ -3408,7 +3420,7 @@ def api_restore_normal(tesla_client, api_user=None):
             # For Amber users, trigger a sync to get fresh prices
             logger.info(f"Amber user - triggering price sync for {user.email}")
             from app.tasks import _sync_all_users_internal
-            # Run sync in background - this will upload new tariff and set operation mode
+            # Run sync - flags are now cleared so user won't be skipped
             _sync_all_users_internal(None, sync_mode='initial_forecast')
             # Switch back to autonomous mode after sync completes
             tesla_client.set_operation_mode(user.tesla_energy_site_id, 'autonomous')
@@ -3462,17 +3474,9 @@ def api_restore_normal(tesla_client, api_user=None):
                 logger.info(f"Restored backup reserve to {saved_backup_reserve}%")
             else:
                 logger.warning(f"Failed to restore backup reserve to {saved_backup_reserve}%")
-
-        # Clear all discharge/charge/spike states
-        user.manual_discharge_active = False
-        user.manual_discharge_expires_at = None
-        user.manual_charge_active = False
-        user.manual_charge_expires_at = None
-        user.manual_charge_saved_backup_reserve = None
-        user.aemo_in_spike_mode = False
-        user.aemo_spike_test_mode = False
-        user.aemo_spike_start_time = None
-        db_commit_with_retry()
+            # Clear the saved backup reserve
+            user.manual_charge_saved_backup_reserve = None
+            db_commit_with_retry()
 
         message = 'Normal operation restored'
         if restore_method == 'amber_sync':
