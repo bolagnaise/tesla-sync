@@ -3054,12 +3054,13 @@ def test_aemo_restore():
 # ============================================
 
 @bp.route('/api/force-discharge', methods=['POST'])
-@login_required
 @require_tesla_client
 @require_tesla_site_id
 def api_force_discharge(tesla_client, api_user=None):
     """
     Force discharge mode - switches to autonomous mode with high export tariff.
+
+    Supports both session login and Bearer token authentication.
 
     Request JSON:
     {
@@ -3073,6 +3074,7 @@ def api_force_discharge(tesla_client, api_user=None):
         "expires_at": "2024-01-01T12:30:00Z"
     }
     """
+    user = api_user or current_user
     from app.tasks import create_spike_tariff
     from app.models import SavedTOUProfile
     import json
@@ -3096,13 +3098,13 @@ def api_force_discharge(tesla_client, api_user=None):
                 'error': f'Invalid duration. Must be one of: {valid_durations}'
             }), 400
 
-        logger.info(f"Force discharge requested by {current_user.email} for {duration_minutes} minutes")
+        logger.info(f"Force discharge requested by {user.email} for {duration_minutes} minutes")
 
         # Check if already in discharge mode
-        if current_user.manual_discharge_active:
+        if user.manual_discharge_active:
             # Extend the duration
             new_expires_at = datetime.utcnow() + timedelta(minutes=duration_minutes)
-            current_user.manual_discharge_expires_at = new_expires_at
+            user.manual_discharge_expires_at = new_expires_at
             db_commit_with_retry()
             logger.info(f"Extended discharge mode to {new_expires_at}")
             return jsonify({
@@ -3114,19 +3116,19 @@ def api_force_discharge(tesla_client, api_user=None):
 
         # Save current tariff as backup (if not already saved)
         default_profile = SavedTOUProfile.query.filter_by(
-            user_id=current_user.id,
+            user_id=user.id,
             is_default=True
         ).first()
 
         if default_profile:
-            current_user.manual_discharge_saved_tariff_id = default_profile.id
+            user.manual_discharge_saved_tariff_id = default_profile.id
             logger.info(f"Using existing default tariff ID {default_profile.id} as backup")
         else:
             # Save current tariff
-            current_tariff = tesla_client.get_current_tariff(current_user.tesla_energy_site_id)
+            current_tariff = tesla_client.get_current_tariff(user.tesla_energy_site_id)
             if current_tariff:
                 backup_profile = SavedTOUProfile(
-                    user_id=current_user.id,
+                    user_id=user.id,
                     name=f"Auto-saved before discharge ({datetime.utcnow().strftime('%Y-%m-%d %H:%M')})",
                     description="Automatically saved before manual discharge mode",
                     source_type='tesla',
@@ -3139,7 +3141,7 @@ def api_force_discharge(tesla_client, api_user=None):
                 )
                 db.session.add(backup_profile)
                 db.session.flush()
-                current_user.manual_discharge_saved_tariff_id = backup_profile.id
+                user.manual_discharge_saved_tariff_id = backup_profile.id
                 logger.info(f"Saved current tariff as backup with ID {backup_profile.id}")
 
         # Create discharge tariff (high sell rate to encourage export)
@@ -3148,25 +3150,25 @@ def api_force_discharge(tesla_client, api_user=None):
         discharge_tariff = create_discharge_tariff(duration_minutes)
 
         # Upload tariff to Tesla
-        result = tesla_client.set_tariff_rate(current_user.tesla_energy_site_id, discharge_tariff)
+        result = tesla_client.set_tariff_rate(user.tesla_energy_site_id, discharge_tariff)
 
         if result:
             # Calculate expiry time
             expires_at = datetime.utcnow() + timedelta(minutes=duration_minutes)
 
             # Update user state
-            current_user.manual_discharge_active = True
-            current_user.manual_discharge_expires_at = expires_at
+            user.manual_discharge_active = True
+            user.manual_discharge_expires_at = expires_at
             # Clear tariff hash so restore normal will force a re-sync
             # (prevents deduplication from skipping the restore)
-            current_user.last_tariff_hash = None
+            user.last_tariff_hash = None
             db_commit_with_retry()
 
             # Force Powerwall to apply the tariff immediately
             from app.tasks import force_tariff_refresh
-            force_tariff_refresh(tesla_client, current_user.tesla_energy_site_id)
+            force_tariff_refresh(tesla_client, user.tesla_energy_site_id)
 
-            logger.info(f"Force discharge activated for {current_user.email} until {expires_at}")
+            logger.info(f"Force discharge activated for {user.email} until {expires_at}")
 
             return jsonify({
                 'success': True,
@@ -3175,7 +3177,7 @@ def api_force_discharge(tesla_client, api_user=None):
                 'duration_minutes': duration_minutes
             })
         else:
-            logger.error(f"Failed to upload discharge tariff for {current_user.email}")
+            logger.error(f"Failed to upload discharge tariff for {user.email}")
             return jsonify({
                 'success': False,
                 'error': 'Failed to upload discharge tariff to Tesla'
@@ -3193,12 +3195,13 @@ def api_force_discharge(tesla_client, api_user=None):
 
 
 @bp.route('/api/force-charge', methods=['POST'])
-@login_required
 @require_tesla_client
 @require_tesla_site_id
 def api_force_charge(tesla_client, api_user=None):
     """
     Force charge mode - switches to autonomous mode with free import tariff.
+
+    Supports both session login and Bearer token authentication.
 
     Request JSON:
     {
@@ -3212,6 +3215,7 @@ def api_force_charge(tesla_client, api_user=None):
         "expires_at": "2024-01-01T12:30:00Z"
     }
     """
+    user = api_user or current_user
     from app.models import SavedTOUProfile
     import json
 
@@ -3234,13 +3238,13 @@ def api_force_charge(tesla_client, api_user=None):
                 'error': f'Invalid duration. Must be one of: {valid_durations}'
             }), 400
 
-        logger.info(f"Force charge requested by {current_user.email} for {duration_minutes} minutes")
+        logger.info(f"Force charge requested by {user.email} for {duration_minutes} minutes")
 
         # Check if already in charge mode
-        if current_user.manual_charge_active:
+        if user.manual_charge_active:
             # Extend the duration
             new_expires_at = datetime.utcnow() + timedelta(minutes=duration_minutes)
-            current_user.manual_charge_expires_at = new_expires_at
+            user.manual_charge_expires_at = new_expires_at
             db_commit_with_retry()
             logger.info(f"Extended charge mode to {new_expires_at}")
             return jsonify({
@@ -3251,26 +3255,26 @@ def api_force_charge(tesla_client, api_user=None):
             })
 
         # If currently in discharge mode, cancel it first
-        if current_user.manual_discharge_active:
+        if user.manual_discharge_active:
             logger.info(f"Canceling active discharge mode to enable charge mode")
-            current_user.manual_discharge_active = False
-            current_user.manual_discharge_expires_at = None
+            user.manual_discharge_active = False
+            user.manual_discharge_expires_at = None
 
         # Save current tariff as backup (if not already saved)
         default_profile = SavedTOUProfile.query.filter_by(
-            user_id=current_user.id,
+            user_id=user.id,
             is_default=True
         ).first()
 
         if default_profile:
-            current_user.manual_charge_saved_tariff_id = default_profile.id
+            user.manual_charge_saved_tariff_id = default_profile.id
             logger.info(f"Using existing default tariff ID {default_profile.id} as backup")
         else:
             # Save current tariff
-            current_tariff = tesla_client.get_current_tariff(current_user.tesla_energy_site_id)
+            current_tariff = tesla_client.get_current_tariff(user.tesla_energy_site_id)
             if current_tariff:
                 backup_profile = SavedTOUProfile(
-                    user_id=current_user.id,
+                    user_id=user.id,
                     name=f"Auto-saved before charge ({datetime.utcnow().strftime('%Y-%m-%d %H:%M')})",
                     description="Automatically saved before manual charge mode",
                     source_type='tesla',
@@ -3283,25 +3287,25 @@ def api_force_charge(tesla_client, api_user=None):
                 )
                 db.session.add(backup_profile)
                 db.session.flush()
-                current_user.manual_charge_saved_tariff_id = backup_profile.id
+                user.manual_charge_saved_tariff_id = backup_profile.id
                 logger.info(f"Saved current tariff as backup with ID {backup_profile.id}")
 
         # Save current backup reserve and set to 100% to force charging
         # Only save if not already in charge mode (prevents overwriting on double-click)
-        already_in_charge = getattr(current_user, 'manual_charge_active', False)
+        already_in_charge = getattr(user, 'manual_charge_active', False)
         if not already_in_charge:
-            site_info = tesla_client.get_site_info(current_user.tesla_energy_site_id)
+            site_info = tesla_client.get_site_info(user.tesla_energy_site_id)
             if site_info:
                 current_backup_reserve = site_info.get('backup_reserve_percent')
                 if current_backup_reserve is not None:
-                    current_user.manual_charge_saved_backup_reserve = current_backup_reserve
+                    user.manual_charge_saved_backup_reserve = current_backup_reserve
                     logger.info(f"Saved current backup reserve: {current_backup_reserve}%")
         else:
-            logger.info(f"Force charge already active - keeping original saved backup reserve: {getattr(current_user, 'manual_charge_saved_backup_reserve', 'unknown')}%")
+            logger.info(f"Force charge already active - keeping original saved backup reserve: {getattr(user, 'manual_charge_saved_backup_reserve', 'unknown')}%")
 
         # Set backup reserve to 100% to force charging from grid
         logger.info("Setting backup reserve to 100% to force charging...")
-        backup_result = tesla_client.set_backup_reserve(current_user.tesla_energy_site_id, 100)
+        backup_result = tesla_client.set_backup_reserve(user.tesla_energy_site_id, 100)
         if backup_result:
             logger.info("Set backup reserve to 100%")
         else:
@@ -3313,25 +3317,25 @@ def api_force_charge(tesla_client, api_user=None):
         charge_tariff = create_charge_tariff(duration_minutes)
 
         # Upload tariff to Tesla
-        result = tesla_client.set_tariff_rate(current_user.tesla_energy_site_id, charge_tariff)
+        result = tesla_client.set_tariff_rate(user.tesla_energy_site_id, charge_tariff)
 
         if result:
             # Calculate expiry time
             expires_at = datetime.utcnow() + timedelta(minutes=duration_minutes)
 
             # Update user state
-            current_user.manual_charge_active = True
-            current_user.manual_charge_expires_at = expires_at
+            user.manual_charge_active = True
+            user.manual_charge_expires_at = expires_at
             # Clear tariff hash so restore normal will force a re-sync
             # (prevents deduplication from skipping the restore)
-            current_user.last_tariff_hash = None
+            user.last_tariff_hash = None
             db_commit_with_retry()
 
             # Force Powerwall to apply the tariff immediately
             from app.tasks import force_tariff_refresh
-            force_tariff_refresh(tesla_client, current_user.tesla_energy_site_id)
+            force_tariff_refresh(tesla_client, user.tesla_energy_site_id)
 
-            logger.info(f"Force charge activated for {current_user.email} until {expires_at}")
+            logger.info(f"Force charge activated for {user.email} until {expires_at}")
 
             return jsonify({
                 'success': True,
@@ -3340,7 +3344,7 @@ def api_force_charge(tesla_client, api_user=None):
                 'duration_minutes': duration_minutes
             })
         else:
-            logger.error(f"Failed to upload charge tariff for {current_user.email}")
+            logger.error(f"Failed to upload charge tariff for {user.email}")
             return jsonify({
                 'success': False,
                 'error': 'Failed to upload charge tariff to Tesla'
@@ -3358,12 +3362,12 @@ def api_force_charge(tesla_client, api_user=None):
 
 
 @bp.route('/api/restore-normal', methods=['POST'])
-@login_required
 @require_tesla_client
 @require_tesla_site_id
 def api_restore_normal(tesla_client, api_user=None):
     """
     Restore normal operation - restores saved tariff or triggers Amber sync.
+    Supports both session login and Bearer token authentication.
 
     Returns JSON:
     {
@@ -3373,14 +3377,15 @@ def api_restore_normal(tesla_client, api_user=None):
     }
     """
     import json
+    user = api_user or current_user
 
     try:
-        logger.info(f"Restore normal requested by {current_user.email}")
+        logger.info(f"Restore normal requested by {user.email}")
 
         # Check what mode we're in
-        was_in_discharge = current_user.manual_discharge_active
-        was_in_charge = getattr(current_user, 'manual_charge_active', False)
-        was_in_spike = current_user.aemo_in_spike_mode
+        was_in_discharge = user.manual_discharge_active
+        was_in_charge = getattr(user, 'manual_charge_active', False)
+        was_in_spike = user.aemo_in_spike_mode
 
         if not was_in_discharge and not was_in_charge and not was_in_spike:
             return jsonify({
@@ -3394,79 +3399,79 @@ def api_restore_normal(tesla_client, api_user=None):
         # IMMEDIATELY switch to self_consumption to stop any ongoing export/import
         # This ensures discharge/charge stops right away, before tariff restoration completes
         logger.info("Immediately switching to self_consumption to stop forced charge/discharge")
-        tesla_client.set_operation_mode(current_user.tesla_energy_site_id, 'self_consumption')
+        tesla_client.set_operation_mode(user.tesla_energy_site_id, 'self_consumption')
 
         # Check if user has Amber configured (should sync instead of restore static tariff)
-        use_amber_sync = bool(current_user.amber_api_token_encrypted and current_user.sync_enabled)
+        use_amber_sync = bool(user.amber_api_token_encrypted and user.sync_enabled)
 
         if use_amber_sync:
             # For Amber users, trigger a sync to get fresh prices
-            logger.info(f"Amber user - triggering price sync for {current_user.email}")
+            logger.info(f"Amber user - triggering price sync for {user.email}")
             from app.tasks import _sync_all_users_internal
             # Run sync in background - this will upload new tariff and set operation mode
             _sync_all_users_internal(None, sync_mode='initial_forecast')
             # Switch back to autonomous mode after sync completes
-            tesla_client.set_operation_mode(current_user.tesla_energy_site_id, 'autonomous')
+            tesla_client.set_operation_mode(user.tesla_energy_site_id, 'autonomous')
             restore_method = 'amber_sync'
         else:
             # Restore saved tariff
             backup_profile = None
 
             # Check manual discharge backup first
-            if was_in_discharge and current_user.manual_discharge_saved_tariff_id:
-                backup_profile = SavedTOUProfile.query.get(current_user.manual_discharge_saved_tariff_id)
+            if was_in_discharge and user.manual_discharge_saved_tariff_id:
+                backup_profile = SavedTOUProfile.query.get(user.manual_discharge_saved_tariff_id)
             # Check manual charge backup
-            elif was_in_charge and getattr(current_user, 'manual_charge_saved_tariff_id', None):
-                backup_profile = SavedTOUProfile.query.get(current_user.manual_charge_saved_tariff_id)
+            elif was_in_charge and getattr(user, 'manual_charge_saved_tariff_id', None):
+                backup_profile = SavedTOUProfile.query.get(user.manual_charge_saved_tariff_id)
             # Fall back to AEMO backup
-            elif was_in_spike and current_user.aemo_saved_tariff_id:
-                backup_profile = SavedTOUProfile.query.get(current_user.aemo_saved_tariff_id)
+            elif was_in_spike and user.aemo_saved_tariff_id:
+                backup_profile = SavedTOUProfile.query.get(user.aemo_saved_tariff_id)
             # Fall back to default profile
             else:
                 backup_profile = SavedTOUProfile.query.filter_by(
-                    user_id=current_user.id,
+                    user_id=user.id,
                     is_default=True
                 ).first()
 
             if backup_profile:
                 tariff = json.loads(backup_profile.tariff_json)
-                result = tesla_client.set_tariff_rate(current_user.tesla_energy_site_id, tariff)
+                result = tesla_client.set_tariff_rate(user.tesla_energy_site_id, tariff)
 
                 if result:
                     # Force Powerwall to apply
                     from app.tasks import force_tariff_refresh
-                    force_tariff_refresh(tesla_client, current_user.tesla_energy_site_id)
+                    force_tariff_refresh(tesla_client, user.tesla_energy_site_id)
                     restore_method = 'tariff_restore'
                     logger.info(f"Restored tariff from profile {backup_profile.id}")
                 else:
-                    logger.error(f"Failed to restore tariff for {current_user.email}")
+                    logger.error(f"Failed to restore tariff for {user.email}")
                     return jsonify({
                         'success': False,
                         'error': 'Failed to upload restored tariff to Tesla'
                     }), 500
             else:
-                logger.warning(f"No backup tariff found for {current_user.email}")
+                logger.warning(f"No backup tariff found for {user.email}")
                 restore_method = 'no_backup'
 
         # Restore saved backup reserve if it was saved during force charge
-        saved_backup_reserve = getattr(current_user, 'manual_charge_saved_backup_reserve', None)
+        saved_backup_reserve = getattr(user, 'manual_charge_saved_backup_reserve', None)
         if was_in_charge and saved_backup_reserve is not None:
             logger.info(f"Restoring backup reserve to {saved_backup_reserve}%")
-            backup_result = tesla_client.set_backup_reserve(current_user.tesla_energy_site_id, saved_backup_reserve)
+            backup_result = tesla_client.set_backup_reserve(user.tesla_energy_site_id, saved_backup_reserve)
             if backup_result:
                 logger.info(f"Restored backup reserve to {saved_backup_reserve}%")
             else:
                 logger.warning(f"Failed to restore backup reserve to {saved_backup_reserve}%")
 
         # Clear all discharge/charge/spike states
-        current_user.manual_discharge_active = False
-        current_user.manual_discharge_expires_at = None
-        current_user.manual_charge_active = False
-        current_user.manual_charge_expires_at = None
-        current_user.manual_charge_saved_backup_reserve = None
-        current_user.aemo_in_spike_mode = False
-        current_user.aemo_spike_test_mode = False
-        current_user.aemo_spike_start_time = None
+        user.manual_discharge_active = False
+        user.manual_discharge_expires_at = None
+        user.manual_charge_active = False
+        user.manual_charge_expires_at = None
+        user.manual_charge_saved_backup_reserve = None
+        user.aemo_in_spike_mode = False
+        user.aemo_spike_test_mode = False
+        user.aemo_spike_start_time = None
         db_commit_with_retry()
 
         message = 'Normal operation restored'
@@ -3477,7 +3482,7 @@ def api_restore_normal(tesla_client, api_user=None):
         elif restore_method == 'no_backup':
             message = 'Discharge mode cleared (no backup tariff to restore)'
 
-        logger.info(f"Restore complete for {current_user.email}: {message}")
+        logger.info(f"Restore complete for {user.email}: {message}")
 
         return jsonify({
             'success': True,
@@ -3499,10 +3504,10 @@ def api_restore_normal(tesla_client, api_user=None):
 
 
 @bp.route('/api/discharge-status')
-@login_required
 def api_discharge_status():
     """
     Get current discharge and charge mode status.
+    Supports both session login and Bearer token authentication.
 
     Returns JSON:
     {
@@ -3515,33 +3520,40 @@ def api_discharge_status():
         "charge_remaining_minutes": 0
     }
     """
+    # Get user from Bearer token or session
+    user = get_api_user()
+    if not user and current_user.is_authenticated:
+        user = current_user
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+
     now = datetime.utcnow()
 
     # Check if discharge has expired
-    if current_user.manual_discharge_active and current_user.manual_discharge_expires_at:
-        if now >= current_user.manual_discharge_expires_at:
+    if user.manual_discharge_active and user.manual_discharge_expires_at:
+        if now >= user.manual_discharge_expires_at:
             # Auto-expire the discharge mode
-            logger.info(f"Manual discharge expired for {current_user.email}")
-            current_user.manual_discharge_active = False
-            current_user.manual_discharge_expires_at = None
+            logger.info(f"Manual discharge expired for {user.email}")
+            user.manual_discharge_active = False
+            user.manual_discharge_expires_at = None
             db.session.commit()
 
     # Check if charge has expired
-    charge_active = getattr(current_user, 'manual_charge_active', False)
-    charge_expires_at = getattr(current_user, 'manual_charge_expires_at', None)
+    charge_active = getattr(user, 'manual_charge_active', False)
+    charge_expires_at = getattr(user, 'manual_charge_expires_at', None)
     if charge_active and charge_expires_at:
         if now >= charge_expires_at:
             # Auto-expire the charge mode
-            logger.info(f"Manual charge expired for {current_user.email}")
-            current_user.manual_charge_active = False
-            current_user.manual_charge_expires_at = None
+            logger.info(f"Manual charge expired for {user.email}")
+            user.manual_charge_active = False
+            user.manual_charge_expires_at = None
             charge_active = False
             charge_expires_at = None
             db.session.commit()
 
     remaining_minutes = 0
-    if current_user.manual_discharge_active and current_user.manual_discharge_expires_at:
-        remaining_seconds = (current_user.manual_discharge_expires_at - now).total_seconds()
+    if user.manual_discharge_active and user.manual_discharge_expires_at:
+        remaining_seconds = (user.manual_discharge_expires_at - now).total_seconds()
         remaining_minutes = max(0, int(remaining_seconds / 60))
 
     charge_remaining_minutes = 0
@@ -3550,10 +3562,10 @@ def api_discharge_status():
         charge_remaining_minutes = max(0, int(charge_remaining_seconds / 60))
 
     return jsonify({
-        'active': current_user.manual_discharge_active,
-        'expires_at': current_user.manual_discharge_expires_at.isoformat() + 'Z' if current_user.manual_discharge_expires_at else None,
+        'active': user.manual_discharge_active,
+        'expires_at': user.manual_discharge_expires_at.isoformat() + 'Z' if user.manual_discharge_expires_at else None,
         'remaining_minutes': remaining_minutes,
-        'in_spike_mode': current_user.aemo_in_spike_mode,
+        'in_spike_mode': user.aemo_in_spike_mode,
         'charge_active': charge_active,
         'charge_expires_at': charge_expires_at.isoformat() + 'Z' if charge_expires_at else None,
         'charge_remaining_minutes': charge_remaining_minutes
