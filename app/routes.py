@@ -3555,25 +3555,41 @@ def api_discharge_status():
             charge_expires_at = None
             db.session.commit()
 
-    remaining_minutes = 0
+    # Calculate remaining minutes for discharge
+    discharge_remaining_minutes = 0
     if user.manual_discharge_active and user.manual_discharge_expires_at:
         remaining_seconds = (user.manual_discharge_expires_at - now).total_seconds()
-        remaining_minutes = max(0, int(remaining_seconds / 60))
+        discharge_remaining_minutes = max(0, int(remaining_seconds / 60))
 
+    # Calculate remaining minutes for charge
     charge_remaining_minutes = 0
     if charge_active and charge_expires_at:
         charge_remaining_seconds = (charge_expires_at - now).total_seconds()
         charge_remaining_minutes = max(0, int(charge_remaining_seconds / 60))
 
+    # For mobile app: return the active mode's expiry in the main expires_at/remaining_minutes fields
+    # Priority: charge > discharge (if both somehow active, charge takes precedence)
+    if charge_active and charge_expires_at:
+        active_expires_at = charge_expires_at.isoformat() + 'Z'
+        active_remaining_minutes = charge_remaining_minutes
+    elif user.manual_discharge_active and user.manual_discharge_expires_at:
+        active_expires_at = user.manual_discharge_expires_at.isoformat() + 'Z'
+        active_remaining_minutes = discharge_remaining_minutes
+    else:
+        active_expires_at = None
+        active_remaining_minutes = 0
+
     return jsonify({
         'active': user.manual_discharge_active,  # Legacy key for backwards compatibility
         'discharge_active': user.manual_discharge_active,  # New key matching mobile app expectation
-        'expires_at': user.manual_discharge_expires_at.isoformat() + 'Z' if user.manual_discharge_expires_at else None,
-        'remaining_minutes': remaining_minutes,
+        'expires_at': active_expires_at,  # Active mode's expiry for mobile countdown
+        'remaining_minutes': active_remaining_minutes,  # Active mode's remaining time
         'in_spike_mode': user.aemo_in_spike_mode,
         'charge_active': charge_active,
         'charge_expires_at': charge_expires_at.isoformat() + 'Z' if charge_expires_at else None,
-        'charge_remaining_minutes': charge_remaining_minutes
+        'charge_remaining_minutes': charge_remaining_minutes,
+        'discharge_expires_at': user.manual_discharge_expires_at.isoformat() + 'Z' if user.manual_discharge_expires_at else None,
+        'discharge_remaining_minutes': discharge_remaining_minutes
     })
 
 
