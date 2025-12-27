@@ -3287,12 +3287,17 @@ def api_force_charge(tesla_client, api_user=None):
                 logger.info(f"Saved current tariff as backup with ID {backup_profile.id}")
 
         # Save current backup reserve and set to 100% to force charging
-        site_info = tesla_client.get_site_info(current_user.tesla_energy_site_id)
-        if site_info:
-            current_backup_reserve = site_info.get('backup_reserve_percent')
-            if current_backup_reserve is not None:
-                current_user.manual_charge_saved_backup_reserve = current_backup_reserve
-                logger.info(f"Saved current backup reserve: {current_backup_reserve}%")
+        # Only save if not already in charge mode (prevents overwriting on double-click)
+        already_in_charge = getattr(current_user, 'manual_charge_active', False)
+        if not already_in_charge:
+            site_info = tesla_client.get_site_info(current_user.tesla_energy_site_id)
+            if site_info:
+                current_backup_reserve = site_info.get('backup_reserve_percent')
+                if current_backup_reserve is not None:
+                    current_user.manual_charge_saved_backup_reserve = current_backup_reserve
+                    logger.info(f"Saved current backup reserve: {current_backup_reserve}%")
+        else:
+            logger.info(f"Force charge already active - keeping original saved backup reserve: {getattr(current_user, 'manual_charge_saved_backup_reserve', 'unknown')}%")
 
         # Set backup reserve to 100% to force charging from grid
         logger.info("Setting backup reserve to 100% to force charging...")
