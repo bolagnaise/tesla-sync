@@ -2191,7 +2191,7 @@ def tou_schedule(api_user=None, **kwargs):
 @login_required
 @require_tesla_client
 @require_tesla_site_id
-def sync_tesla_schedule(tesla_client, api_user=None):
+def sync_tesla_schedule(tesla_client):
     """Apply the TOU schedule to Tesla Powerwall"""
     logger.info(f"Tesla schedule sync requested by user: {current_user.email}")
 
@@ -2660,7 +2660,7 @@ def test_tariff_comparison():
 @bp.route('/api/test/find-tesla-sites')
 @login_required
 @require_tesla_client
-def test_find_tesla_sites(tesla_client, api_user=None):
+def test_find_tesla_sites(tesla_client):
     """Helper to find Tesla energy site IDs"""
     try:
         # Get all energy sites
@@ -2840,7 +2840,7 @@ def download_logs():
 @login_required
 @require_tesla_client
 @require_tesla_site_id
-def test_aemo_spike(tesla_client, api_user=None):
+def test_aemo_spike(tesla_client):
     """Test/simulate AEMO price spike mode"""
     from app.tasks import create_spike_tariff
     from app.models import SavedTOUProfile
@@ -3057,7 +3057,7 @@ def test_aemo_restore():
 @login_required
 @require_tesla_client
 @require_tesla_site_id
-def api_force_discharge(tesla_client, api_user=None):
+def api_force_discharge(tesla_client):
     """
     Force discharge mode - switches to autonomous mode with high export tariff.
 
@@ -3196,7 +3196,7 @@ def api_force_discharge(tesla_client, api_user=None):
 @login_required
 @require_tesla_client
 @require_tesla_site_id
-def api_force_charge(tesla_client, api_user=None):
+def api_force_charge(tesla_client):
     """
     Force charge mode - switches to autonomous mode with free import tariff.
 
@@ -3287,17 +3287,12 @@ def api_force_charge(tesla_client, api_user=None):
                 logger.info(f"Saved current tariff as backup with ID {backup_profile.id}")
 
         # Save current backup reserve and set to 100% to force charging
-        # Only save if not already in charge mode (prevents overwriting on double-click)
-        already_in_charge = getattr(current_user, 'manual_charge_active', False)
-        if not already_in_charge:
-            site_info = tesla_client.get_site_info(current_user.tesla_energy_site_id)
-            if site_info:
-                current_backup_reserve = site_info.get('backup_reserve_percent')
-                if current_backup_reserve is not None:
-                    current_user.manual_charge_saved_backup_reserve = current_backup_reserve
-                    logger.info(f"Saved current backup reserve: {current_backup_reserve}%")
-        else:
-            logger.info(f"Force charge already active - keeping original saved backup reserve: {getattr(current_user, 'manual_charge_saved_backup_reserve', 'unknown')}%")
+        site_info = tesla_client.get_site_info(current_user.tesla_energy_site_id)
+        if site_info:
+            current_backup_reserve = site_info.get('backup_reserve_percent')
+            if current_backup_reserve is not None:
+                current_user.manual_charge_saved_backup_reserve = current_backup_reserve
+                logger.info(f"Saved current backup reserve: {current_backup_reserve}%")
 
         # Set backup reserve to 100% to force charging from grid
         logger.info("Setting backup reserve to 100% to force charging...")
@@ -3361,7 +3356,7 @@ def api_force_charge(tesla_client, api_user=None):
 @login_required
 @require_tesla_client
 @require_tesla_site_id
-def api_restore_normal(tesla_client, api_user=None):
+def api_restore_normal(tesla_client):
     """
     Restore normal operation - restores saved tariff or triggers Amber sync.
 
@@ -3561,188 +3556,6 @@ def api_discharge_status():
 
 
 # ============================================
-# POWERWALL SETTINGS API (for mobile app Controls)
-# ============================================
-
-@bp.route('/api/powerwall-settings')
-@require_tesla_client
-@require_tesla_site_id
-def api_powerwall_settings(tesla_client, api_user=None):
-    """
-    Get current Powerwall settings for mobile app Controls.
-
-    Supports both session login and Bearer token authentication.
-
-    Returns JSON:
-    {
-        "backup_reserve": 20,
-        "operation_mode": "autonomous",
-        "grid_export_rule": "pv_only",
-        "grid_charging_enabled": true
-    }
-    """
-    user = api_user or current_user
-    try:
-        site_id = user.tesla_energy_site_id
-
-        # Get site info for backup reserve and operation mode
-        site_info = tesla_client.get_site_info(site_id)
-        if not site_info:
-            return jsonify({'success': False, 'error': 'Failed to get site info'}), 500
-
-        # Get grid import/export settings
-        grid_settings = tesla_client.get_grid_import_export(site_id)
-
-        return jsonify({
-            'success': True,
-            'backup_reserve': site_info.get('backup_reserve_percent', 0),
-            'operation_mode': site_info.get('default_real_mode', 'autonomous'),
-            'grid_export_rule': grid_settings.get('customer_preferred_export_rule', 'pv_only') if grid_settings else 'pv_only',
-            'grid_charging_enabled': not grid_settings.get('disallow_charge_from_grid_with_solar_installed', False) if grid_settings else True
-        })
-    except Exception as e:
-        logger.error(f"Error getting Powerwall settings: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@bp.route('/api/backup-reserve', methods=['POST'])
-@require_tesla_client
-@require_tesla_site_id
-def api_set_backup_reserve(tesla_client, api_user=None):
-    """
-    Set the Powerwall backup reserve percentage.
-
-    Supports both session login and Bearer token authentication.
-
-    Request JSON: {"percent": 20}
-    Returns JSON: {"success": true, "backup_reserve": 20}
-    """
-    user = api_user or current_user
-    try:
-        data = request.get_json() or {}
-        percent = data.get('percent', 20)
-
-        # Validate range
-        percent = max(0, min(100, int(percent)))
-
-        site_id = user.tesla_energy_site_id
-        result = tesla_client.set_backup_reserve(site_id, percent)
-
-        if result:
-            logger.info(f"Set backup reserve to {percent}% for {user.email}")
-            return jsonify({'success': True, 'backup_reserve': percent})
-        else:
-            return jsonify({'success': False, 'error': 'Failed to set backup reserve'}), 500
-    except Exception as e:
-        logger.error(f"Error setting backup reserve: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@bp.route('/api/operation-mode', methods=['POST'])
-@require_tesla_client
-@require_tesla_site_id
-def api_set_operation_mode(tesla_client, api_user=None):
-    """
-    Set the Powerwall operation mode.
-
-    Supports both session login and Bearer token authentication.
-
-    Request JSON: {"mode": "autonomous"} or {"mode": "self_consumption"}
-    Returns JSON: {"success": true, "operation_mode": "autonomous"}
-    """
-    user = api_user or current_user
-    try:
-        data = request.get_json() or {}
-        mode = data.get('mode', 'autonomous')
-
-        # Validate mode
-        valid_modes = ['autonomous', 'self_consumption', 'backup']
-        if mode not in valid_modes:
-            return jsonify({'success': False, 'error': f'Invalid mode. Must be one of: {valid_modes}'}), 400
-
-        site_id = user.tesla_energy_site_id
-        result = tesla_client.set_operation_mode(site_id, mode)
-
-        if result:
-            logger.info(f"Set operation mode to '{mode}' for {user.email}")
-            return jsonify({'success': True, 'operation_mode': mode})
-        else:
-            return jsonify({'success': False, 'error': 'Failed to set operation mode'}), 500
-    except Exception as e:
-        logger.error(f"Error setting operation mode: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@bp.route('/api/grid-export', methods=['POST'])
-@require_tesla_client
-@require_tesla_site_id
-def api_set_grid_export(tesla_client, api_user=None):
-    """
-    Set the grid export rule.
-
-    Supports both session login and Bearer token authentication.
-
-    Request JSON: {"rule": "pv_only"}
-    Valid rules: "never", "pv_only", "battery_ok"
-    Returns JSON: {"success": true, "grid_export_rule": "pv_only"}
-    """
-    user = api_user or current_user
-    try:
-        data = request.get_json() or {}
-        rule = data.get('rule', 'pv_only')
-
-        # Validate rule
-        valid_rules = ['never', 'pv_only', 'battery_ok']
-        if rule not in valid_rules:
-            return jsonify({'success': False, 'error': f'Invalid rule. Must be one of: {valid_rules}'}), 400
-
-        site_id = user.tesla_energy_site_id
-        result = tesla_client.set_grid_export_rule(site_id, rule)
-
-        if result:
-            logger.info(f"Set grid export rule to '{rule}' for {user.email}")
-            return jsonify({'success': True, 'grid_export_rule': rule})
-        else:
-            return jsonify({'success': False, 'error': 'Failed to set grid export rule'}), 500
-    except Exception as e:
-        logger.error(f"Error setting grid export rule: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@bp.route('/api/grid-charging', methods=['POST'])
-@require_tesla_client
-@require_tesla_site_id
-def api_set_grid_charging(tesla_client, api_user=None):
-    """
-    Enable or disable grid charging.
-
-    Supports both session login and Bearer token authentication.
-
-    Request JSON: {"enabled": true}
-    Returns JSON: {"success": true, "grid_charging_enabled": true}
-    """
-    user = api_user or current_user
-    try:
-        data = request.get_json() or {}
-        enabled = data.get('enabled', True)
-
-        # Ensure boolean
-        enabled = bool(enabled)
-
-        site_id = user.tesla_energy_site_id
-        result = tesla_client.set_grid_charging_enabled(site_id, enabled)
-
-        if result:
-            logger.info(f"Set grid charging to {'enabled' if enabled else 'disabled'} for {user.email}")
-            return jsonify({'success': True, 'grid_charging_enabled': enabled})
-        else:
-            return jsonify({'success': False, 'error': 'Failed to set grid charging'}), 500
-    except Exception as e:
-        logger.error(f"Error setting grid charging: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-# ============================================
 # CURRENT TOU RATE MANAGEMENT
 # ============================================
 
@@ -3750,7 +3563,7 @@ def api_set_grid_charging(tesla_client, api_user=None):
 @login_required
 @require_tesla_client
 @require_tesla_site_id
-def current_tou_rate(tesla_client, api_user=None):
+def current_tou_rate(tesla_client):
     """View current TOU rate from Tesla and manage saved profiles"""
     logger.info(f"User {current_user.email} accessing Current TOU Rate page")
 
@@ -3783,7 +3596,7 @@ def current_tou_rate(tesla_client, api_user=None):
 @login_required
 @require_tesla_client
 @require_tesla_site_id
-def save_current_tou_rate(tesla_client, api_user=None):
+def save_current_tou_rate(tesla_client):
     """Save the current TOU rate from Tesla to database"""
     import json
 
@@ -3843,7 +3656,7 @@ def save_current_tou_rate(tesla_client, api_user=None):
 @login_required
 @require_tesla_client
 @require_tesla_site_id
-def restore_tou_rate(profile_id, tesla_client, api_user=None):
+def restore_tou_rate(profile_id, tesla_client):
     """Restore a saved TOU rate profile to Tesla (async)"""
     import json
     import threading
@@ -3957,7 +3770,7 @@ def set_default_tou_profile(profile_id):
 @login_required
 @require_tesla_client
 @require_tesla_site_id
-def api_current_tou_rate_raw(tesla_client, api_user=None):
+def api_current_tou_rate_raw(tesla_client):
     """API endpoint to get the raw current TOU tariff JSON"""
     site_id = current_user.tesla_energy_site_id
 
@@ -3976,7 +3789,7 @@ def api_current_tou_rate_raw(tesla_client, api_user=None):
 @login_required
 @require_tesla_client
 @require_tesla_site_id
-def api_debug_site_info(tesla_client, api_user=None):
+def api_debug_site_info(tesla_client):
     """Debug endpoint to see full site_info response from Tesla"""
     site_id = current_user.tesla_energy_site_id
 
