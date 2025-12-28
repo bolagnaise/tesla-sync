@@ -2752,7 +2752,7 @@
                             },
                             y: {
                                 min: 80,
-                                max: 102,
+                                max: Math.max(110, ...chartData.map(d => d.y)) + 2,
                                 title: {
                                     display: true,
                                     text: 'Health %'
