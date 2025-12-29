@@ -1771,7 +1771,7 @@ def price_history():
 @login_required
 def energy_history():
     """Get historical energy usage data for graphing"""
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
     from zoneinfo import ZoneInfo
 
     logger.info(f"Energy history requested by user: {current_user.email}")
@@ -1782,19 +1782,34 @@ def energy_history():
     # Get timeframe parameter (default to 'day')
     timeframe = request.args.get('timeframe', 'day')
 
+    # Get optional date parameter (YYYY-MM-DD format) for historical queries
+    date_param = request.args.get('date')
+
     # Calculate time range based on timeframe
     from app.models import EnergyRecord
 
     if timeframe == 'day':
-        # Get today's data from midnight onwards in user's timezone
-        now_local = datetime.now(user_tz)
-        start_of_day_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-        start_of_day_utc = start_of_day_local.astimezone(timezone.utc)
+        # If date provided, use that date; otherwise use today
+        if date_param:
+            try:
+                target_date = datetime.strptime(date_param, '%Y-%m-%d')
+                start_of_day_local = user_tz.localize(target_date.replace(hour=0, minute=0, second=0, microsecond=0))
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        else:
+            now_local = datetime.now(user_tz)
+            start_of_day_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # Query records from midnight today onwards
+        # Calculate end of day
+        end_of_day_local = start_of_day_local + timedelta(days=1) - timedelta(microseconds=1)
+        start_of_day_utc = start_of_day_local.astimezone(timezone.utc)
+        end_of_day_utc = end_of_day_local.astimezone(timezone.utc)
+
+        # Query records for the specified day
         records = EnergyRecord.query.filter(
             EnergyRecord.user_id == current_user.id,
-            EnergyRecord.timestamp >= start_of_day_utc
+            EnergyRecord.timestamp >= start_of_day_utc,
+            EnergyRecord.timestamp <= end_of_day_utc
         ).order_by(
             EnergyRecord.timestamp.asc()
         ).all()
@@ -1851,9 +1866,16 @@ def energy_history():
 
     if timeframe == 'day':
         # Send start/end of day in user's timezone for chart x-axis configuration
-        now_local = datetime.now(user_tz)
-        start_of_day = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_of_day = now_local.replace(hour=23, minute=59, second=59, microsecond=999999)
+        # Use the requested date if provided, otherwise use today
+        if date_param:
+            try:
+                target_date = datetime.strptime(date_param, '%Y-%m-%d')
+                start_of_day = user_tz.localize(target_date.replace(hour=0, minute=0, second=0, microsecond=0))
+            except ValueError:
+                start_of_day = datetime.now(user_tz).replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            start_of_day = datetime.now(user_tz).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_day = start_of_day.replace(hour=23, minute=59, second=59, microsecond=999999)
 
         response_data['metadata'] = {
             'start_of_day': start_of_day.isoformat(),
