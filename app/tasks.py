@@ -1219,8 +1219,9 @@ def _save_price_history_internal(websocket_data):
 
 def save_energy_usage():
     """
-    Automatically save Tesla Powerwall energy usage data to database for historical tracking
-    This runs periodically in the background to capture solar, grid, battery, and load power
+    Automatically save energy usage data to database for historical tracking.
+    Supports both Tesla Powerwall and Sigenergy systems.
+    This runs periodically in the background to capture solar, grid, battery, and load power.
     """
     from app import db
 
@@ -1237,50 +1238,21 @@ def save_energy_usage():
 
     for user in users:
         try:
-            # Skip users without Tesla configuration
-            if not user.tesla_energy_site_id:
-                logger.debug(f"Skipping user {user.email} - no Tesla site ID")
-                continue
+            # Determine which battery system to collect from
+            battery_system = user.battery_system or 'tesla'
 
-            logger.debug(f"Collecting energy usage for user: {user.email}")
+            if battery_system == 'sigenergy':
+                # Collect from Sigenergy via Modbus
+                result = _collect_sigenergy_energy(user)
+            else:
+                # Collect from Tesla
+                result = _collect_tesla_energy(user)
 
-            # Get Tesla client
-            tesla_client = get_tesla_client(user)
-            if not tesla_client:
-                logger.warning(f"Failed to get Tesla client for user {user.email}")
-                error_count += 1
-                continue
-
-            # Get site status (contains power flow data)
-            site_status = tesla_client.get_site_status(user.tesla_energy_site_id)
-            if not site_status:
-                logger.warning(f"No site status available for user {user.email}")
-                error_count += 1
-                continue
-
-            # Extract power data (in watts)
-            solar_power = site_status.get('solar_power', 0.0)
-            battery_power = site_status.get('battery_power', 0.0)
-            grid_power = site_status.get('grid_power', 0.0)
-            load_power = site_status.get('load_power', 0.0)
-            battery_level = site_status.get('percentage_charged', 0.0)
-
-            # Create energy record
-            record = EnergyRecord(
-                user_id=user.id,
-                solar_power=solar_power,
-                battery_power=battery_power,
-                grid_power=grid_power,
-                load_power=load_power,
-                battery_level=battery_level,
-                timestamp=datetime.now(timezone.utc)
-            )
-
-            db.session.add(record)
-            db.session.commit()
-
-            logger.debug(f"✅ Saved energy record for user {user.email}: Solar={solar_power}W Grid={grid_power}W Battery={battery_power}W Load={load_power}W")
-            success_count += 1
+            if result:
+                success_count += 1
+            else:
+                # Result is None means skipped (not configured), not an error
+                pass
 
         except Exception as e:
             logger.error(f"Error collecting energy usage for user {user.email}: {e}")
@@ -1292,6 +1264,109 @@ def save_energy_usage():
 
     logger.debug(f"=== Energy usage collection completed: {success_count} users successful, {error_count} errors ===")
     return success_count, error_count
+
+
+def _collect_tesla_energy(user) -> bool:
+    """Collect energy data from Tesla Powerwall.
+
+    Returns:
+        True if successful, False if error, None if not configured
+    """
+    from app import db
+
+    if not user.tesla_energy_site_id:
+        logger.debug(f"Skipping user {user.email} - no Tesla site ID")
+        return None
+
+    logger.debug(f"Collecting Tesla energy usage for user: {user.email}")
+
+    # Get Tesla client
+    tesla_client = get_tesla_client(user)
+    if not tesla_client:
+        logger.warning(f"Failed to get Tesla client for user {user.email}")
+        return False
+
+    # Get site status (contains power flow data)
+    site_status = tesla_client.get_site_status(user.tesla_energy_site_id)
+    if not site_status:
+        logger.warning(f"No site status available for user {user.email}")
+        return False
+
+    # Extract power data (in watts)
+    solar_power = site_status.get('solar_power', 0.0)
+    battery_power = site_status.get('battery_power', 0.0)
+    grid_power = site_status.get('grid_power', 0.0)
+    load_power = site_status.get('load_power', 0.0)
+    battery_level = site_status.get('percentage_charged', 0.0)
+
+    # Create energy record
+    record = EnergyRecord(
+        user_id=user.id,
+        solar_power=solar_power,
+        battery_power=battery_power,
+        grid_power=grid_power,
+        load_power=load_power,
+        battery_level=battery_level,
+        timestamp=datetime.now(timezone.utc)
+    )
+
+    db.session.add(record)
+    db.session.commit()
+
+    logger.debug(f"✅ Saved Tesla energy record for user {user.email}: Solar={solar_power}W Grid={grid_power}W Battery={battery_power}W Load={load_power}W")
+    return True
+
+
+def _collect_sigenergy_energy(user) -> bool:
+    """Collect energy data from Sigenergy via Modbus TCP.
+
+    Returns:
+        True if successful, False if error, None if not configured
+    """
+    from app import db
+    from app.sigenergy_modbus import get_sigenergy_modbus_client
+
+    if not user.sigenergy_modbus_host:
+        logger.debug(f"Skipping user {user.email} - no Sigenergy Modbus configured")
+        return None
+
+    logger.debug(f"Collecting Sigenergy energy usage for user: {user.email}")
+
+    # Get Modbus client
+    client = get_sigenergy_modbus_client(user)
+    if not client:
+        logger.warning(f"Failed to create Sigenergy Modbus client for user {user.email}")
+        return False
+
+    # Get live status
+    status = client.get_live_status()
+    if 'error' in status:
+        logger.warning(f"Sigenergy status error for user {user.email}: {status['error']}")
+        return False
+
+    # Extract power data (in watts)
+    solar_power = status.get('solar_power', 0.0)
+    battery_power = status.get('battery_power', 0.0)
+    grid_power = status.get('grid_power', 0.0)
+    load_power = status.get('load_power', 0.0)
+    battery_level = status.get('percentage_charged', 0.0)
+
+    # Create energy record
+    record = EnergyRecord(
+        user_id=user.id,
+        solar_power=solar_power,
+        battery_power=battery_power,
+        grid_power=grid_power,
+        load_power=load_power,
+        battery_level=battery_level,
+        timestamp=datetime.now(timezone.utc)
+    )
+
+    db.session.add(record)
+    db.session.commit()
+
+    logger.debug(f"✅ Saved Sigenergy energy record for user {user.email}: Solar={solar_power}W Grid={grid_power}W Battery={battery_power}W Load={load_power}W")
+    return True
 
 
 def monitor_aemo_prices():

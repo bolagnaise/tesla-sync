@@ -2032,6 +2032,224 @@ def tesla_status(tesla_client, api_user=None, **kwargs):
     return jsonify(site_status)
 
 
+@bp.route('/api/sigenergy/live-status')
+@api_auth_required
+def sigenergy_live_status(api_user=None, **kwargs):
+    """Get Sigenergy inverter live status via Modbus TCP.
+
+    Returns power flow data in same format as Tesla status endpoint.
+    Supports both session login and Bearer token authentication.
+    """
+    from app.sigenergy_modbus import get_sigenergy_modbus_client
+
+    user = api_user or current_user
+    logger.info(f"Sigenergy live status requested by user: {user.email}")
+
+    # Check if user has Sigenergy configured
+    if user.battery_system != 'sigenergy':
+        return jsonify({'error': 'Sigenergy not configured as battery system'}), 400
+
+    # Check if Modbus is configured
+    if not user.sigenergy_modbus_host:
+        return jsonify({'error': 'Sigenergy Modbus not configured. Please set IP address in settings.'}), 400
+
+    # Get Modbus client
+    client = get_sigenergy_modbus_client(user)
+    if not client:
+        return jsonify({'error': 'Failed to create Sigenergy Modbus client'}), 500
+
+    # Get live status
+    status = client.get_live_status()
+    if 'error' in status:
+        logger.error(f"Sigenergy status error: {status['error']}")
+        return jsonify(status), 500
+
+    return jsonify(status)
+
+
+@bp.route('/api/sigenergy/calendar-history')
+@api_auth_required
+def sigenergy_calendar_history(api_user=None, **kwargs):
+    """Get historical energy summaries for Sigenergy users.
+
+    Aggregates data from EnergyRecord table since Sigenergy Cloud API
+    doesn't provide historical energy data like Tesla does.
+
+    Supports both session login and Bearer token authentication.
+    """
+    from datetime import datetime, timezone, timedelta
+    from zoneinfo import ZoneInfo
+    from sqlalchemy import func
+    from app.models import EnergyRecord
+
+    user = api_user or current_user
+    logger.info(f"Sigenergy calendar history requested by user: {user.email}")
+
+    # Check if user has Sigenergy configured
+    if user.battery_system != 'sigenergy':
+        return jsonify({'error': 'Sigenergy not configured as battery system'}), 400
+
+    # Get parameters
+    period = request.args.get('period', 'day')  # day, week, month, year
+    end_date_str = request.args.get('end_date')
+
+    # Get user's timezone
+    user_tz = ZoneInfo(get_powerwall_timezone(user))
+    now_local = datetime.now(user_tz)
+
+    # Parse end_date or use now
+    if end_date_str:
+        try:
+            end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=user_tz)
+        except ValueError:
+            end_date = now_local
+    else:
+        end_date = now_local
+
+    # Calculate time range based on period
+    if period == 'day':
+        # Today's data
+        start_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        group_format = '%Y-%m-%d %H:00'  # Group by hour
+    elif period == 'week':
+        # Last 7 days
+        start_date = end_date - timedelta(days=7)
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        group_format = '%Y-%m-%d'  # Group by day
+    elif period == 'month':
+        # Last 30 days
+        start_date = end_date - timedelta(days=30)
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        group_format = '%Y-%m-%d'  # Group by day
+    elif period == 'year':
+        # Last 365 days
+        start_date = end_date - timedelta(days=365)
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        group_format = '%Y-%m'  # Group by month
+    else:
+        start_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        group_format = '%Y-%m-%d %H:00'
+
+    # Convert to UTC for query
+    start_utc = start_date.astimezone(timezone.utc)
+    end_utc = end_date.astimezone(timezone.utc)
+
+    # Query EnergyRecord for this period
+    records = EnergyRecord.query.filter(
+        EnergyRecord.user_id == user.id,
+        EnergyRecord.timestamp >= start_utc,
+        EnergyRecord.timestamp <= end_utc
+    ).order_by(EnergyRecord.timestamp.asc()).all()
+
+    if not records:
+        logger.info(f"No energy records found for period {period}")
+        return jsonify({
+            'period': period,
+            'time_series': [],
+            'totals': {
+                'solar_energy_exported': 0,
+                'battery_energy_exported': 0,
+                'battery_energy_imported_from_grid': 0,
+                'battery_energy_imported_from_solar': 0,
+                'grid_energy_imported': 0,
+                'grid_energy_exported_from_solar': 0,
+                'grid_energy_exported_from_battery': 0,
+                'consumer_energy_imported_from_grid': 0,
+                'consumer_energy_imported_from_solar': 0,
+                'consumer_energy_imported_from_battery': 0,
+            }
+        })
+
+    # Aggregate records into time buckets
+    # Power is in watts, we need to convert to Wh (energy)
+    # Since records are typically 5 minutes apart, each record represents ~5 min of energy
+    # Energy (Wh) = Power (W) * Time (h) = Power (W) * (5/60)
+
+    time_buckets = {}
+    sample_interval_hours = 5 / 60  # Assume 5-minute sampling
+
+    for record in records:
+        # Convert timestamp to local time and format for grouping
+        local_ts = record.timestamp.replace(tzinfo=timezone.utc).astimezone(user_tz)
+        bucket_key = local_ts.strftime(group_format)
+
+        if bucket_key not in time_buckets:
+            time_buckets[bucket_key] = {
+                'timestamp': bucket_key,
+                'solar_wh': 0,
+                'battery_discharge_wh': 0,
+                'battery_charge_wh': 0,
+                'grid_import_wh': 0,
+                'grid_export_wh': 0,
+                'home_wh': 0,
+            }
+
+        bucket = time_buckets[bucket_key]
+
+        # Convert power (W) to energy (Wh) for this interval
+        solar_wh = max(0, record.solar_power or 0) * sample_interval_hours
+        home_wh = max(0, record.load_power or 0) * sample_interval_hours
+
+        # Battery: positive = discharging, negative = charging
+        battery_power = record.battery_power or 0
+        if battery_power > 0:
+            bucket['battery_discharge_wh'] += battery_power * sample_interval_hours
+        else:
+            bucket['battery_charge_wh'] += abs(battery_power) * sample_interval_hours
+
+        # Grid: positive = importing, negative = exporting
+        grid_power = record.grid_power or 0
+        if grid_power > 0:
+            bucket['grid_import_wh'] += grid_power * sample_interval_hours
+        else:
+            bucket['grid_export_wh'] += abs(grid_power) * sample_interval_hours
+
+        bucket['solar_wh'] += solar_wh
+        bucket['home_wh'] += home_wh
+
+    # Build time series in Tesla calendar history format
+    time_series = []
+    for bucket_key in sorted(time_buckets.keys()):
+        bucket = time_buckets[bucket_key]
+        time_series.append({
+            'timestamp': bucket['timestamp'],
+            'solar_energy_exported': bucket['solar_wh'],
+            'battery_energy_exported': bucket['battery_discharge_wh'],
+            'battery_energy_imported_from_grid': bucket['battery_charge_wh'] * 0.5,  # Approximate split
+            'battery_energy_imported_from_solar': bucket['battery_charge_wh'] * 0.5,
+            'grid_energy_imported': bucket['grid_import_wh'],
+            'grid_energy_exported_from_solar': bucket['grid_export_wh'] * 0.8,  # Approximate
+            'grid_energy_exported_from_battery': bucket['grid_export_wh'] * 0.2,
+            'consumer_energy_imported_from_grid': bucket['grid_import_wh'] * 0.7,
+            'consumer_energy_imported_from_solar': bucket['home_wh'] * 0.5,
+            'consumer_energy_imported_from_battery': bucket['battery_discharge_wh'] * 0.5,
+        })
+
+    # Calculate totals
+    totals = {
+        'solar_energy_exported': sum(b['solar_wh'] for b in time_buckets.values()),
+        'battery_energy_exported': sum(b['battery_discharge_wh'] for b in time_buckets.values()),
+        'battery_energy_imported_from_grid': sum(b['battery_charge_wh'] for b in time_buckets.values()) * 0.5,
+        'battery_energy_imported_from_solar': sum(b['battery_charge_wh'] for b in time_buckets.values()) * 0.5,
+        'grid_energy_imported': sum(b['grid_import_wh'] for b in time_buckets.values()),
+        'grid_energy_exported_from_solar': sum(b['grid_export_wh'] for b in time_buckets.values()) * 0.8,
+        'grid_energy_exported_from_battery': sum(b['grid_export_wh'] for b in time_buckets.values()) * 0.2,
+        'consumer_energy_imported_from_grid': sum(b['grid_import_wh'] for b in time_buckets.values()) * 0.7,
+        'consumer_energy_imported_from_solar': sum(b['home_wh'] for b in time_buckets.values()) * 0.5,
+        'consumer_energy_imported_from_battery': sum(b['battery_discharge_wh'] for b in time_buckets.values()) * 0.5,
+    }
+
+    logger.info(f"Returning {len(time_series)} time series records for period '{period}'")
+
+    return jsonify({
+        'period': period,
+        'time_series': time_series,
+        'totals': totals,
+    })
+
+
 @bp.route('/api/price-history')
 @login_required
 def price_history():
