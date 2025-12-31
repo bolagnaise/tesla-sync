@@ -272,7 +272,46 @@ This is smarter because:
 2. Follow the credential capture wizard (requires browser dev tools)
 3. Validate credentials and select your station
 
-**Note:** Sigenergy is a **DC-coupled** battery system. If you have an AC-coupled solar inverter from another brand (Sungrow, Fronius, etc.) connected to your Sigenergy system, you can configure AC-coupled inverter curtailment separately.
+**Note:** Sigenergy is a **DC-coupled** battery system. If you have an AC-coupled solar inverter from another brand (Sungrow, Fronius, etc.) connected to your Sigenergy system, you can configure AC-coupled inverter curtailment separately (see below).
+
+### AC-Coupled Inverter Curtailment
+
+Control AC-coupled solar inverters directly during negative pricing periods. This feature works with **any battery system** (Tesla, Sigenergy, or others) and is useful when you have a separate solar inverter that bypasses the battery.
+
+**Supported Inverter Brands:**
+| Brand | Connection | Models |
+|-------|------------|--------|
+| **Sungrow** | Modbus TCP | SG series (string), SH series (hybrid) |
+| **Fronius** | Modbus TCP | Primo, Symo, Gen24, Tauro, Eco |
+| **GoodWe** | Modbus TCP | ET, EH, BT, BH, ES, EM series (hybrid) |
+| **Huawei** | Modbus TCP | SUN2000 L1, M0, M1, M2 series |
+| **Enphase** | HTTPS API | IQ Gateway, Envoy-S (microinverters) |
+
+**How It Works:**
+When Amber feed-in price drops below 1c/kWh (configurable), PowerSync sends a curtailment command to your inverter:
+- **Sungrow/Fronius/GoodWe/Huawei**: Sets export limit to 0W via Modbus registers
+- **Enphase**: Uses IQ Gateway API to limit production
+
+When prices rise above the threshold, normal operation is restored.
+
+**Why Use This:**
+AC-coupled solar inverters export directly to the grid, bypassing your battery. During negative prices, this costs you money. Curtailment stops the export while still powering your home.
+
+**Configuration (Home Assistant):**
+1. Go to PowerSync options
+2. Enable "AC-Coupled Inverter Curtailment"
+3. Select your inverter brand and model
+4. Enter the inverter's IP address
+5. Configure Modbus port (502 default) and slave ID
+
+**Configuration (Flask Web App):**
+1. Go to Settings → Amber Settings
+2. Enable "Inverter Curtailment"
+3. Configure inverter connection details
+
+**Note:** This is separate from Sigenergy DC curtailment. You can use both if you have:
+- Sigenergy battery with DC solar → Use Sigenergy DC curtailment
+- AC-coupled inverter (any brand) → Use AC-coupled inverter curtailment
 
 ### Force Mode Toggle (Alpha)
 
