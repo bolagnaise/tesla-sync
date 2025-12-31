@@ -1297,7 +1297,12 @@ class PowerwallSettingsView(HomeAssistantView):
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up PowerSync from a config entry."""
-    _LOGGER.info("Setting up PowerSync integration")
+    _LOGGER.info("=" * 60)
+    _LOGGER.info("PowerSync integration loading...")
+    _LOGGER.info("Domain: %s", DOMAIN)
+    _LOGGER.info("Entry ID: %s", entry.entry_id)
+    _LOGGER.info("Entry state: %s", entry.state)
+    _LOGGER.info("=" * 60)
 
     # Check pricing source configuration
     has_amber = bool(entry.data.get(CONF_AMBER_API_TOKEN))
@@ -3955,7 +3960,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         from homeassistant.util import dt as dt_util
         await auto_demand_charging_check(dt_util.now())
 
-    _LOGGER.info("PowerSync integration setup complete")
+    _LOGGER.info("=" * 60)
+    _LOGGER.info("PowerSync integration setup complete!")
+    _LOGGER.info("Domain '%s' registered successfully", DOMAIN)
+    _LOGGER.info("Mobile app should now detect the integration")
+    _LOGGER.info("=" * 60)
     return True
 
 
