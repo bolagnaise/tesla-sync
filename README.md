@@ -16,7 +16,7 @@
 
 ## Disclaimer
 
-This is an unofficial integration and is not affiliated with or endorsed by Tesla, Inc. or Amber Electric. Use at your own risk. The developers are not responsible for any damages or issues that may arise from the use of this software.
+This is an unofficial integration and is not affiliated with or endorsed by Tesla, Inc., Sigenergy, or Amber Electric. Use at your own risk. The developers are not responsible for any damages or issues that may arise from the use of this software.
 
 ## Features
 
