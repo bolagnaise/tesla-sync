@@ -23,16 +23,21 @@ class SungrowSHController(InverterController):
     Uses Modbus TCP to communicate with the inverter through
     the internal LAN port or WiNet-S WiFi/Ethernet dongle.
 
-    SH series uses different register addresses than SG series:
-    - System state control: Register 13000 (vs 5006 for SG)
-    - Same values: 0xCE=stop, 0xCF=start
+    Supports load following curtailment via export power limiting,
+    which allows self-consumption while preventing grid export.
     """
 
     # Modbus register addresses (0-indexed for pymodbus)
     # Documentation register - 1 = pymodbus address
-    REGISTER_SYSTEM_STATE = 12999      # 13000 - System state control
 
-    # System state control values
+    # Export power limiting (load following) - PREFERRED METHOD
+    REG_EXPORT_LIMIT = 13072           # 13073 - Export power limit (W)
+    REG_EXPORT_LIMIT_MODE = 13085      # 13086 - Export limit mode (0xAA=enable, 0x55=disable)
+    EXPORT_LIMIT_ENABLE = 0xAA         # 170 - Enable export limiting
+    EXPORT_LIMIT_DISABLE = 0x55        # 85 - Disable export limiting
+
+    # System state control (fallback - full shutdown)
+    REGISTER_SYSTEM_STATE = 12999      # 13000 - System state control
     STATE_STOP = 0xCE   # 206 - Stop inverter
     STATE_START = 0xCF  # 207 - Start inverter
 
@@ -288,41 +293,60 @@ class SungrowSHController(InverterController):
             if voltage:
                 attrs["grid_voltage"] = round(voltage[0] * 0.1, 1)
 
+            # Read export limit status
+            export_limit = await self._read_register(self.REG_EXPORT_LIMIT, 1)
+            if export_limit:
+                attrs["export_limit_w"] = export_limit[0]
+
+            export_mode = await self._read_register(self.REG_EXPORT_LIMIT_MODE, 1)
+            if export_mode:
+                attrs["export_limit_enabled"] = export_mode[0] == self.EXPORT_LIMIT_ENABLE
+
         except Exception as e:
             _LOGGER.warning(f"Error reading some registers: {e}")
 
         return attrs
 
     async def curtail(self) -> bool:
-        """Stop the Sungrow SH inverter to prevent solar export.
+        """Enable load following curtailment on the Sungrow SH inverter.
 
-        Writes stop command (0xCE/206) to the system state register.
+        Uses export power limiting (0W) to enable load following mode,
+        which allows self-consumption while preventing grid export.
+
+        Falls back to full shutdown if export limiting fails.
 
         Returns:
             True if curtailment successful
         """
-        _LOGGER.info(f"Curtailing Sungrow SH inverter at {self.host} (stop mode)")
+        _LOGGER.info(f"Curtailing Sungrow SH inverter at {self.host} (load following mode)")
 
         try:
-            # Ensure connected
             if not await self.connect():
                 _LOGGER.error("Cannot curtail: failed to connect to inverter")
                 return False
 
-            # Write stop command to system state register
-            success = await self._write_register(
-                self.REGISTER_SYSTEM_STATE,
-                self.STATE_STOP,
-            )
+            # Step 1: Set export limit to 0W (zero export)
+            success = await self._write_register(self.REG_EXPORT_LIMIT, 0)
+            if not success:
+                _LOGGER.warning("Failed to set export limit, trying full shutdown")
+                # Fallback to full shutdown
+                success = await self._write_register(self.REGISTER_SYSTEM_STATE, self.STATE_STOP)
+                if success:
+                    _LOGGER.info(f"Curtailed via full shutdown at {self.host}")
+                return success
 
-            if success:
-                _LOGGER.info(f"Successfully curtailed Sungrow SH inverter at {self.host}")
-                # Brief delay for inverter to process
-                await asyncio.sleep(1)
-            else:
-                _LOGGER.error(f"Failed to curtail Sungrow SH inverter at {self.host}")
+            # Step 2: Enable export limiting mode
+            success = await self._write_register(self.REG_EXPORT_LIMIT_MODE, self.EXPORT_LIMIT_ENABLE)
+            if not success:
+                _LOGGER.warning("Failed to enable export limit mode, trying full shutdown")
+                success = await self._write_register(self.REGISTER_SYSTEM_STATE, self.STATE_STOP)
+                if success:
+                    _LOGGER.info(f"Curtailed via full shutdown at {self.host}")
+                return success
 
-            return success
+            _LOGGER.info(f"Successfully curtailed Sungrow SH inverter at {self.host} (0W export limit)")
+            await asyncio.sleep(1)
+            return True
 
         except Exception as e:
             _LOGGER.error(f"Error curtailing Sungrow SH inverter: {e}")
@@ -331,7 +355,7 @@ class SungrowSHController(InverterController):
     async def restore(self) -> bool:
         """Restore normal operation of the Sungrow SH inverter.
 
-        Writes start command (0xCF/207) to the system state register.
+        Disables export power limiting to return to normal export behavior.
 
         Returns:
             True if restore successful
@@ -339,25 +363,23 @@ class SungrowSHController(InverterController):
         _LOGGER.info(f"Restoring Sungrow SH inverter at {self.host} to normal operation")
 
         try:
-            # Ensure connected
             if not await self.connect():
                 _LOGGER.error("Cannot restore: failed to connect to inverter")
                 return False
 
-            # Write start command to system state register
-            success = await self._write_register(
-                self.REGISTER_SYSTEM_STATE,
-                self.STATE_START,
-            )
+            # Disable export limiting mode
+            success = await self._write_register(self.REG_EXPORT_LIMIT_MODE, self.EXPORT_LIMIT_DISABLE)
+            if not success:
+                _LOGGER.warning("Failed to disable export limit, trying start command")
+                # Fallback: ensure inverter is running
+                success = await self._write_register(self.REGISTER_SYSTEM_STATE, self.STATE_START)
+                if success:
+                    _LOGGER.info(f"Restored via start command at {self.host}")
+                return success
 
-            if success:
-                _LOGGER.info(f"Successfully restored Sungrow SH inverter at {self.host}")
-                # Brief delay for inverter to process
-                await asyncio.sleep(1)
-            else:
-                _LOGGER.error(f"Failed to restore Sungrow SH inverter at {self.host}")
-
-            return success
+            _LOGGER.info(f"Successfully restored Sungrow SH inverter at {self.host}")
+            await asyncio.sleep(1)
+            return True
 
         except Exception as e:
             _LOGGER.error(f"Error restoring Sungrow SH inverter: {e}")
@@ -391,13 +413,22 @@ class SungrowSHController(InverterController):
                 if state_value == self.RUNNING_STATE_STOP:
                     status = InverterStatus.CURTAILED
                     is_curtailed = True
+                    attrs["running_state"] = "stopped"
                 elif state_value == self.RUNNING_STATE_FAULT:
                     status = InverterStatus.ERROR
+                    attrs["running_state"] = "fault"
                 elif state_value == self.RUNNING_STATE_STANDBY:
                     status = InverterStatus.ONLINE
                     attrs["running_state"] = "standby"
                 else:
                     attrs["running_state"] = "running"
+
+            # Check if export limiting is active (load following mode)
+            if attrs.get("export_limit_enabled") and attrs.get("export_limit_w", 10000) == 0:
+                is_curtailed = True
+                attrs["running_state"] = "load_following"
+                if status == InverterStatus.ONLINE:
+                    status = InverterStatus.CURTAILED
 
             # Add model info
             attrs["model"] = self.model or "SH Series"

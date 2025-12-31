@@ -13,6 +13,16 @@ _LOGGER = logging.getLogger(__name__)
 # Supported inverter brands
 INVERTER_BRANDS = {
     "sungrow": "Sungrow",
+    "fronius": "Fronius",
+}
+
+# Fronius models (SunSpec Modbus)
+# Requires installer password for 0W export limit configuration
+FRONIUS_MODELS = {
+    "primo": "Primo (Single Phase)",
+    "symo": "Symo (Three Phase)",
+    "gen24": "Gen24 / Tauro",
+    "eco": "Eco",
 }
 
 # Sungrow SG series (string inverters) - single phase residential
@@ -131,6 +141,15 @@ def get_inverter_controller(
                 slave_id=slave_id,
                 model=model,
             )
+
+    if brand_lower == "fronius":
+        from .fronius import FroniusController
+        return FroniusController(
+            host=host,
+            port=port,
+            slave_id=slave_id,
+            model=model,
+        )
 
     _LOGGER.error(f"Unsupported inverter brand: {brand}")
     return None

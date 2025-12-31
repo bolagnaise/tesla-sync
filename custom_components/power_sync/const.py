@@ -478,6 +478,15 @@ CONF_INVERTER_SLAVE_ID = "inverter_slave_id"
 # Supported inverter brands
 INVERTER_BRANDS = {
     "sungrow": "Sungrow",
+    "fronius": "Fronius",
+}
+
+# Fronius models (SunSpec Modbus)
+FRONIUS_MODELS = {
+    "primo": "Primo (Single Phase)",
+    "symo": "Symo (Three Phase)",
+    "gen24": "Gen24 / Tauro",
+    "eco": "Eco",
 }
 
 # Sungrow SG series (string inverters) - single phase residential

@@ -4,16 +4,25 @@ Provides a factory function to get the appropriate inverter controller
 based on the configured brand.
 """
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
-if TYPE_CHECKING:
-    from .base import InverterController
+from .base import InverterController
 
 _LOGGER = logging.getLogger(__name__)
 
 # Supported inverter brands
 INVERTER_BRANDS = {
     "sungrow": "Sungrow",
+    "fronius": "Fronius",
+}
+
+# Fronius models (SunSpec Modbus)
+# Requires installer password for 0W export limit configuration
+FRONIUS_MODELS = {
+    "primo": "Primo (Single Phase)",
+    "symo": "Symo (Three Phase)",
+    "gen24": "Gen24 / Tauro",
+    "eco": "Eco",
 }
 
 # Sungrow SG series (string inverters) - single phase residential
@@ -96,7 +105,7 @@ def get_inverter_controller(
     port: int = 502,
     slave_id: int = 1,
     model: Optional[str] = None,
-) -> Optional["InverterController"]:
+) -> Optional[InverterController]:
     """Factory function to get the appropriate inverter controller.
 
     Args:
@@ -133,33 +142,14 @@ def get_inverter_controller(
                 model=model,
             )
 
+    if brand_lower == "fronius":
+        from .fronius import FroniusController
+        return FroniusController(
+            host=host,
+            port=port,
+            slave_id=slave_id,
+            model=model,
+        )
+
     _LOGGER.error(f"Unsupported inverter brand: {brand}")
     return None
-
-
-def get_inverter_controller_from_user(user) -> Optional["InverterController"]:
-    """Get inverter controller from user configuration.
-
-    Args:
-        user: User model instance with inverter configuration
-
-    Returns:
-        InverterController instance or None if not configured
-    """
-    if not getattr(user, 'inverter_curtailment_enabled', False):
-        return None
-
-    brand = getattr(user, 'inverter_brand', None)
-    host = getattr(user, 'inverter_host', None)
-
-    if not brand or not host:
-        _LOGGER.warning("Inverter curtailment enabled but brand/host not configured")
-        return None
-
-    return get_inverter_controller(
-        brand=brand,
-        host=host,
-        port=getattr(user, 'inverter_port', 502) or 502,
-        slave_id=getattr(user, 'inverter_slave_id', 1) or 1,
-        model=getattr(user, 'inverter_model', None),
-    )
