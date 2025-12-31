@@ -77,6 +77,47 @@
         },
         "submit_button": "Next"
       },
+      "battery_system": {
+        "title": "Select Battery System",
+        "description": "Choose your battery storage system:\n\n**Tesla Powerwall**: Connect via Fleet API or Teslemetry.\n\n**Sigenergy**: Connect via Sigenergy Cloud API.",
+        "data": {
+          "battery_system": "Battery System"
+        },
+        "submit_button": "Next"
+      },
+      "sigenergy_credentials": {
+        "title": "Sigenergy Credentials",
+        "description": "Enter your Sigenergy Cloud API credentials.\n\n**How to get credentials:**\n1. Open browser dev tools (F12)\n2. Go to Network tab\n3. Login to web-aus.sigencloud.com\n4. Find 'token' request and copy from Payload:\n   - username → Email\n   - password → Encrypted Password\n   - userDeviceId → Device ID",
+        "data": {
+          "sigenergy_username": "Sigenergy Email",
+          "sigenergy_pass_enc": "Encrypted Password",
+          "sigenergy_device_id": "Device ID (13 digits)"
+        },
+        "submit_button": "Validate"
+      },
+      "sigenergy_station": {
+        "title": "Select Sigenergy Station",
+        "description": "Select your Sigenergy station to configure for price sync.",
+        "data": {
+          "sigenergy_station_id": "Sigenergy Station"
+        },
+        "submit_button": "Next"
+      },
+      "sigenergy_dc_curtailment": {
+        "title": "Sigenergy DC Solar Curtailment",
+        "description": "Configure DC solar curtailment for your Sigenergy system.\n\nWhen enabled, PowerSync can limit DC solar production during negative prices by setting the PV power limit via Modbus TCP.\n\n**Note:** This is for DC solar connected directly to your Sigenergy system. AC-coupled inverters from other brands can be configured separately.",
+        "data": {
+          "sigenergy_dc_curtailment_enabled": "Enable DC Solar Curtailment",
+          "sigenergy_modbus_host": "Sigenergy IP Address",
+          "sigenergy_modbus_port": "Modbus Port",
+          "sigenergy_modbus_slave_id": "Modbus Slave ID"
+        },
+        "data_description": {
+          "sigenergy_dc_curtailment_enabled": "Allow PowerSync to control DC solar production via Modbus",
+          "sigenergy_modbus_host": "Local IP address of your Sigenergy system"
+        },
+        "submit_button": "Finish"
+      },
       "teslemetry": {
         "title": "Teslemetry Configuration",
         "description": "Enter your Teslemetry API token. You can get this from {teslemetry_url}",
@@ -118,11 +159,17 @@
       "cannot_connect": "Unable to connect to API. Please check your internet connection.",
       "no_sites": "No Amber Electric sites found for this account.",
       "no_energy_sites": "No Tesla energy sites found in your Teslemetry account.",
+      "missing_credentials": "Please provide all Sigenergy credentials (email, password, and device ID).",
+      "invalid_device_id": "Device ID must be exactly 13 digits.",
+      "no_stations": "No Sigenergy stations found for this account.",
+      "no_station_selected": "Please select a Sigenergy station.",
+      "modbus_host_required": "IP address is required when DC curtailment is enabled.",
       "unknown": "An unexpected error occurred. Please try again."
     },
     "abort": {
       "already_configured": "PowerSync is already configured.",
-      "no_energy_sites": "No Tesla energy sites found in your Teslemetry account. Please ensure you have a Powerwall or Solar system configured."
+      "no_energy_sites": "No Tesla energy sites found in your Teslemetry account. Please ensure you have a Powerwall or Solar system configured.",
+      "no_stations": "No Sigenergy stations found for this account. Please check your credentials."
     }
   },
   "options": {

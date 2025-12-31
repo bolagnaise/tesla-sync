@@ -10,7 +10,8 @@ from .base import InverterController
 
 _LOGGER = logging.getLogger(__name__)
 
-# Supported inverter brands
+# Supported AC-coupled inverter brands (for systems with separate solar inverter)
+# Note: Sigenergy is NOT here - it's a DC-coupled battery system, not an AC inverter
 INVERTER_BRANDS = {
     "sungrow": "Sungrow",
     "fronius": "Fronius",
@@ -185,7 +186,6 @@ SUNGROW_MODELS = {
     **SUNGROW_SG_MODELS,
     **SUNGROW_SH_MODELS,
 }
-
 
 def get_inverter_controller(
     brand: str,

@@ -596,6 +596,165 @@ def api_inverter_restore():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ============================================================================
+# Sigenergy API Routes
+# ============================================================================
+
+@bp.route('/api/sigenergy/validate', methods=['POST'])
+@login_required
+def api_sigenergy_validate():
+    """Validate Sigenergy credentials and get stations list."""
+    from app.sigenergy_client import SigenergyClient
+    from app.utils import encrypt_token
+
+    data = request.get_json() or {}
+    username = data.get('username')
+    pass_enc = data.get('pass_enc')
+    device_id = data.get('device_id')
+
+    if not username or not pass_enc:
+        return jsonify({'success': False, 'error': 'Username and encrypted password are required'})
+
+    if device_id and len(device_id) != 13:
+        return jsonify({'success': False, 'error': 'Device ID must be exactly 13 digits'})
+
+    try:
+        client = SigenergyClient(
+            username=username,
+            pass_enc=pass_enc,
+            device_id=device_id,
+        )
+
+        # Authenticate
+        auth_result = client.authenticate()
+        if 'error' in auth_result:
+            return jsonify({'success': False, 'error': auth_result['error']})
+
+        # Get stations
+        stations_result = client.get_stations()
+        if 'error' in stations_result:
+            return jsonify({'success': False, 'error': stations_result['error']})
+
+        # Save credentials to user
+        current_user.sigenergy_username = username
+        current_user.sigenergy_pass_enc_encrypted = encrypt_token(pass_enc)
+        current_user.sigenergy_device_id = device_id
+        current_user.sigenergy_access_token_encrypted = encrypt_token(client.access_token)
+        if client.refresh_token:
+            current_user.sigenergy_refresh_token_encrypted = encrypt_token(client.refresh_token)
+        current_user.sigenergy_token_expires_at = client.token_expires_at
+
+        db.session.commit()
+        logger.info(f"Sigenergy credentials validated and saved for user {current_user.email}")
+
+        stations = stations_result.get('stations', [])
+        return jsonify({
+            'success': True,
+            'stations': stations,
+            'message': f'Authentication successful. Found {len(stations)} station(s).'
+        })
+
+    except Exception as e:
+        logger.error(f"Error validating Sigenergy credentials: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@bp.route('/api/sigenergy/stations', methods=['GET'])
+@login_required
+def api_sigenergy_stations():
+    """Get list of Sigenergy stations for current user."""
+    from app.sigenergy_client import get_sigenergy_client
+
+    try:
+        client = get_sigenergy_client(current_user)
+        if not client:
+            return jsonify({'success': False, 'error': 'Sigenergy not configured'})
+
+        result = client.get_stations()
+        if 'error' in result:
+            return jsonify({'success': False, 'error': result['error']})
+
+        return jsonify({'success': True, 'stations': result.get('stations', [])})
+
+    except Exception as e:
+        logger.error(f"Error getting Sigenergy stations: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@bp.route('/api/sigenergy/save', methods=['POST'])
+@login_required
+def api_sigenergy_save():
+    """Save Sigenergy station selection."""
+    data = request.get_json() or {}
+    station_id = data.get('station_id')
+
+    if not station_id:
+        return jsonify({'success': False, 'error': 'Station ID is required'})
+
+    try:
+        current_user.sigenergy_station_id = str(station_id)
+        current_user.battery_system = 'sigenergy'  # Also set battery system
+        db.session.commit()
+
+        logger.info(f"Sigenergy station {station_id} saved for user {current_user.email}")
+        return jsonify({'success': True, 'message': 'Station saved successfully'})
+
+    except Exception as e:
+        logger.error(f"Error saving Sigenergy station: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@bp.route('/api/sigenergy/disconnect', methods=['POST'])
+@login_required
+def api_sigenergy_disconnect():
+    """Disconnect Sigenergy and clear credentials."""
+    try:
+        current_user.sigenergy_username = None
+        current_user.sigenergy_pass_enc_encrypted = None
+        current_user.sigenergy_device_id = None
+        current_user.sigenergy_station_id = None
+        current_user.sigenergy_access_token_encrypted = None
+        current_user.sigenergy_refresh_token_encrypted = None
+        current_user.sigenergy_token_expires_at = None
+
+        # Reset battery system to Tesla if was Sigenergy
+        if current_user.battery_system == 'sigenergy':
+            current_user.battery_system = 'tesla'
+
+        db.session.commit()
+
+        logger.info(f"Sigenergy disconnected for user {current_user.email}")
+        return jsonify({'success': True, 'message': 'Sigenergy disconnected'})
+
+    except Exception as e:
+        logger.error(f"Error disconnecting Sigenergy: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@bp.route('/api/sigenergy/status', methods=['GET'])
+@login_required
+def api_sigenergy_status():
+    """Get current Sigenergy connection status."""
+    try:
+        connected = bool(
+            current_user.sigenergy_username and
+            current_user.sigenergy_access_token_encrypted and
+            current_user.sigenergy_station_id
+        )
+
+        return jsonify({
+            'success': True,
+            'connected': connected,
+            'username': current_user.sigenergy_username,
+            'station_id': current_user.sigenergy_station_id,
+            'battery_system': current_user.battery_system,
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting Sigenergy status: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @bp.route('/api/aemo-price')
 @login_required
 @cache.cached(timeout=60, key_prefix=lambda: f'aemo_price_{current_user.id}')
@@ -670,6 +829,11 @@ def settings():
 
         # Tesla Site ID is now auto-detected when connecting Tesla account
         # No longer manually configurable
+
+        # Handle Battery System selection
+        if 'battery_system' in submitted_fields and form.battery_system.data:
+            logger.info(f"Saving battery system: {form.battery_system.data}")
+            current_user.battery_system = form.battery_system.data
 
         # Handle Tesla API Provider selection
         if 'tesla_api_provider' in submitted_fields and form.tesla_api_provider.data:

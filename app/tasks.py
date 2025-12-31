@@ -6,6 +6,7 @@ import hashlib
 from datetime import datetime, timezone
 from app.models import User, PriceRecord, EnergyRecord, SavedTOUProfile
 from app.api_clients import get_amber_client, get_tesla_client, AEMOAPIClient
+from app.sigenergy_client import get_sigenergy_client, convert_amber_prices_to_sigenergy
 from app.tariff_converter import AmberTariffConverter
 import json
 
@@ -471,13 +472,24 @@ def _sync_all_users_internal(websocket_data, sync_mode='initial_forecast'):
                 logger.debug(f"Skipping user {user.email} - no Amber token (and not AEMO mode)")
                 continue
 
-            if not user.teslemetry_api_key_encrypted and not user.fleet_api_access_token_encrypted:
-                logger.debug(f"Skipping user {user.email} - no Tesla API token")
-                continue
+            # Determine battery system type (default to Tesla)
+            battery_system = getattr(user, 'battery_system', 'tesla') or 'tesla'
 
-            if not user.tesla_energy_site_id:
-                logger.debug(f"Skipping user {user.email} - no Tesla site ID")
-                continue
+            # Check for battery system credentials based on type
+            if battery_system == 'sigenergy':
+                # Sigenergy requires station_id
+                if not user.sigenergy_station_id:
+                    logger.debug(f"Skipping user {user.email} - no Sigenergy station ID")
+                    continue
+            else:
+                # Tesla requires API token and site ID
+                if not user.teslemetry_api_key_encrypted and not user.fleet_api_access_token_encrypted:
+                    logger.debug(f"Skipping user {user.email} - no Tesla API token")
+                    continue
+
+                if not user.tesla_energy_site_id:
+                    logger.debug(f"Skipping user {user.email} - no Tesla site ID")
+                    continue
 
             if use_aemo and not user.flow_power_state:
                 logger.debug(f"Skipping user {user.email} - AEMO mode but no region configured")
@@ -489,25 +501,37 @@ def _sync_all_users_internal(websocket_data, sync_mode='initial_forecast'):
                 logger.info(f"⏭️  Skipping initial forecast sync for {user.email} - settled prices only mode enabled")
                 continue
 
-            logger.info(f"Syncing schedule for user: {user.email} (price source: {'AEMO' if use_aemo else 'Amber'})")
+            logger.info(f"Syncing schedule for user: {user.email} (price source: {'AEMO' if use_aemo else 'Amber'}, battery: {battery_system})")
 
             # Get API clients
             amber_client = get_amber_client(user) if not use_aemo else None
-            tesla_client = get_tesla_client(user)
+
+            # Get appropriate battery client based on battery system type
+            if battery_system == 'sigenergy':
+                battery_client = get_sigenergy_client(user)
+                tesla_client = None  # Not used for Sigenergy
+            else:
+                tesla_client = get_tesla_client(user)
+                battery_client = tesla_client  # Use same client reference
 
             if not use_aemo and not amber_client:
                 logger.warning(f"Failed to get Amber client for user {user.email}")
                 error_count += 1
                 continue
 
-            if not tesla_client:
+            if battery_system == 'sigenergy' and not battery_client:
+                logger.warning(f"Failed to get Sigenergy client for user {user.email}")
+                error_count += 1
+                continue
+            elif battery_system != 'sigenergy' and not tesla_client:
                 logger.warning(f"Failed to get Tesla client for user {user.email}")
                 error_count += 1
                 continue
 
             # Capture baseline operation mode at start of interval (Stage 1 only)
             # This is used to detect if user manually set self_consumption vs failed toggle
-            if sync_mode == 'initial_forecast' and getattr(user, 'force_tariff_mode_toggle', False):
+            # Note: Only applicable to Tesla, Sigenergy doesn't have this feature
+            if battery_system != 'sigenergy' and sync_mode == 'initial_forecast' and getattr(user, 'force_tariff_mode_toggle', False):
                 try:
                     baseline_mode = tesla_client.get_operation_mode(user.tesla_energy_site_id)
                     if baseline_mode:
@@ -671,18 +695,32 @@ def _sync_all_users_internal(websocket_data, sync_mode='initial_forecast'):
                 success_count += 1  # Count as success since current state is correct
                 continue
 
-            # Apply tariff to Tesla
-            result = tesla_client.set_tariff_rate(
-                user.tesla_energy_site_id,
-                tariff
-            )
+            # Apply tariff to appropriate battery system
+            if battery_system == 'sigenergy':
+                # Convert forecast data to Sigenergy format (30-min time slots)
+                buy_prices = convert_amber_prices_to_sigenergy(forecast_30min, price_type='buy')
+                sell_prices = convert_amber_prices_to_sigenergy(forecast_30min, price_type='sell')
+
+                result = battery_client.set_tariff_rate(
+                    user.sigenergy_station_id,
+                    buy_prices,
+                    sell_prices,
+                    plan_name="PowerSync"
+                )
+                result = result.get('success', False) if isinstance(result, dict) else bool(result)
+            else:
+                # Tesla: Apply tariff using Tesla client
+                result = tesla_client.set_tariff_rate(
+                    user.tesla_energy_site_id,
+                    tariff
+                )
 
             if result:
-                logger.info(f"✅ Successfully synced schedule for user {user.email}")
+                logger.info(f"✅ Successfully synced schedule for user {user.email} ({battery_system})")
 
-                # Alpha: Force mode toggle for faster Powerwall response
+                # Alpha: Force mode toggle for faster Powerwall response (Tesla only)
                 # Only toggle on settled prices, not forecast (reduces unnecessary toggles)
-                if getattr(user, 'force_tariff_mode_toggle', False):
+                if battery_system != 'sigenergy' and getattr(user, 'force_tariff_mode_toggle', False):
                     if sync_mode != 'initial_forecast':
                         # Check BASELINE mode (captured at interval start) to respect user's manual self_consumption
                         # This distinguishes user-set self_consumption from failed-toggle self_consumption
@@ -722,7 +760,7 @@ def _sync_all_users_internal(websocket_data, sync_mode='initial_forecast'):
 
                 # Update user's last_update timestamp and tariff hash
                 user.last_update_time = datetime.now(timezone.utc)
-                user.last_update_status = f"Auto-sync successful ({sync_mode})"
+                user.last_update_status = f"Auto-sync successful ({sync_mode}, {battery_system})"
                 user.last_tariff_hash = tariff_hash  # Save hash for deduplication
                 db.session.commit()
 
@@ -730,8 +768,8 @@ def _sync_all_users_internal(websocket_data, sync_mode='initial_forecast'):
                 if general_price is not None or feedin_price is not None:
                     _sync_coordinator.record_synced_price(user.id, general_price, feedin_price)
 
-                # Enforce grid charging setting after TOU sync (counteracts VPP overrides)
-                if user.enable_demand_charges:
+                # Enforce grid charging setting after TOU sync (Tesla only - counteracts VPP overrides)
+                if battery_system != 'sigenergy' and user.enable_demand_charges:
                     gc_success, gc_action = enforce_grid_charging_for_user(
                         user, tesla_client, db,
                         force_apply=True  # Always force during TOU sync to fight VPP
@@ -743,7 +781,7 @@ def _sync_all_users_internal(websocket_data, sync_mode='initial_forecast'):
 
                 success_count += 1
             else:
-                logger.error(f"Failed to apply schedule to Tesla for user {user.email}")
+                logger.error(f"Failed to apply schedule to {battery_system} for user {user.email}")
                 error_count += 1
 
         except Exception as e:

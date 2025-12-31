@@ -28,6 +28,16 @@ CONF_TIMEZONE = "timezone"
 CONF_AMBER_FORECAST_TYPE = "amber_forecast_type"
 CONF_SOLAR_CURTAILMENT_ENABLED = "solar_curtailment_enabled"
 
+# Battery System Selection
+CONF_BATTERY_SYSTEM = "battery_system"
+BATTERY_SYSTEM_TESLA = "tesla"
+BATTERY_SYSTEM_SIGENERGY = "sigenergy"
+
+BATTERY_SYSTEMS = {
+    BATTERY_SYSTEM_TESLA: "Tesla Powerwall",
+    BATTERY_SYSTEM_SIGENERGY: "Sigenergy",
+}
+
 # Tesla API Provider selection
 CONF_TESLA_API_PROVIDER = "tesla_api_provider"
 TESLA_PROVIDER_TESLEMETRY = "teslemetry"
@@ -39,6 +49,32 @@ CONF_FLEET_API_REFRESH_TOKEN = "fleet_api_refresh_token"
 CONF_FLEET_API_TOKEN_EXPIRES_AT = "fleet_api_token_expires_at"
 CONF_FLEET_API_CLIENT_ID = "fleet_api_client_id"
 CONF_FLEET_API_CLIENT_SECRET = "fleet_api_client_secret"
+
+# Sigenergy Cloud API configuration
+CONF_SIGENERGY_USERNAME = "sigenergy_username"
+CONF_SIGENERGY_PASS_ENC = "sigenergy_pass_enc"
+CONF_SIGENERGY_DEVICE_ID = "sigenergy_device_id"
+CONF_SIGENERGY_STATION_ID = "sigenergy_station_id"
+CONF_SIGENERGY_ACCESS_TOKEN = "sigenergy_access_token"
+CONF_SIGENERGY_REFRESH_TOKEN = "sigenergy_refresh_token"
+CONF_SIGENERGY_TOKEN_EXPIRES_AT = "sigenergy_token_expires_at"
+
+# Sigenergy API
+SIGENERGY_API_BASE_URL = "https://api-aus.sigencloud.com"
+SIGENERGY_AUTH_ENDPOINT = "/auth/oauth/token"
+SIGENERGY_SAVE_PRICE_ENDPOINT = "/device/stationelecsetprice/save"
+SIGENERGY_STATIONS_ENDPOINT = "/device/station/list"
+SIGENERGY_BASIC_AUTH = "Basic c2lnZW46c2lnZW4="  # base64 of "sigen:sigen"
+
+# Sigenergy DC Curtailment via Modbus TCP
+# Controls the DC solar input to Sigenergy battery system
+# Reference: https://github.com/TypQxQ/Sigenergy-Local-Modbus
+CONF_SIGENERGY_DC_CURTAILMENT_ENABLED = "sigenergy_dc_curtailment_enabled"
+CONF_SIGENERGY_MODBUS_HOST = "sigenergy_modbus_host"
+CONF_SIGENERGY_MODBUS_PORT = "sigenergy_modbus_port"
+CONF_SIGENERGY_MODBUS_SLAVE_ID = "sigenergy_modbus_slave_id"
+DEFAULT_SIGENERGY_MODBUS_PORT = 502
+DEFAULT_SIGENERGY_MODBUS_SLAVE_ID = 1
 
 # Demand charge configuration
 CONF_DEMAND_CHARGE_ENABLED = "demand_charge_enabled"
@@ -475,7 +511,8 @@ CONF_INVERTER_HOST = "inverter_host"
 CONF_INVERTER_PORT = "inverter_port"
 CONF_INVERTER_SLAVE_ID = "inverter_slave_id"
 
-# Supported inverter brands
+# Supported AC-coupled inverter brands (for systems with separate solar inverter)
+# Note: Sigenergy is NOT here - it's a DC-coupled battery system, not an AC inverter
 INVERTER_BRANDS = {
     "sungrow": "Sungrow",
     "fronius": "Fronius",
@@ -659,7 +696,7 @@ SENSOR_TYPE_INVERTER_STATUS = "inverter_status"
 
 
 def get_models_for_brand(brand: str) -> dict[str, str]:
-    """Get model options for a specific inverter brand."""
+    """Get model options for a specific AC-coupled inverter brand."""
     brand_models = {
         "sungrow": SUNGROW_MODELS,
         "fronius": FRONIUS_MODELS,
@@ -671,7 +708,7 @@ def get_models_for_brand(brand: str) -> dict[str, str]:
 
 
 def get_brand_defaults(brand: str) -> dict[str, int]:
-    """Get default port and slave ID for a brand."""
+    """Get default port and slave ID for an AC-coupled inverter brand."""
     defaults = {
         "sungrow": {"port": 502, "slave_id": 1},
         "fronius": {"port": 502, "slave_id": 1},

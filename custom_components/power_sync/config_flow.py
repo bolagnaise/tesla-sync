@@ -39,6 +39,26 @@ from .const import (
     AMBER_API_BASE_URL,
     TESLEMETRY_API_BASE_URL,
     FLEET_API_BASE_URL,
+    # Battery system selection
+    CONF_BATTERY_SYSTEM,
+    BATTERY_SYSTEM_TESLA,
+    BATTERY_SYSTEM_SIGENERGY,
+    BATTERY_SYSTEMS,
+    # Sigenergy configuration
+    CONF_SIGENERGY_USERNAME,
+    CONF_SIGENERGY_PASS_ENC,
+    CONF_SIGENERGY_DEVICE_ID,
+    CONF_SIGENERGY_STATION_ID,
+    CONF_SIGENERGY_ACCESS_TOKEN,
+    CONF_SIGENERGY_REFRESH_TOKEN,
+    CONF_SIGENERGY_TOKEN_EXPIRES_AT,
+    # Sigenergy DC Curtailment via Modbus
+    CONF_SIGENERGY_DC_CURTAILMENT_ENABLED,
+    CONF_SIGENERGY_MODBUS_HOST,
+    CONF_SIGENERGY_MODBUS_PORT,
+    CONF_SIGENERGY_MODBUS_SLAVE_ID,
+    DEFAULT_SIGENERGY_MODBUS_PORT,
+    DEFAULT_SIGENERGY_MODBUS_SLAVE_ID,
     CONF_AEMO_SPIKE_ENABLED,
     CONF_AEMO_REGION,
     CONF_AEMO_SPIKE_THRESHOLD,
@@ -247,6 +267,53 @@ async def validate_fleet_api_token(
         return {"success": False, "error": "unknown"}
 
 
+async def validate_sigenergy_credentials(
+    hass: HomeAssistant,
+    username: str,
+    pass_enc: str,
+    device_id: str,
+) -> dict[str, Any]:
+    """Validate Sigenergy credentials and get stations list."""
+    from .sigenergy_api import SigenergyAPIClient
+
+    try:
+        session = async_get_clientsession(hass)
+        client = SigenergyAPIClient(
+            username=username,
+            pass_enc=pass_enc,
+            device_id=device_id,
+            session=session,
+        )
+
+        # Authenticate
+        auth_result = await client.authenticate()
+        if "error" in auth_result:
+            _LOGGER.error(f"Sigenergy auth failed: {auth_result['error']}")
+            return {"success": False, "error": "invalid_auth"}
+
+        # Get stations
+        stations_result = await client.get_stations()
+        if "error" in stations_result:
+            _LOGGER.error(f"Sigenergy get stations failed: {stations_result['error']}")
+            return {"success": False, "error": "no_stations"}
+
+        stations = stations_result.get("stations", [])
+        if not stations:
+            return {"success": False, "error": "no_stations"}
+
+        return {
+            "success": True,
+            "stations": stations,
+            "access_token": auth_result.get("access_token"),
+            "refresh_token": auth_result.get("refresh_token"),
+            "expires_at": auth_result.get("expires_at"),
+        }
+
+    except Exception as err:
+        _LOGGER.exception("Unexpected error validating Sigenergy credentials: %s", err)
+        return {"success": False, "error": "unknown"}
+
+
 class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for PowerSync."""
 
@@ -262,6 +329,10 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._tesla_fleet_available: bool = False
         self._tesla_fleet_token: str | None = None
         self._selected_provider: str | None = None
+        # Battery system selection
+        self._selected_battery_system: str = BATTERY_SYSTEM_TESLA
+        self._sigenergy_data: dict[str, Any] = {}
+        self._sigenergy_stations: list[dict[str, Any]] = []
         self._aemo_only_mode: bool = False  # True if using AEMO spike only (no Amber)
         self._aemo_data: dict[str, Any] = {}
         self._flow_power_data: dict[str, Any] = {}
@@ -270,12 +341,13 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the initial step - choose electricity provider."""
+        """Handle the initial step - choose battery system first."""
         # Check if already configured
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
 
-        return await self.async_step_provider_selection()
+        # Battery system selection is the first step
+        return await self.async_step_battery_system()
 
     async def async_step_provider_selection(
         self, user_input: dict[str, Any] | None = None
@@ -341,7 +413,11 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # AEMO wholesale - no Amber API needed
                 self._amber_data = {}
                 self._aemo_only_mode = False  # Not spike-only, just using AEMO for pricing
-                return await self.async_step_tesla_provider()
+                # Route based on battery system selection
+                if self._selected_battery_system == BATTERY_SYSTEM_SIGENERGY:
+                    return await self.async_step_sigenergy_credentials()
+                else:
+                    return await self.async_step_tesla_provider()
             else:
                 # Using Amber API for pricing - need Amber token
                 return await self.async_step_amber()
@@ -459,8 +535,11 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._amber_data[CONF_CHIP_MODE_END] = user_input.get(CONF_CHIP_MODE_END, DEFAULT_CHIP_MODE_END)
             self._amber_data[CONF_CHIP_MODE_THRESHOLD] = user_input.get(CONF_CHIP_MODE_THRESHOLD, DEFAULT_CHIP_MODE_THRESHOLD)
 
-            # Continue to Tesla provider selection
-            return await self.async_step_tesla_provider()
+            # Route based on battery system selection
+            if self._selected_battery_system == BATTERY_SYSTEM_SIGENERGY:
+                return await self.async_step_sigenergy_credentials()
+            else:
+                return await self.async_step_tesla_provider()
 
         data_schema = vol.Schema(
             {
@@ -494,6 +573,185 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="amber_settings",
             data_schema=data_schema,
+        )
+
+    async def async_step_battery_system(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Let user choose battery system - Tesla or Sigenergy (first step)."""
+        if user_input is not None:
+            self._selected_battery_system = user_input.get(CONF_BATTERY_SYSTEM, BATTERY_SYSTEM_TESLA)
+
+            # Both battery systems need electricity provider setup next
+            # Provider selection handles Amber/Flow Power/Globird config
+            return await self.async_step_provider_selection()
+
+        return self.async_show_form(
+            step_id="battery_system",
+            data_schema=vol.Schema({
+                vol.Required(CONF_BATTERY_SYSTEM, default=BATTERY_SYSTEM_TESLA): vol.In(BATTERY_SYSTEMS),
+            }),
+            description_placeholders={
+                "tesla_desc": "Tesla Powerwall with Fleet API or Teslemetry",
+                "sigenergy_desc": "Sigenergy via Cloud API + optional Modbus curtailment",
+            },
+        )
+
+    async def async_step_sigenergy_credentials(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle Sigenergy credential entry."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            username = user_input.get(CONF_SIGENERGY_USERNAME, "").strip()
+            pass_enc = user_input.get(CONF_SIGENERGY_PASS_ENC, "").strip()
+            device_id = user_input.get(CONF_SIGENERGY_DEVICE_ID, "").strip()
+
+            if not username or not pass_enc or not device_id:
+                errors["base"] = "missing_credentials"
+            elif len(device_id) != 13 or not device_id.isdigit():
+                errors["base"] = "invalid_device_id"
+            else:
+                # Validate credentials
+                validation_result = await validate_sigenergy_credentials(
+                    self.hass, username, pass_enc, device_id
+                )
+
+                if validation_result["success"]:
+                    self._sigenergy_data = {
+                        CONF_SIGENERGY_USERNAME: username,
+                        CONF_SIGENERGY_PASS_ENC: pass_enc,
+                        CONF_SIGENERGY_DEVICE_ID: device_id,
+                        CONF_SIGENERGY_ACCESS_TOKEN: validation_result.get("access_token"),
+                        CONF_SIGENERGY_REFRESH_TOKEN: validation_result.get("refresh_token"),
+                        CONF_SIGENERGY_TOKEN_EXPIRES_AT: validation_result.get("expires_at"),
+                    }
+                    self._sigenergy_stations = validation_result.get("stations", [])
+                    return await self.async_step_sigenergy_station()
+                else:
+                    errors["base"] = validation_result.get("error", "unknown")
+
+        return self.async_show_form(
+            step_id="sigenergy_credentials",
+            data_schema=vol.Schema({
+                vol.Required(CONF_SIGENERGY_USERNAME): str,
+                vol.Required(CONF_SIGENERGY_PASS_ENC): str,
+                vol.Required(CONF_SIGENERGY_DEVICE_ID): str,
+            }),
+            errors=errors,
+            description_placeholders={
+                "credentials_help": "Capture credentials from browser dev tools when logging into Sigenergy web portal",
+            },
+        )
+
+    async def async_step_sigenergy_station(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle Sigenergy station selection."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            station_id = user_input.get(CONF_SIGENERGY_STATION_ID)
+            if station_id:
+                self._sigenergy_data[CONF_SIGENERGY_STATION_ID] = station_id
+                # Go to DC curtailment configuration
+                return await self.async_step_sigenergy_dc_curtailment()
+            else:
+                errors["base"] = "no_station_selected"
+
+        # Build station options from validated stations
+        station_options = {}
+        for station in self._sigenergy_stations:
+            station_id = str(station.get("id") or station.get("stationId"))
+            station_name = station.get("stationName") or station.get("name") or f"Station {station_id}"
+            station_options[station_id] = station_name
+
+        if not station_options:
+            return self.async_abort(reason="no_stations")
+
+        return self.async_show_form(
+            step_id="sigenergy_station",
+            data_schema=vol.Schema({
+                vol.Required(CONF_SIGENERGY_STATION_ID): vol.In(station_options),
+            }),
+            errors=errors,
+        )
+
+    async def async_step_sigenergy_dc_curtailment(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure Sigenergy DC solar curtailment via Modbus TCP."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            dc_enabled = user_input.get(CONF_SIGENERGY_DC_CURTAILMENT_ENABLED, False)
+            self._sigenergy_data[CONF_SIGENERGY_DC_CURTAILMENT_ENABLED] = dc_enabled
+
+            if dc_enabled:
+                # Validate and store Modbus settings
+                modbus_host = user_input.get(CONF_SIGENERGY_MODBUS_HOST, "").strip()
+                if not modbus_host:
+                    errors["base"] = "modbus_host_required"
+                else:
+                    self._sigenergy_data[CONF_SIGENERGY_MODBUS_HOST] = modbus_host
+                    self._sigenergy_data[CONF_SIGENERGY_MODBUS_PORT] = user_input.get(
+                        CONF_SIGENERGY_MODBUS_PORT, DEFAULT_SIGENERGY_MODBUS_PORT
+                    )
+                    self._sigenergy_data[CONF_SIGENERGY_MODBUS_SLAVE_ID] = user_input.get(
+                        CONF_SIGENERGY_MODBUS_SLAVE_ID, DEFAULT_SIGENERGY_MODBUS_SLAVE_ID
+                    )
+
+            if not errors:
+                return await self.async_step_finish_sigenergy()
+
+        return self.async_show_form(
+            step_id="sigenergy_dc_curtailment",
+            data_schema=vol.Schema({
+                vol.Optional(
+                    CONF_SIGENERGY_DC_CURTAILMENT_ENABLED,
+                    default=False,
+                ): bool,
+                vol.Optional(
+                    CONF_SIGENERGY_MODBUS_HOST,
+                    default="",
+                ): str,
+                vol.Optional(
+                    CONF_SIGENERGY_MODBUS_PORT,
+                    default=DEFAULT_SIGENERGY_MODBUS_PORT,
+                ): int,
+                vol.Optional(
+                    CONF_SIGENERGY_MODBUS_SLAVE_ID,
+                    default=DEFAULT_SIGENERGY_MODBUS_SLAVE_ID,
+                ): int,
+            }),
+            errors=errors,
+        )
+
+    async def async_step_finish_sigenergy(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Finish Sigenergy setup and create config entry."""
+        # Build final data for Sigenergy
+        final_data = {
+            CONF_BATTERY_SYSTEM: BATTERY_SYSTEM_SIGENERGY,
+            CONF_AUTO_SYNC_ENABLED: True,
+            **self._amber_data,
+            **self._flow_power_data,
+            **self._sigenergy_data,
+        }
+
+        # Add electricity provider if set
+        if self._selected_electricity_provider:
+            final_data[CONF_ELECTRICITY_PROVIDER] = self._selected_electricity_provider
+
+        # Generate title based on station ID
+        station_id = self._sigenergy_data.get(CONF_SIGENERGY_STATION_ID, "Unknown")
+        title = f"PowerSync - Sigenergy ({station_id})"
+
+        return self.async_create_entry(
+            title=title,
+            data=final_data,
         )
 
     async def async_step_tesla_provider(
@@ -634,11 +892,10 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         ),
                     }
 
-                    if self._aemo_only_mode:
-                        # AEMO-only mode: go to Tesla provider selection
-                        return await self.async_step_tesla_provider()
+                    # Route based on battery system selection
+                    if self._selected_battery_system == BATTERY_SYSTEM_SIGENERGY:
+                        return await self.async_step_sigenergy_credentials()
                     else:
-                        # Amber mode with AEMO: continue to Tesla provider selection
                         return await self.async_step_tesla_provider()
             else:
                 # AEMO disabled
@@ -648,8 +905,11 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     # Can't be in AEMO-only mode without AEMO enabled
                     errors["base"] = "aemo_required_in_aemo_mode"
                 else:
-                    # Amber mode without AEMO: continue to Tesla provider
-                    return await self.async_step_tesla_provider()
+                    # Amber mode without AEMO: route based on battery system
+                    if self._selected_battery_system == BATTERY_SYSTEM_SIGENERGY:
+                        return await self.async_step_sigenergy_credentials()
+                    else:
+                        return await self.async_step_tesla_provider()
 
         # Build region choices
         region_choices = {"": "Select Region..."}

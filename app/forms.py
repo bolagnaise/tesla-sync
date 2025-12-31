@@ -26,6 +26,13 @@ class SettingsForm(FlaskForm):
     amber_token = StringField('Amber Electric API Token')
     # Tesla Site ID is now auto-detected when connecting Tesla account
 
+    # Battery System Selection (at top of settings)
+    battery_system = SelectField('Battery System', choices=[
+        ('tesla', 'Tesla Powerwall (Default)'),
+        ('sigenergy', 'Sigenergy')
+    ], default='tesla',
+    description='Select your battery storage system. Tesla Powerwall uses Fleet API or Teslemetry. Sigenergy uses Sigenergy Cloud API.')
+
     # Tesla API Provider Selection
     tesla_api_provider = SelectField('Tesla API Provider', choices=[
         ('teslemetry', 'Teslemetry (Easier Setup, ~$4/month)'),
@@ -40,6 +47,17 @@ class SettingsForm(FlaskForm):
     fleet_api_client_secret = StringField('Fleet API Client Secret (from developer.tesla.com)')
     fleet_api_redirect_uri = StringField('Fleet API Redirect URI',
         description='OAuth callback URL (e.g., http://localhost:5001/fleet-api/callback). Must match what you registered in Tesla Developer Portal.')
+
+    # Sigenergy Cloud API Credentials
+    sigenergy_username = StringField('Sigenergy Username (Email)',
+        description='Your Sigenergy account email address')
+    sigenergy_pass_enc = PasswordField('Sigenergy Encrypted Password',
+        description='Encrypted password captured from browser dev tools (see setup wizard)')
+    sigenergy_device_id = StringField('Sigenergy Device ID',
+        validators=[Optional(), Length(min=13, max=13, message='Device ID must be exactly 13 digits')],
+        description='13-digit device identifier from browser dev tools')
+    sigenergy_station_id = StringField('Sigenergy Station ID',
+        description='Station ID (auto-populated after credential validation)')
 
     # AEMO Spike Detection
     aemo_spike_detection_enabled = BooleanField('Enable AEMO Spike Detection')

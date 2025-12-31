@@ -410,13 +410,26 @@
         </form>
     </article>
 
-    <!-- Tesla Configuration - Combined Section -->
+    <!-- Battery System Configuration -->
     <article>
-        <header><strong>Tesla Configuration</strong></header>
-        <p>Configure your Tesla API connection and energy site.</p>
+        <header><strong>Battery System</strong></header>
+        <p>Configure your battery storage system connection.</p>
 
         <form action="{{ url_for('main.settings') }}" method="post" novalidate>
             {{ form.hidden_tag() }}
+
+            <!-- Battery System Selection -->
+            <label for="battery_system">
+                Battery System
+                <small>Select your battery storage system</small>
+                <select id="battery_system" name="battery_system" onchange="toggleBatterySystemSettings(); this.form.submit();">
+                    <option value="tesla" {% if not current_user.battery_system or current_user.battery_system == 'tesla' %}selected{% endif %}>Tesla Powerwall</option>
+                    <option value="sigenergy" {% if current_user.battery_system == 'sigenergy' %}selected{% endif %}>Sigenergy</option>
+                </select>
+            </label>
+
+            <!-- Tesla Settings (shown when Tesla is selected) -->
+            <div id="teslaSettings" style="margin-top: 1em; {% if current_user.battery_system == 'sigenergy' %}display: none;{% endif %}">
 
             <!-- Tesla API Provider Selection -->
             <label for="tesla_api_provider">
@@ -667,6 +680,153 @@
                     </button>
                 </div>
             </fieldset>
+            </div><!-- End Tesla Settings -->
+
+            <!-- Sigenergy Settings (shown when Sigenergy is selected) -->
+            <div id="sigenergySettings" style="margin-top: 1em; {% if current_user.battery_system != 'sigenergy' %}display: none;{% endif %}">
+                <fieldset>
+                    <legend>Sigenergy Cloud API</legend>
+
+                    <!-- Connection Status -->
+                    {% if current_user.sigenergy_station_id %}
+                    <div id="sigenergy-status" style="padding: 0.8em; background: rgba(0, 255, 0, 0.1); border-radius: 0.5em; margin-bottom: 1em;">
+                        <p style="margin: 0; color: #51cf66; font-size: 0.9em;">✅ <strong>Connected</strong></p>
+                        <p style="margin: 0.3em 0 0 0; font-size: 0.85em;">
+                            Station ID: <code>{{ current_user.sigenergy_station_id }}</code>
+                        </p>
+                        <button type="button" onclick="disconnectSigenergy()" class="outline secondary" style="margin-top: 0.8em; font-size: 0.85em;">
+                            Disconnect
+                        </button>
+                    </div>
+                    {% else %}
+                    <div id="sigenergy-status" style="padding: 0.8em; background: rgba(255, 150, 100, 0.15); border-radius: 0.5em; margin-bottom: 1em;">
+                        <p style="margin: 0; color: #ff922b; font-size: 0.9em;">⚠️ <strong>Not Connected</strong></p>
+                        <p style="font-size: 0.8em; margin: 0.3em 0 0 0; color: var(--muted-color);">
+                            Follow the setup wizard below to capture credentials
+                        </p>
+                    </div>
+                    {% endif %}
+
+                    <!-- Sigenergy Setup Wizard -->
+                    <details id="sigenergy-wizard" {% if not current_user.sigenergy_station_id %}open{% endif %} style="border: 2px solid {% if not current_user.sigenergy_station_id %}rgba(255, 150, 100, 0.5){% else %}rgba(100, 150, 255, 0.3){% endif %}; border-radius: 0.5em; padding: 0.5em;">
+                        <summary style="font-weight: bold; cursor: pointer; padding: 0.3em; {% if not current_user.sigenergy_station_id %}color: #ff922b;{% endif %}">
+                            {% if not current_user.sigenergy_station_id %}
+                            ⚙️ Setup Wizard (click to expand)
+                            {% else %}
+                            ⚙️ Setup Wizard (Reconfigure)
+                            {% endif %}
+                        </summary>
+                        <div style="padding: 0.5em; margin-top: 0.5em;">
+                            <p style="font-size: 0.85em; margin: 0 0 1em 0; color: var(--muted-color);">
+                                Sigenergy uses encrypted credentials that must be captured from your browser's developer tools.
+                            </p>
+
+                            <!-- Step 1: Open Dev Tools -->
+                            <div style="padding: 0.6em; background: rgba(100, 150, 255, 0.1); border-radius: 0.5em; margin-bottom: 0.5em;">
+                                <p style="margin: 0 0 0.3em 0; font-size: 0.85em;"><strong>Step 1: Open Browser Developer Tools</strong></p>
+                                <ul style="font-size: 0.8em; margin: 0; padding-left: 1.2em;">
+                                    <li>Press <kbd>F12</kbd> (Windows/Linux) or <kbd>Cmd+Option+I</kbd> (Mac)</li>
+                                    <li>Click the <strong>Network</strong> tab</li>
+                                    <li>Keep this window open</li>
+                                </ul>
+                            </div>
+
+                            <!-- Step 2: Login to Sigenergy -->
+                            <div style="padding: 0.6em; background: rgba(255, 200, 100, 0.1); border-radius: 0.5em; margin-bottom: 0.5em;">
+                                <p style="margin: 0 0 0.3em 0; font-size: 0.85em;"><strong>Step 2: Login to Sigenergy</strong></p>
+                                <ul style="font-size: 0.8em; margin: 0; padding-left: 1.2em;">
+                                    <li>Open a <strong>new tab</strong></li>
+                                    <li>Go to <a href="https://web-aus.sigencloud.com/" target="_blank">web-aus.sigencloud.com</a></li>
+                                    <li>Enter your email and password, then click Login</li>
+                                </ul>
+                            </div>
+
+                            <!-- Step 3: Find the token request -->
+                            <div style="padding: 0.6em; background: rgba(100, 200, 150, 0.1); border-radius: 0.5em; margin-bottom: 0.5em;">
+                                <p style="margin: 0 0 0.3em 0; font-size: 0.85em;"><strong>Step 3: Find the "token" Request</strong></p>
+                                <ul style="font-size: 0.8em; margin: 0; padding-left: 1.2em;">
+                                    <li>In the Network tab, look for a request named <code>token</code></li>
+                                    <li>Click on it to see the details</li>
+                                    <li>Click the <strong>Payload</strong> tab</li>
+                                </ul>
+                                <div style="margin-top: 0.5em; padding: 0.4em; background: rgba(0,0,0,0.2); border-radius: 0.3em; font-size: 0.75em;">
+                                    <p style="margin: 0; color: var(--muted-color);">Tip: If you don't see it, clear the Network log, then login again</p>
+                                </div>
+                            </div>
+
+                            <!-- Step 4: Copy values -->
+                            <div style="padding: 0.6em; background: rgba(150, 100, 255, 0.1); border-radius: 0.5em; margin-bottom: 0.5em;">
+                                <p style="margin: 0 0 0.3em 0; font-size: 0.85em;"><strong>Step 4: Copy the Values</strong></p>
+                                <p style="font-size: 0.8em; margin: 0 0 0.5em 0; color: var(--muted-color);">Copy these values from the Payload tab:</p>
+                                <div style="font-size: 0.8em; background: rgba(0,0,0,0.2); padding: 0.4em; border-radius: 0.3em;">
+                                    <div style="margin-bottom: 0.2em;"><strong>username</strong> → Email field below</div>
+                                    <div style="margin-bottom: 0.2em;"><strong>password</strong> → Encrypted Password field</div>
+                                    <div><strong>userDeviceId</strong> → Device ID field</div>
+                                </div>
+                            </div>
+
+                            <!-- Credential Input Fields -->
+                            <div style="padding: 0.6em; background: rgba(150, 150, 150, 0.1); border-radius: 0.5em; margin-bottom: 0.5em;">
+                                <p style="margin: 0 0 0.5em 0; font-size: 0.85em;"><strong>Step 5: Enter Credentials</strong></p>
+
+                                <label for="sigenergy_username_input" style="font-size: 0.85em;">
+                                    Email (username)
+                                </label>
+                                <input type="email" id="sigenergy_username_input"
+                                       value="{{ current_user.sigenergy_username or '' }}"
+                                       placeholder="your@email.com"
+                                       style="width: 100%; font-size: 0.9em; margin-bottom: 0.5em;">
+
+                                <label for="sigenergy_pass_enc_input" style="font-size: 0.85em;">
+                                    Encrypted Password
+                                    <small>The long base64 string from the password field</small>
+                                </label>
+                                <div style="display: flex; align-items: center; gap: 0.5em; margin-bottom: 0.5em;">
+                                    <input type="password" id="sigenergy_pass_enc_input"
+                                           placeholder="Paste from dev tools"
+                                           style="width: 100%; font-size: 0.9em;">
+                                    <button type="button" onclick="toggleVisibility('sigenergy_pass_enc_input', this)"
+                                            style="background: none; border: none; cursor: pointer; padding: 0.5em;
+                                                   font-size: 1.2em; color: var(--muted-color); flex-shrink: 0;">
+                                        👁️
+                                    </button>
+                                </div>
+
+                                <label for="sigenergy_device_id_input" style="font-size: 0.85em;">
+                                    Device ID
+                                    <small>13-digit number from userDeviceId</small>
+                                </label>
+                                <input type="text" id="sigenergy_device_id_input"
+                                       value="{{ current_user.sigenergy_device_id or '' }}"
+                                       placeholder="1234567890123"
+                                       maxlength="13"
+                                       pattern="[0-9]{13}"
+                                       style="width: 100%; font-size: 0.9em; margin-bottom: 0.8em;">
+
+                                <button type="button" onclick="validateSigenergyCredentials()" class="primary" style="width: 100%;">
+                                    Validate Credentials
+                                </button>
+                                <p id="sigenergy-validate-status" style="font-size: 0.8em; margin-top: 0.5em; display: none;"></p>
+                            </div>
+
+                            <!-- Step 6: Station Selection -->
+                            <div id="sigenergy-station-section" style="padding: 0.6em; background: rgba(0, 255, 0, 0.1); border-radius: 0.5em; display: none;">
+                                <p style="margin: 0 0 0.5em 0; font-size: 0.85em;"><strong>Step 6: Select Station</strong></p>
+                                <label for="sigenergy_station_select" style="font-size: 0.85em;">
+                                    Sigenergy Station
+                                    <select id="sigenergy_station_select" style="width: 100%;">
+                                        <option value="">Select a station...</option>
+                                    </select>
+                                </label>
+                                <button type="button" onclick="saveSigenergyStation()" class="outline" style="margin-top: 0.5em; width: 100%;">
+                                    Save Station
+                                </button>
+                                <p id="sigenergy-save-status" style="font-size: 0.8em; margin-top: 0.5em; display: none;"></p>
+                            </div>
+                        </div>
+                    </details>
+                </fieldset>
+            </div><!-- End Sigenergy Settings -->
 
             {{ form.submit(class_="primary", style="margin-top: 1em;") }}
         </form>
@@ -814,6 +974,136 @@
                 }
             } catch (error) {
                 status.innerHTML = '<span style="color: #ff6b6b;">✗ Error: ' + error.message + '</span>';
+            }
+        }
+
+        // Battery System Toggle
+        function toggleBatterySystemSettings() {
+            const batterySystem = document.getElementById('battery_system').value;
+            const teslaSettings = document.getElementById('teslaSettings');
+            const sigenergySettings = document.getElementById('sigenergySettings');
+
+            if (batterySystem === 'sigenergy') {
+                teslaSettings.style.display = 'none';
+                sigenergySettings.style.display = 'block';
+            } else {
+                teslaSettings.style.display = 'block';
+                sigenergySettings.style.display = 'none';
+            }
+        }
+
+        // Sigenergy Credential Validation
+        async function validateSigenergyCredentials() {
+            const status = document.getElementById('sigenergy-validate-status');
+            const username = document.getElementById('sigenergy_username_input').value;
+            const passEnc = document.getElementById('sigenergy_pass_enc_input').value;
+            const deviceId = document.getElementById('sigenergy_device_id_input').value;
+
+            if (!username || !passEnc || !deviceId) {
+                status.style.display = 'block';
+                status.innerHTML = '<span style="color: #ff6b6b;">Please fill in all fields</span>';
+                return;
+            }
+
+            if (deviceId.length !== 13 || !/^\d+$/.test(deviceId)) {
+                status.style.display = 'block';
+                status.innerHTML = '<span style="color: #ff6b6b;">Device ID must be exactly 13 digits</span>';
+                return;
+            }
+
+            status.style.display = 'block';
+            status.innerHTML = '<span style="color: #fcc419;">Validating credentials...</span>';
+
+            try {
+                const response = await fetch('/api/sigenergy/validate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: username,
+                        pass_enc: passEnc,
+                        device_id: deviceId
+                    })
+                });
+                const data = await response.json();
+
+                if (data.success && data.stations) {
+                    status.innerHTML = '<span style="color: #51cf66;">✓ Credentials validated! Select your station below.</span>';
+
+                    // Populate station dropdown
+                    const stationSelect = document.getElementById('sigenergy_station_select');
+                    stationSelect.innerHTML = '<option value="">Select a station...</option>';
+                    data.stations.forEach(station => {
+                        const option = document.createElement('option');
+                        option.value = station.id || station.stationId;
+                        option.textContent = station.stationName || station.name || `Station ${station.id || station.stationId}`;
+                        stationSelect.appendChild(option);
+                    });
+
+                    // Show station selection section
+                    document.getElementById('sigenergy-station-section').style.display = 'block';
+                } else {
+                    status.innerHTML = '<span style="color: #ff6b6b;">✗ ' + (data.error || 'Validation failed') + '</span>';
+                }
+            } catch (error) {
+                status.innerHTML = '<span style="color: #ff6b6b;">✗ Error: ' + error.message + '</span>';
+            }
+        }
+
+        // Sigenergy Station Save
+        async function saveSigenergyStation() {
+            const status = document.getElementById('sigenergy-save-status');
+            const stationId = document.getElementById('sigenergy_station_select').value;
+
+            if (!stationId) {
+                status.style.display = 'block';
+                status.innerHTML = '<span style="color: #ff6b6b;">Please select a station</span>';
+                return;
+            }
+
+            status.style.display = 'block';
+            status.innerHTML = '<span style="color: #fcc419;">Saving station...</span>';
+
+            try {
+                const response = await fetch('/api/sigenergy/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        station_id: stationId
+                    })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    status.innerHTML = '<span style="color: #51cf66;">✓ Station saved! Reloading...</span>';
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    status.innerHTML = '<span style="color: #ff6b6b;">✗ ' + (data.error || 'Failed to save') + '</span>';
+                }
+            } catch (error) {
+                status.innerHTML = '<span style="color: #ff6b6b;">✗ Error: ' + error.message + '</span>';
+            }
+        }
+
+        // Sigenergy Disconnect
+        async function disconnectSigenergy() {
+            if (!confirm('Disconnect Sigenergy? This will clear all stored credentials.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/sigenergy/disconnect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('Failed to disconnect: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
             }
         }
     </script>

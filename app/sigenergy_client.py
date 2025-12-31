@@ -1,0 +1,455 @@
+# app/sigenergy_client.py
+"""Sigenergy Cloud API client for PowerSync.
+
+Handles authentication and tariff synchronization with Sigenergy battery systems.
+Based on https://github.com/Talie5in/amber2sigen
+"""
+
+import logging
+import requests
+from datetime import datetime, timedelta
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+
+class SigenergyClient:
+    """Client for Sigenergy Cloud API."""
+
+    # API Endpoints
+    BASE_URL = "https://api-aus.sigencloud.com"
+    AUTH_ENDPOINT = "/auth/oauth/token"
+    SAVE_PRICE_ENDPOINT = "/device/stationelecsetprice/save"
+    STATIONS_ENDPOINT = "/device/station/list"
+
+    # Basic Auth header for token endpoint (base64 of "sigen:sigen")
+    BASIC_AUTH = "Basic c2lnZW46c2lnZW4="
+
+    def __init__(
+        self,
+        username: Optional[str] = None,
+        pass_enc: Optional[str] = None,
+        device_id: Optional[str] = None,
+        access_token: Optional[str] = None,
+        refresh_token: Optional[str] = None,
+    ):
+        """Initialize Sigenergy client.
+
+        Args:
+            username: Sigenergy account email
+            pass_enc: Encrypted password (from browser dev tools)
+            device_id: 13-digit device identifier
+            access_token: OAuth access token (if already authenticated)
+            refresh_token: OAuth refresh token (for token refresh)
+        """
+        self.username = username
+        self.pass_enc = pass_enc
+        self.device_id = device_id or "1756353655250"  # Default device ID
+        self.access_token = access_token
+        self.refresh_token = refresh_token
+        self.token_expires_at: Optional[datetime] = None
+
+    def authenticate(self) -> dict:
+        """Authenticate with Sigenergy and get access tokens.
+
+        Returns:
+            dict with access_token, refresh_token, expires_in on success
+            dict with error key on failure
+        """
+        if not self.username or not self.pass_enc:
+            return {"error": "Username and encrypted password are required"}
+
+        url = f"{self.BASE_URL}{self.AUTH_ENDPOINT}"
+
+        headers = {
+            "Authorization": self.BASIC_AUTH,
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+
+        data = {
+            "username": self.username,
+            "password": self.pass_enc,
+            "scope": "server",
+            "grant_type": "password",
+            "userDeviceId": self.device_id,
+        }
+
+        try:
+            logger.info(f"Authenticating with Sigenergy for user: {self.username}")
+            response = requests.post(url, headers=headers, data=data, timeout=30)
+
+            if response.status_code != 200:
+                logger.error(f"Sigenergy auth failed: {response.status_code} - {response.text}")
+                return {"error": f"Authentication failed: {response.status_code}"}
+
+            result = response.json()
+
+            # Sigenergy wraps the token data in a "data" key
+            token_data = result.get("data", result)
+
+            if "access_token" not in token_data:
+                logger.error(f"No access_token in response: {result}")
+                return {"error": "Invalid response - no access token"}
+
+            self.access_token = token_data["access_token"]
+            self.refresh_token = token_data.get("refresh_token")
+
+            expires_in = token_data.get("expires_in", 3600)
+            self.token_expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+
+            logger.info("Sigenergy authentication successful")
+            return {
+                "access_token": self.access_token,
+                "refresh_token": self.refresh_token,
+                "expires_in": expires_in,
+                "expires_at": self.token_expires_at.isoformat(),
+            }
+
+        except requests.exceptions.Timeout:
+            logger.error("Sigenergy auth timeout")
+            return {"error": "Connection timeout"}
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Sigenergy auth error: {e}")
+            return {"error": str(e)}
+        except Exception as e:
+            logger.error(f"Sigenergy auth unexpected error: {e}")
+            return {"error": str(e)}
+
+    def refresh_access_token(self) -> dict:
+        """Refresh the access token using the refresh token.
+
+        Returns:
+            dict with new tokens on success, error dict on failure
+        """
+        if not self.refresh_token:
+            return {"error": "No refresh token available"}
+
+        url = f"{self.BASE_URL}{self.AUTH_ENDPOINT}"
+
+        headers = {
+            "Authorization": self.BASIC_AUTH,
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": self.refresh_token,
+        }
+
+        try:
+            logger.info("Refreshing Sigenergy access token")
+            response = requests.post(url, headers=headers, data=data, timeout=30)
+
+            if response.status_code != 200:
+                logger.error(f"Token refresh failed: {response.status_code}")
+                return {"error": f"Token refresh failed: {response.status_code}"}
+
+            result = response.json()
+            token_data = result.get("data", result)
+
+            if "access_token" not in token_data:
+                return {"error": "Invalid refresh response"}
+
+            self.access_token = token_data["access_token"]
+            self.refresh_token = token_data.get("refresh_token", self.refresh_token)
+
+            expires_in = token_data.get("expires_in", 3600)
+            self.token_expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+
+            logger.info("Token refresh successful")
+            return {
+                "access_token": self.access_token,
+                "refresh_token": self.refresh_token,
+                "expires_in": expires_in,
+            }
+
+        except Exception as e:
+            logger.error(f"Token refresh error: {e}")
+            return {"error": str(e)}
+
+    def _ensure_token(self) -> bool:
+        """Ensure we have a valid access token, refreshing if needed.
+
+        Returns:
+            True if we have a valid token, False otherwise
+        """
+        if not self.access_token:
+            return False
+
+        # Check if token is expired or about to expire (5 min buffer)
+        if self.token_expires_at:
+            if datetime.utcnow() >= self.token_expires_at - timedelta(minutes=5):
+                logger.info("Token expired or expiring soon, refreshing...")
+                result = self.refresh_access_token()
+                if "error" in result:
+                    logger.error(f"Token refresh failed: {result['error']}")
+                    return False
+
+        return True
+
+    def get_stations(self) -> dict:
+        """Get list of stations for the authenticated user.
+
+        Returns:
+            dict with stations list on success, error dict on failure
+        """
+        if not self._ensure_token():
+            return {"error": "Not authenticated"}
+
+        url = f"{self.BASE_URL}{self.STATIONS_ENDPOINT}"
+
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            logger.info("Fetching Sigenergy stations")
+            response = requests.get(url, headers=headers, timeout=30)
+
+            if response.status_code != 200:
+                logger.error(f"Get stations failed: {response.status_code}")
+                return {"error": f"Failed to get stations: {response.status_code}"}
+
+            result = response.json()
+            stations = result.get("data", result.get("rows", []))
+
+            logger.info(f"Found {len(stations) if isinstance(stations, list) else 0} stations")
+            return {"stations": stations if isinstance(stations, list) else []}
+
+        except Exception as e:
+            logger.error(f"Get stations error: {e}")
+            return {"error": str(e)}
+
+    def set_tariff_rate(
+        self,
+        station_id: str,
+        buy_prices: list[dict],
+        sell_prices: list[dict],
+        plan_name: str = "PowerSync",
+    ) -> dict:
+        """Set tariff pricing for a station.
+
+        Args:
+            station_id: The station ID to update
+            buy_prices: List of {timeRange: "HH:MM-HH:MM", price: float} for buy rates
+            sell_prices: List of {timeRange: "HH:MM-HH:MM", price: float} for sell rates
+            plan_name: Name for the pricing plan
+
+        Returns:
+            dict with success status or error
+        """
+        if not self._ensure_token():
+            return {"error": "Not authenticated"}
+
+        url = f"{self.BASE_URL}{self.SAVE_PRICE_ENDPOINT}"
+
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json",
+        }
+
+        # Build the payload in Sigenergy's expected format
+        payload = {
+            "stationId": int(station_id),
+            "priceMode": 1,  # Static pricing mode
+            "buyPrice": {
+                "dynamicPricing": None,
+                "staticPricing": {
+                    "providerName": "Amber",
+                    "tariffCode": "",
+                    "tariffName": "",
+                    "currencyCode": "Cent",
+                    "subAreaName": "",
+                    "planName": f"{plan_name} 30-min",
+                    "combinedPrices": [
+                        {
+                            "monthRange": "01-12",
+                            "weekPrices": [
+                                {
+                                    "weekRange": "1-7",
+                                    "timeRange": buy_prices,
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+            "sellPrice": {
+                "dynamicPricing": None,
+                "staticPricing": {
+                    "providerName": "Amber",
+                    "tariffCode": "",
+                    "tariffName": "",
+                    "currencyCode": "Cent",
+                    "subAreaName": "",
+                    "planName": f"{plan_name} 30-min",
+                    "combinedPrices": [
+                        {
+                            "monthRange": "01-12",
+                            "weekPrices": [
+                                {
+                                    "weekRange": "1-7",
+                                    "timeRange": sell_prices,
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+        }
+
+        try:
+            logger.info(f"Setting tariff for Sigenergy station {station_id}")
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+
+            if response.status_code != 200:
+                logger.error(f"Set tariff failed: {response.status_code} - {response.text}")
+                return {"error": f"Failed to set tariff: {response.status_code}"}
+
+            result = response.json()
+
+            # Check for success in response
+            if result.get("code") == 0 or result.get("success"):
+                logger.info(f"Tariff updated successfully for station {station_id}")
+                return {"success": True, "message": "Tariff updated"}
+            else:
+                error_msg = result.get("msg", result.get("message", "Unknown error"))
+                logger.error(f"Set tariff API error: {error_msg}")
+                return {"error": error_msg}
+
+        except Exception as e:
+            logger.error(f"Set tariff error: {e}")
+            return {"error": str(e)}
+
+    def test_connection(self) -> tuple[bool, str]:
+        """Test the connection to Sigenergy API.
+
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        result = self.authenticate()
+        if "error" in result:
+            return False, result["error"]
+
+        stations = self.get_stations()
+        if "error" in stations:
+            return False, stations["error"]
+
+        station_count = len(stations.get("stations", []))
+        return True, f"Connected successfully. Found {station_count} station(s)."
+
+
+def convert_amber_prices_to_sigenergy(
+    amber_prices: list[dict],
+    price_type: str = "buy",
+) -> list[dict]:
+    """Convert Amber price data to Sigenergy timeRange format.
+
+    Args:
+        amber_prices: List of Amber price intervals with nemTime/startTime/endTime and perKwh/spotPerKwh
+        price_type: 'buy' for import prices, 'sell' for export prices
+
+    Returns:
+        List of {timeRange: "HH:MM-HH:MM", price: float} in cents
+    """
+    # Group prices by 30-minute slots
+    slots = {}
+
+    for price in amber_prices:
+        # Get the timestamp
+        start_time = price.get("startTime") or price.get("nemTime")
+        if not start_time:
+            continue
+
+        # Parse the timestamp
+        if isinstance(start_time, str):
+            try:
+                dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+        else:
+            dt = start_time
+
+        # Round down to 30-minute slot
+        slot_minute = 0 if dt.minute < 30 else 30
+        slot_key = f"{dt.hour:02d}:{slot_minute:02d}"
+
+        # Get the price (in cents)
+        if price_type == "sell":
+            price_value = price.get("spotPerKwh", price.get("feedInTariff", 0))
+        else:
+            price_value = price.get("perKwh", price.get("advancedPrice", 0))
+
+        # Store the price (last one wins for overlapping 5-min intervals)
+        if slot_key not in slots:
+            slots[slot_key] = []
+        slots[slot_key].append(price_value)
+
+    # Build the timeRange array (48 slots for 24 hours)
+    result = []
+    for hour in range(24):
+        for minute in [0, 30]:
+            slot_key = f"{hour:02d}:{minute:02d}"
+            end_minute = minute + 30
+            end_hour = hour
+            if end_minute >= 60:
+                end_minute = 0
+                end_hour = (hour + 1) % 24
+
+            time_range = f"{hour:02d}:{minute:02d}-{end_hour:02d}:{end_minute:02d}"
+
+            # Get average price for this slot, default to 0 if no data
+            if slot_key in slots and slots[slot_key]:
+                avg_price = sum(slots[slot_key]) / len(slots[slot_key])
+            else:
+                avg_price = 0.0
+
+            result.append({
+                "timeRange": time_range,
+                "price": round(avg_price, 4),
+            })
+
+    return result
+
+
+def get_sigenergy_client(user) -> Optional[SigenergyClient]:
+    """Create a SigenergyClient from a user object.
+
+    Args:
+        user: User model instance with Sigenergy credentials
+
+    Returns:
+        SigenergyClient instance or None if credentials missing
+    """
+    from app.utils import decrypt_token
+
+    if not user.sigenergy_username:
+        return None
+
+    # Decrypt stored credentials
+    pass_enc = None
+    if user.sigenergy_pass_enc_encrypted:
+        pass_enc = decrypt_token(user.sigenergy_pass_enc_encrypted)
+
+    access_token = None
+    if user.sigenergy_access_token_encrypted:
+        access_token = decrypt_token(user.sigenergy_access_token_encrypted)
+
+    refresh_token = None
+    if user.sigenergy_refresh_token_encrypted:
+        refresh_token = decrypt_token(user.sigenergy_refresh_token_encrypted)
+
+    client = SigenergyClient(
+        username=user.sigenergy_username,
+        pass_enc=pass_enc,
+        device_id=user.sigenergy_device_id,
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
+
+    # Set token expiry if stored
+    if user.sigenergy_token_expires_at:
+        client.token_expires_at = user.sigenergy_token_expires_at
+
+    return client
