@@ -2088,17 +2088,21 @@ def _apply_inverter_curtailment(user, curtail: bool = True):
             logger.error(f"Failed to create inverter controller for {user.email}")
             return
 
-        # Run async function in sync context
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            if curtail:
-                success = loop.run_until_complete(controller.curtail())
-            else:
-                success = loop.run_until_complete(controller.restore())
-            loop.run_until_complete(controller.disconnect())
-        finally:
-            loop.close()
+        # Run async function in sync context using asyncio.run()
+        # This properly creates and manages event loop in thread pool threads
+        async def run_inverter_action():
+            try:
+                if curtail:
+                    result = await controller.curtail()
+                else:
+                    result = await controller.restore()
+                await controller.disconnect()
+                return result
+            except Exception as e:
+                logger.error(f"Error during inverter action: {e}")
+                return False
+
+        success = asyncio.run(run_inverter_action())
 
         if success:
             new_state = 'curtailed' if curtail else 'online'
