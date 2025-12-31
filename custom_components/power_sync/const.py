@@ -656,3 +656,27 @@ DEFAULT_INVERTER_SLAVE_ID = 1
 
 # Inverter status sensor
 SENSOR_TYPE_INVERTER_STATUS = "inverter_status"
+
+
+def get_models_for_brand(brand: str) -> dict[str, str]:
+    """Get model options for a specific inverter brand."""
+    brand_models = {
+        "sungrow": SUNGROW_MODELS,
+        "fronius": FRONIUS_MODELS,
+        "goodwe": GOODWE_MODELS,
+        "huawei": HUAWEI_MODELS,
+        "enphase": ENPHASE_MODELS,
+    }
+    return brand_models.get(brand.lower(), SUNGROW_MODELS)
+
+
+def get_brand_defaults(brand: str) -> dict[str, int]:
+    """Get default port and slave ID for a brand."""
+    defaults = {
+        "sungrow": {"port": 502, "slave_id": 1},
+        "fronius": {"port": 502, "slave_id": 1},
+        "goodwe": {"port": 502, "slave_id": 247},
+        "huawei": {"port": 502, "slave_id": 1},
+        "enphase": {"port": 443, "slave_id": 1},
+    }
+    return defaults.get(brand.lower(), {"port": 502, "slave_id": 1})

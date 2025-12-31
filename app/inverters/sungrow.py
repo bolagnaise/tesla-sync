@@ -92,11 +92,17 @@ class SungrowController(InverterController):
         """
         super().__init__(host, port, slave_id, model)
         self._client: Optional[AsyncModbusTcpClient] = None
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create the async lock (must be called from async context)."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def connect(self) -> bool:
         """Connect to the Sungrow inverter via Modbus TCP."""
-        async with self._lock:
+        async with self._get_lock():
             try:
                 if self._client and self._client.connected:
                     return True
@@ -123,7 +129,7 @@ class SungrowController(InverterController):
 
     async def disconnect(self) -> None:
         """Disconnect from the Sungrow inverter."""
-        async with self._lock:
+        async with self._get_lock():
             if self._client:
                 self._client.close()
                 self._client = None

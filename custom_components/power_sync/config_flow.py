@@ -92,9 +92,10 @@ from .const import (
     CONF_INVERTER_PORT,
     CONF_INVERTER_SLAVE_ID,
     INVERTER_BRANDS,
-    SUNGROW_MODELS,
     DEFAULT_INVERTER_PORT,
     DEFAULT_INVERTER_SLAVE_ID,
+    get_models_for_brand,
+    get_brand_defaults,
     # Network Tariff configuration
     CONF_NETWORK_DISTRIBUTOR,
     CONF_NETWORK_TARIFF_CODE,
@@ -1082,9 +1083,19 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
             if was_curtailment_enabled and not new_curtailment_enabled:
                 await self._restore_export_rule()
 
-            # Add provider to the data
-            user_input[CONF_ELECTRICITY_PROVIDER] = "amber"
-            return self.async_create_entry(title="", data=user_input)
+            # Store amber options temporarily
+            self._amber_options = user_input
+            self._amber_options[CONF_ELECTRICITY_PROVIDER] = "amber"
+
+            # Check if AC-coupled inverter curtailment needs configuration
+            # Route to inverter setup if:
+            # 1. User is enabling inverter curtailment now, OR
+            # 2. Inverter curtailment is already enabled (for editing)
+            if user_input.get(CONF_INVERTER_CURTAILMENT_ENABLED, False):
+                return await self.async_step_inverter_brand()
+
+            # No inverter curtailment - save and exit
+            return self.async_create_entry(title="", data=self._amber_options)
 
         return self.async_show_form(
             step_id="amber_options",
@@ -1199,33 +1210,105 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                         CONF_MONTHLY_SUPPLY_CHARGE,
                         default=self._get_option(CONF_MONTHLY_SUPPLY_CHARGE, 0.0),
                     ): vol.Coerce(float),
-                    # AC-Coupled Inverter Curtailment (for direct solar control)
+                    # AC-Coupled Inverter Curtailment toggle (configuration in separate steps)
                     vol.Optional(
                         CONF_INVERTER_CURTAILMENT_ENABLED,
                         default=self._get_option(CONF_INVERTER_CURTAILMENT_ENABLED, False),
                     ): bool,
-                    vol.Optional(
-                        CONF_INVERTER_BRAND,
-                        default=self._get_option(CONF_INVERTER_BRAND, "sungrow"),
-                    ): vol.In(INVERTER_BRANDS),
-                    vol.Optional(
-                        CONF_INVERTER_MODEL,
-                        default=self._get_option(CONF_INVERTER_MODEL, "sg10"),
-                    ): vol.In(SUNGROW_MODELS),
-                    vol.Optional(
-                        CONF_INVERTER_HOST,
-                        default=self._get_option(CONF_INVERTER_HOST, ""),
-                    ): str,
-                    vol.Optional(
-                        CONF_INVERTER_PORT,
-                        default=self._get_option(CONF_INVERTER_PORT, DEFAULT_INVERTER_PORT),
-                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
-                    vol.Optional(
-                        CONF_INVERTER_SLAVE_ID,
-                        default=self._get_option(CONF_INVERTER_SLAVE_ID, DEFAULT_INVERTER_SLAVE_ID),
-                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=247)),
                 }
             ),
+        )
+
+    async def async_step_inverter_brand(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Step for selecting inverter brand for AC-coupled curtailment."""
+        if user_input is not None:
+            # Store selected brand and proceed to brand-specific config
+            self._inverter_brand = user_input.get(CONF_INVERTER_BRAND, "sungrow")
+            return await self.async_step_inverter_config()
+
+        # Get current brand from existing config
+        current_brand = self._get_option(CONF_INVERTER_BRAND, "sungrow")
+
+        return self.async_show_form(
+            step_id="inverter_brand",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_INVERTER_BRAND,
+                        default=current_brand,
+                    ): vol.In(INVERTER_BRANDS),
+                }
+            ),
+        )
+
+    async def async_step_inverter_config(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Step for configuring inverter-specific settings."""
+        if user_input is not None:
+            # Combine amber options with inverter config
+            final_data = {**self._amber_options}
+            final_data[CONF_INVERTER_BRAND] = self._inverter_brand
+            final_data[CONF_INVERTER_MODEL] = user_input.get(CONF_INVERTER_MODEL)
+            final_data[CONF_INVERTER_HOST] = user_input.get(CONF_INVERTER_HOST, "")
+            final_data[CONF_INVERTER_PORT] = user_input.get(CONF_INVERTER_PORT, DEFAULT_INVERTER_PORT)
+
+            # Only include slave ID for Modbus brands (not Enphase)
+            if self._inverter_brand != "enphase":
+                final_data[CONF_INVERTER_SLAVE_ID] = user_input.get(
+                    CONF_INVERTER_SLAVE_ID, DEFAULT_INVERTER_SLAVE_ID
+                )
+            else:
+                final_data[CONF_INVERTER_SLAVE_ID] = 1  # Default for Enphase
+
+            return self.async_create_entry(title="", data=final_data)
+
+        # Get brand-specific models and defaults
+        brand = self._inverter_brand
+        models = get_models_for_brand(brand)
+        defaults = get_brand_defaults(brand)
+
+        # Get current values from existing config (for editing)
+        current_model = self._get_option(CONF_INVERTER_MODEL)
+        # If current model doesn't belong to selected brand, use first model from brand
+        if current_model not in models:
+            current_model = next(iter(models.keys())) if models else ""
+
+        current_host = self._get_option(CONF_INVERTER_HOST, "")
+        current_port = self._get_option(CONF_INVERTER_PORT, defaults["port"])
+        current_slave_id = self._get_option(CONF_INVERTER_SLAVE_ID, defaults["slave_id"])
+
+        # Build brand-specific schema
+        schema_dict: dict[vol.Marker, Any] = {
+            vol.Required(
+                CONF_INVERTER_MODEL,
+                default=current_model,
+            ): vol.In(models),
+            vol.Required(
+                CONF_INVERTER_HOST,
+                default=current_host,
+            ): str,
+            vol.Required(
+                CONF_INVERTER_PORT,
+                default=current_port,
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
+        }
+
+        # Only show Slave ID for Modbus brands (not Enphase which uses REST API)
+        if brand != "enphase":
+            schema_dict[vol.Required(
+                CONF_INVERTER_SLAVE_ID,
+                default=current_slave_id,
+            )] = vol.All(vol.Coerce(int), vol.Range(min=1, max=247))
+
+        return self.async_show_form(
+            step_id="inverter_config",
+            data_schema=vol.Schema(schema_dict),
+            description_placeholders={
+                "brand": INVERTER_BRANDS.get(brand, brand),
+            },
         )
 
     async def async_step_flow_power_options(

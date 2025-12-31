@@ -230,6 +230,28 @@
           "aemo_region": "AEMO NEM Region",
           "aemo_spike_threshold": "Spike Threshold ($/MWh)"
         }
+      },
+      "inverter_brand": {
+        "title": "AC-Coupled Inverter Setup",
+        "description": "Select your solar inverter brand for direct curtailment control.\n\nThis allows PowerSync to shut down your AC-coupled solar inverter when feed-in prices are negative.",
+        "data": {
+          "inverter_brand": "Inverter Brand"
+        }
+      },
+      "inverter_config": {
+        "title": "{brand} Inverter Configuration",
+        "description": "Configure your {brand} inverter connection settings.",
+        "data": {
+          "inverter_model": "Inverter Model",
+          "inverter_host": "IP Address / Hostname",
+          "inverter_port": "Port",
+          "inverter_slave_id": "Modbus Slave ID"
+        },
+        "data_description": {
+          "inverter_host": "Local IP address of your inverter or gateway",
+          "inverter_port": "502 for Modbus (Sungrow, Fronius, GoodWe, Huawei), 443 for Enphase",
+          "inverter_slave_id": "Usually 1. GoodWe uses 247 by default."
+        }
       }
     }
   },
