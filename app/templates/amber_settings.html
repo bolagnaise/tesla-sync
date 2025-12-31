@@ -127,19 +127,14 @@
                             <span>Inverter Model</span>
                             <select id="inverter_model" name="inverter_model">
                                 <option value="">Select model...</option>
-                                <option value="sg5" {% if current_user.inverter_model == 'sg5' %}selected{% endif %}>SG5.0RS</option>
-                                <option value="sg8" {% if current_user.inverter_model == 'sg8' %}selected{% endif %}>SG8.0RS</option>
-                                <option value="sg10" {% if current_user.inverter_model == 'sg10' %}selected{% endif %}>SG10RS</option>
-                                <option value="sg12" {% if current_user.inverter_model == 'sg12' %}selected{% endif %}>SG12RS</option>
-                                <option value="sg15" {% if current_user.inverter_model == 'sg15' %}selected{% endif %}>SG15RS</option>
-                                <option value="sg20" {% if current_user.inverter_model == 'sg20' %}selected{% endif %}>SG20RS</option>
+                                <!-- Models populated dynamically by JavaScript -->
                             </select>
                         </label>
                     </div>
 
                     <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 1em; margin-top: 1em;">
                         <label for="inverter_host">
-                            <span>IP Address</span>
+                            <span>IP Address / Hostname</span>
                             <input type="text" id="inverter_host" name="inverter_host"
                                    value="{{ current_user.inverter_host or '' }}"
                                    placeholder="192.168.1.100">
@@ -149,12 +144,14 @@
                             <input type="number" id="inverter_port" name="inverter_port"
                                    value="{{ current_user.inverter_port or 502 }}"
                                    min="1" max="65535">
+                            <small id="portHint" style="font-size: 0.75em; color: var(--muted-color);">Modbus: 502, Enphase: 443</small>
                         </label>
-                        <label for="inverter_slave_id">
+                        <label for="inverter_slave_id" id="slaveIdLabel">
                             <span>Slave ID</span>
                             <input type="text" id="inverter_slave_id" name="inverter_slave_id"
                                    value="{{ current_user.inverter_slave_id or 1 }}"
                                    placeholder="1" inputmode="numeric" pattern="[0-9]*">
+                            <small style="font-size: 0.75em; color: var(--muted-color);">GoodWe: 247, Others: 1</small>
                         </label>
                     </div>
 
@@ -416,6 +413,103 @@
                 details.style.display = enabled ? 'block' : 'none';
             }
         }
+
+        // Inverter models by brand
+        const inverterModels = {
+            sungrow: {
+                "sg2.5rs": "SG2.5RS", "sg3.0rs": "SG3.0RS", "sg3.6rs": "SG3.6RS",
+                "sg4.0rs": "SG4.0RS", "sg5.0rs": "SG5.0RS", "sg6.0rs": "SG6.0RS",
+                "sg7.0rs": "SG7.0RS", "sg8.0rs": "SG8.0RS", "sg10rs": "SG10RS",
+                "sg12rs": "SG12RS", "sg15rs": "SG15RS", "sg17rs": "SG17RS", "sg20rs": "SG20RS",
+                "sh3.0rs": "SH3.0RS", "sh3.6rs": "SH3.6RS", "sh4.0rs": "SH4.0RS",
+                "sh4.6rs": "SH4.6RS", "sh5.0rs": "SH5.0RS", "sh6.0rs": "SH6.0RS",
+                "sh5.0rt": "SH5.0RT", "sh6.0rt": "SH6.0RT", "sh8.0rt": "SH8.0RT",
+                "sh10rt": "SH10RT", "sh15t": "SH15T", "sh20t": "SH20T", "sh25t": "SH25T"
+            },
+            fronius: {
+                "primo": "Primo (Single Phase)", "symo": "Symo (Three Phase)",
+                "gen24": "Gen24 / Tauro", "eco": "Eco"
+            },
+            goodwe: {
+                "et": "ET Series (Hybrid)", "eh": "EH Series (Hybrid)",
+                "bt": "BT Series (Hybrid)", "bh": "BH Series (Hybrid)",
+                "es": "ES Series (Hybrid)", "em": "EM Series (Hybrid)"
+            },
+            huawei: {
+                "sun2000-2ktl-l1": "SUN2000-2KTL-L1", "sun2000-3ktl-l1": "SUN2000-3KTL-L1",
+                "sun2000-4ktl-l1": "SUN2000-4KTL-L1", "sun2000-5ktl-l1": "SUN2000-5KTL-L1",
+                "sun2000-6ktl-l1": "SUN2000-6KTL-L1",
+                "sun2000-3ktl-m1": "SUN2000-3KTL-M1", "sun2000-5ktl-m1": "SUN2000-5KTL-M1",
+                "sun2000-6ktl-m1": "SUN2000-6KTL-M1", "sun2000-8ktl-m1": "SUN2000-8KTL-M1",
+                "sun2000-10ktl-m1": "SUN2000-10KTL-M1",
+                "sun2000-8ktl-m2": "SUN2000-8KTL-M2", "sun2000-10ktl-m2": "SUN2000-10KTL-M2",
+                "sun2000-12ktl-m2": "SUN2000-12KTL-M2", "sun2000-15ktl-m2": "SUN2000-15KTL-M2",
+                "sun2000-17ktl-m2": "SUN2000-17KTL-M2", "sun2000-20ktl-m2": "SUN2000-20KTL-M2"
+            },
+            enphase: {
+                "envoy": "Envoy (Legacy)", "envoy-s": "Envoy-S",
+                "envoy-s-metered": "Envoy-S Metered",
+                "iq-gateway": "IQ Gateway", "iq-gateway-metered": "IQ Gateway Metered"
+            }
+        };
+
+        // Brand-specific defaults
+        const brandDefaults = {
+            sungrow: { port: 502, slaveId: 1, protocol: 'Modbus TCP' },
+            fronius: { port: 502, slaveId: 1, protocol: 'Modbus TCP (SunSpec)' },
+            goodwe: { port: 502, slaveId: 247, protocol: 'Modbus TCP' },
+            huawei: { port: 502, slaveId: 1, protocol: 'Modbus TCP' },
+            enphase: { port: 443, slaveId: 1, protocol: 'HTTPS REST API' }
+        };
+
+        function updateInverterModels() {
+            const brand = document.getElementById('inverter_brand').value;
+            const modelSelect = document.getElementById('inverter_model');
+            const portInput = document.getElementById('inverter_port');
+            const slaveIdInput = document.getElementById('inverter_slave_id');
+            const slaveIdLabel = document.getElementById('slaveIdLabel');
+            const currentModel = '{{ current_user.inverter_model or "" }}';
+
+            // Clear existing options
+            modelSelect.innerHTML = '<option value="">Select model...</option>';
+
+            if (brand && inverterModels[brand]) {
+                // Add models for selected brand
+                for (const [value, label] of Object.entries(inverterModels[brand])) {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = label;
+                    if (value === currentModel) {
+                        option.selected = true;
+                    }
+                    modelSelect.appendChild(option);
+                }
+
+                // Update defaults
+                const defaults = brandDefaults[brand];
+                if (defaults) {
+                    portInput.value = defaults.port;
+                    slaveIdInput.value = defaults.slaveId;
+                }
+
+                // Show/hide Slave ID for Enphase (doesn't use Modbus)
+                if (slaveIdLabel) {
+                    slaveIdLabel.style.display = (brand === 'enphase') ? 'none' : 'block';
+                }
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const brandSelect = document.getElementById('inverter_brand');
+            if (brandSelect) {
+                brandSelect.addEventListener('change', updateInverterModels);
+                // Initialize models if brand is already selected
+                if (brandSelect.value) {
+                    updateInverterModels();
+                }
+            }
+        });
 
         async function testInverterConnection() {
             const btn = document.getElementById('testInverterBtn');
