@@ -3331,6 +3331,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         _LOGGER.info("Saved operation mode: %s, backup reserve: %s%%",
                                      force_charge_state["saved_operation_mode"],
                                      force_charge_state["saved_backup_reserve"])
+                        if force_charge_state["saved_backup_reserve"] is None:
+                            _LOGGER.warning("backup_reserve_percent not in site_info response - will use default on restore")
+                    else:
+                        text = await response.text()
+                        _LOGGER.error(f"Failed to get site_info for saving: {response.status} - {text}")
 
             # Step 3: Switch to autonomous mode for best charging behavior
             if force_charge_state.get("saved_operation_mode") != "autonomous":
@@ -3640,7 +3645,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.warning(f"Could not restore operation mode: {response.status}")
 
             # Restore backup reserve if it was saved during force charge
+            # If saved value is None, try to get current value from site_info or use default
             saved_backup_reserve = force_charge_state.get("saved_backup_reserve")
+
+            if saved_backup_reserve is None:
+                # Try to get current backup reserve from API to check if it's at 100%
+                _LOGGER.warning("No saved backup reserve found - checking current value")
+                try:
+                    async with session.get(
+                        f"{api_base}/api/1/energy_sites/{site_id}/site_info",
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            current_reserve = data.get("response", {}).get("backup_reserve_percent")
+                            _LOGGER.info(f"Current backup reserve is {current_reserve}%")
+                            # If it's at 100% (force charge set it), restore to default 20%
+                            if current_reserve == 100:
+                                saved_backup_reserve = 20
+                                _LOGGER.info("Backup reserve at 100% from force charge - will restore to default 20%")
+                except Exception as e:
+                    _LOGGER.warning(f"Could not check current backup reserve: {e}")
+
             if saved_backup_reserve is not None:
                 _LOGGER.info(f"Restoring backup reserve to: {saved_backup_reserve}%")
                 async with session.post(
@@ -3650,9 +3677,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as response:
                     if response.status == 200:
-                        _LOGGER.info(f"Restored backup reserve to {saved_backup_reserve}%")
+                        _LOGGER.info(f"✅ Restored backup reserve to {saved_backup_reserve}%")
                     else:
-                        _LOGGER.warning(f"Could not restore backup reserve: {response.status}")
+                        text = await response.text()
+                        _LOGGER.error(f"Failed to restore backup reserve: {response.status} - {text}")
+            else:
+                _LOGGER.warning("Could not determine backup reserve to restore")
 
             # Clear discharge state
             force_discharge_state["active"] = False
