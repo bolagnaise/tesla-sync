@@ -1734,6 +1734,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
         if not inverter_enabled:
+            _LOGGER.debug("AC-coupled inverter curtailment not enabled in config - skipping")
             return True  # Not enabled, nothing to do
 
         inverter_brand = entry.options.get(
