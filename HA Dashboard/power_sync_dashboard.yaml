@@ -56,32 +56,18 @@ views:
                   height: 140px;
                 }
       # Battery Control Buttons
-      # SETUP REQUIRED:
-      # 1. Create input_select helpers via Settings > Devices > Helpers > Dropdown:
+      # OPTIONAL: Create input_select helpers for variable duration via Settings > Devices > Helpers > Dropdown:
       #    - Name: Force Charge Duration | Entity ID: input_select.force_charge_duration | Options: 15, 30, 45, 60, 90, 120
       #    - Name: Force Discharge Duration | Entity ID: input_select.force_discharge_duration | Options: 15, 30, 45, 60, 90, 120
-      # 2. Create scripts in configuration.yaml or via Settings > Automations & Scenes > Scripts:
-      #    script:
-      #      power_sync_force_charge:
-      #        alias: "PowerSync Force Charge"
-      #        sequence:
-      #          - service: power_sync.force_charge
-      #            data:
-      #              duration: "{{ states('input_select.force_charge_duration') | int }}"
-      #      power_sync_force_discharge:
-      #        alias: "PowerSync Force Discharge"
-      #        sequence:
-      #          - service: power_sync.force_discharge
-      #            data:
-      #              duration: "{{ states('input_select.force_discharge_duration') | int }}"
+      # If helpers are created, the buttons will use the selected duration. Otherwise defaults to 30 minutes.
       - type: custom:mushroom-chips-card
         alignment: center
         chips:
-          # Force Charge Duration Selector
+          # Force Charge Duration Selector (optional - only works if helper exists)
           - type: template
             icon: mdi:timer-outline
             icon_color: blue
-            content: "{{ states('input_select.force_charge_duration') }} min"
+            content: "{{ states('input_select.force_charge_duration') | default('30', true) }} min"
             tap_action:
               action: more-info
               entity: input_select.force_charge_duration
@@ -92,14 +78,16 @@ views:
             content: Force Charge
             tap_action:
               action: call-service
-              service: script.power_sync_force_charge
+              service: power_sync.force_charge
+              data:
+                duration: "{{ states('input_select.force_charge_duration') | default('30', true) | int }}"
               confirmation:
-                text: "Force charge for {{ states('input_select.force_charge_duration') }} minutes?"
-          # Force Discharge Duration Selector
+                text: "Force charge for {{ states('input_select.force_charge_duration') | default('30', true) }} minutes?"
+          # Force Discharge Duration Selector (optional - only works if helper exists)
           - type: template
             icon: mdi:timer-outline
             icon_color: orange
-            content: "{{ states('input_select.force_discharge_duration') }} min"
+            content: "{{ states('input_select.force_discharge_duration') | default('30', true) }} min"
             tap_action:
               action: more-info
               entity: input_select.force_discharge_duration
@@ -110,9 +98,11 @@ views:
             content: Force Discharge
             tap_action:
               action: call-service
-              service: script.power_sync_force_discharge
+              service: power_sync.force_discharge
+              data:
+                duration: "{{ states('input_select.force_discharge_duration') | default('30', true) | int }}"
               confirmation:
-                text: "Force discharge for {{ states('input_select.force_discharge_duration') }} minutes?"
+                text: "Force discharge for {{ states('input_select.force_discharge_duration') | default('30', true) }} minutes?"
           # Restore Normal
           - type: template
             icon: mdi:battery-sync
@@ -291,31 +281,31 @@ views:
         cards:
           # DC Solar Curtailment (Tesla Powerwall)
           - type: custom:mushroom-template-card
-            entity: sensor.solar_curtailment
+            entity: sensor.dc_solar_curtailment
             primary: DC Solar (Tesla)
             secondary: >-
-              {% set state = states('sensor.solar_curtailment') %}
+              {% set state = states('sensor.dc_solar_curtailment') %}
               {% if state == 'Active' %}
               CURTAILED - Export blocked
               {% else %}
               Normal - Export allowed
               {% endif %}
             icon: >-
-              {% set state = states('sensor.solar_curtailment') %}
+              {% set state = states('sensor.dc_solar_curtailment') %}
               {% if state == 'Active' %}
               mdi:solar-power-variant-outline
               {% else %}
               mdi:solar-power-variant
               {% endif %}
             icon_color: >-
-              {% set state = states('sensor.solar_curtailment') %}
+              {% set state = states('sensor.dc_solar_curtailment') %}
               {% if state == 'Active' %}
               red
               {% else %}
               green
               {% endif %}
             badge_icon: >-
-              {% set state = states('sensor.solar_curtailment') %}
+              {% set state = states('sensor.dc_solar_curtailment') %}
               {% if state == 'Active' %}
               mdi:close-circle
               {% endif %}
@@ -325,7 +315,7 @@ views:
             card_mod:
               style: |
                 ha-card {
-                  {% set state = states('sensor.solar_curtailment') %}
+                  {% set state = states('sensor.dc_solar_curtailment') %}
                   {% if state == 'Active' %}
                   background: linear-gradient(135deg, rgba(244, 67, 54, 0.15) 0%, rgba(244, 67, 54, 0.05) 100%);
                   {% else %}
