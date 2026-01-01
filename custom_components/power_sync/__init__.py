@@ -1616,8 +1616,89 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Signal sensor to update
         async_dispatcher_send(hass, f"power_sync_curtailment_updated_{entry.entry_id}")
 
+    # Helper function to get battery SOC from Tesla API
+    async def get_battery_soc() -> float | None:
+        """Get current battery SOC from Tesla API.
+
+        Returns:
+            Battery SOC percentage (0-100) or None if unavailable
+        """
+        try:
+            current_token, current_provider = token_getter()
+            if not current_token:
+                _LOGGER.debug("No Tesla API token available for battery SOC check")
+                return None
+
+            session = async_get_clientsession(hass)
+            api_base_url = TESLEMETRY_API_BASE_URL if current_provider == TESLA_PROVIDER_TESLEMETRY else FLEET_API_BASE_URL
+            headers = {
+                "Authorization": f"Bearer {current_token}",
+                "Content-Type": "application/json",
+            }
+
+            async with session.get(
+                f"{api_base_url}/api/1/energy_sites/{entry.data[CONF_TESLA_ENERGY_SITE_ID]}/live_status",
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    site_status = data.get("response", {})
+                    battery_soc = site_status.get("percentage_charged")
+                    if battery_soc is not None:
+                        _LOGGER.debug(f"Battery SOC from Tesla API: {battery_soc}%")
+                        return float(battery_soc)
+                else:
+                    _LOGGER.debug(f"Failed to get live_status: {response.status}")
+
+        except Exception as e:
+            _LOGGER.debug(f"Error getting battery SOC: {e}")
+
+        return None
+
+    # Smart AC-coupled curtailment check
+    async def should_curtail_ac_coupled(import_price: float | None, export_earnings: float | None) -> bool:
+        """Smart curtailment logic for AC-coupled solar systems.
+
+        For AC-coupled systems, we only curtail the inverter when:
+        1. Import price is negative (cheaper to buy power than generate it), OR
+        2. Battery is at 99%+ (can't absorb more solar) AND export is unprofitable
+
+        If the battery can still absorb power, let the solar charge it even if export price is low.
+
+        Args:
+            import_price: Current import price in c/kWh (negative = get paid to import)
+            export_earnings: Current export earnings in c/kWh
+
+        Returns:
+            True if we should curtail, False if we should allow production
+        """
+        # Check 1: If import price is negative, always curtail (get paid to import instead)
+        if import_price is not None and import_price < 0:
+            _LOGGER.info(f"🔌 AC-COUPLED: Import price negative ({import_price:.2f}c/kWh) - should curtail")
+            return True
+
+        # Check 2: Get battery SOC - only curtail if battery is full (99%+)
+        battery_soc = await get_battery_soc()
+
+        if battery_soc is None:
+            _LOGGER.debug("Could not get battery SOC - not curtailing AC solar (conservative approach)")
+            return False
+
+        # Only curtail if battery is at 99%+ AND export is unprofitable (< 1c/kWh)
+        if battery_soc >= 99:
+            if export_earnings is not None and export_earnings < 1:
+                _LOGGER.info(f"🔌 AC-COUPLED: Battery full ({battery_soc:.0f}%) AND export unprofitable ({export_earnings:.2f}c/kWh) - should curtail")
+                return True
+            else:
+                _LOGGER.debug(f"Battery full ({battery_soc:.0f}%) but export still profitable ({export_earnings:.2f}c/kWh) - not curtailing")
+                return False
+        else:
+            _LOGGER.debug(f"Battery not full ({battery_soc:.0f}%) - solar can charge battery, not curtailing")
+            return False
+
     # Helper function for AC-coupled inverter curtailment
-    async def apply_inverter_curtailment(curtail: bool) -> bool:
+    async def apply_inverter_curtailment(curtail: bool, import_price: float | None = None, export_earnings: float | None = None) -> bool:
         """Apply or remove inverter curtailment for AC-coupled solar systems.
 
         Args:
@@ -1673,6 +1754,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 return False
 
             if curtail:
+                # Use smart AC-coupled curtailment logic
+                # Only curtail if: import price < 0 OR (battery >= 99% AND export < 1c)
+                should_curtail = await should_curtail_ac_coupled(import_price, export_earnings)
+
+                if not should_curtail:
+                    # Smart logic says don't curtail - battery can still absorb solar
+                    _LOGGER.info(f"⚡ AC-COUPLED: Skipping inverter curtailment (battery can absorb solar)")
+                    return True  # Success - intentionally not curtailing
+
                 _LOGGER.info(f"🔴 Curtailing inverter at {inverter_host}")
                 success = await controller.curtail()
                 if success:
@@ -2313,10 +2403,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 return
 
             feedin_price = None
+            import_price = None  # General/buy price
             for price_data in current_prices:
                 if price_data.get("channelType") == "feedIn":
                     feedin_price = price_data.get("perKwh", 0)
-                    break
+                elif price_data.get("channelType") == "general":
+                    import_price = price_data.get("perKwh", 0)
 
             if feedin_price is None:
                 _LOGGER.warning("No feed-in price found in Amber data")
@@ -2327,7 +2419,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # e.g., feedin_price = +5.00 means you pay 5c/kWh to export (bad!)
             # So we want to curtail when feedin_price > 0 (user would pay to export)
             export_earnings = -feedin_price  # Convert to positive = earnings per kWh
-            _LOGGER.info(f"Current feed-in price from Amber: {feedin_price}c/kWh (export earnings: {export_earnings}c/kWh)")
+            _LOGGER.info(f"Current prices from Amber: import={import_price}c/kWh, export earnings={export_earnings:.2f}c/kWh")
 
             # Get current grid export settings from Tesla
             # Get fresh token in case it was refreshed by tesla_fleet integration
@@ -2452,8 +2544,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         _LOGGER.info(f"✅ CURTAILMENT APPLIED: Export rule changed '{current_export_rule}' → 'never'")
                         await update_cached_export_rule("never")
 
-                        # Also curtail AC-coupled inverter if configured
-                        await apply_inverter_curtailment(curtail=True)
+                        # Also curtail AC-coupled inverter if configured (uses smart logic)
+                        await apply_inverter_curtailment(curtail=True, import_price=import_price, export_earnings=export_earnings)
 
                         _LOGGER.info(f"📊 Action summary: Curtailment active (earnings: {export_earnings:.2f}c/kWh, export: 'never')")
 
@@ -2567,12 +2659,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.warning("No perKwh in WebSocket feed-in data")
                 return
 
+            # Also extract import price for smart AC-coupled curtailment
+            general_data = websocket_data.get('general', {}) if websocket_data else None
+            import_price = general_data.get('perKwh') if general_data else None
+
             # Amber returns feed-in prices as NEGATIVE when you're paid to export
             # e.g., feedin_price = -10.44 means you get paid 10.44c/kWh (good!)
             # e.g., feedin_price = +5.00 means you pay 5c/kWh to export (bad!)
             # So we want to curtail when feedin_price > 0 (user would pay to export)
             export_earnings = -feedin_price  # Convert to positive = earnings per kWh
-            _LOGGER.info(f"Current feed-in price (WebSocket): {feedin_price}c/kWh (export earnings: {export_earnings:.2f}c/kWh)")
+            _LOGGER.info(f"Current prices (WebSocket): import={import_price}c/kWh, export earnings={export_earnings:.2f}c/kWh")
 
             # Get current grid export settings from Tesla
             # Get fresh token in case it was refreshed by tesla_fleet integration
@@ -2697,8 +2793,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         _LOGGER.info(f"✅ CURTAILMENT APPLIED: Export rule changed '{current_export_rule}' → 'never'")
                         await update_cached_export_rule("never")
 
-                        # Also curtail AC-coupled inverter if configured
-                        await apply_inverter_curtailment(curtail=True)
+                        # Also curtail AC-coupled inverter if configured (uses smart logic)
+                        await apply_inverter_curtailment(curtail=True, import_price=import_price, export_earnings=export_earnings)
 
                         _LOGGER.info(f"📊 Action summary: Curtailment active (earnings: {export_earnings:.2f}c/kWh, export: 'never')")
 
