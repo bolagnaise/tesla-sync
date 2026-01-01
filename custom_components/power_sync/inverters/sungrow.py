@@ -166,7 +166,7 @@ class SungrowController(InverterController):
             return False
 
     async def _read_register(self, address: int, count: int = 1) -> Optional[list]:
-        """Read values from Modbus registers.
+        """Read values from Modbus holding registers (for control/config values).
 
         Args:
             address: Starting register address (0-indexed)
@@ -187,16 +187,53 @@ class SungrowController(InverterController):
             )
 
             if result.isError():
-                _LOGGER.debug(f"Modbus read error at register {address}: {result}")
+                _LOGGER.debug(f"Modbus holding read error at register {address}: {result}")
                 return None
 
             return result.registers
 
         except ModbusException as e:
-            _LOGGER.debug(f"Modbus exception reading register {address}: {e}")
+            _LOGGER.debug(f"Modbus exception reading holding register {address}: {e}")
             return None
         except Exception as e:
-            _LOGGER.debug(f"Error reading register {address}: {e}")
+            _LOGGER.debug(f"Error reading holding register {address}: {e}")
+            return None
+
+    async def _read_input_register(self, address: int, count: int = 1) -> Optional[list]:
+        """Read values from Modbus input registers (for status/measurement values).
+
+        Sungrow inverters use input registers (function code 0x04) for data
+        in the 5xxx address range.
+
+        Args:
+            address: Starting register address (0-indexed)
+            count: Number of registers to read
+
+        Returns:
+            List of register values or None on error
+        """
+        if not self._client or not self._client.connected:
+            if not await self.connect():
+                return None
+
+        try:
+            result = await self._client.read_input_registers(
+                address=address,
+                count=count,
+                slave=self.slave_id,
+            )
+
+            if result.isError():
+                _LOGGER.debug(f"Modbus input read error at register {address}: {result}")
+                return None
+
+            return result.registers
+
+        except ModbusException as e:
+            _LOGGER.debug(f"Modbus exception reading input register {address}: {e}")
+            return None
+        except Exception as e:
+            _LOGGER.debug(f"Error reading input register {address}: {e}")
             return None
 
     def _to_signed16(self, value: int) -> int:
@@ -210,27 +247,31 @@ class SungrowController(InverterController):
         return (high << 16) | low
 
     async def _read_all_registers(self) -> dict:
-        """Read all SG series registers and return as attributes dict."""
+        """Read all SG series registers and return as attributes dict.
+
+        Uses input registers (function code 0x04) for measurement data,
+        which is standard for Sungrow inverters in the 5xxx address range.
+        """
         attrs = {}
 
         try:
-            # Read daily yield
-            daily_yield = await self._read_register(self.REG_DAILY_YIELD, 1)
+            # Read daily yield (input register)
+            daily_yield = await self._read_input_register(self.REG_DAILY_YIELD, 1)
             if daily_yield:
                 attrs["daily_pv_generation"] = round(daily_yield[0] * 0.1, 2)
 
-            # Read total yield (32-bit)
-            total_yield = await self._read_register(self.REG_TOTAL_YIELD, 2)
+            # Read total yield (32-bit, input register)
+            total_yield = await self._read_input_register(self.REG_TOTAL_YIELD, 2)
             if total_yield and len(total_yield) >= 2:
                 attrs["total_pv_generation"] = round(self._to_unsigned32(total_yield[0], total_yield[1]) * 0.1, 1)
 
-            # Read DC power (32-bit)
-            dc_power = await self._read_register(self.REG_TOTAL_DC_POWER, 2)
+            # Read DC power (32-bit, input register)
+            dc_power = await self._read_input_register(self.REG_TOTAL_DC_POWER, 2)
             if dc_power and len(dc_power) >= 2:
                 attrs["dc_power"] = self._to_unsigned32(dc_power[0], dc_power[1])
 
-            # Read MPPT values
-            mppt_regs = await self._read_register(self.REG_MPPT1_VOLTAGE, 4)
+            # Read MPPT values (input registers)
+            mppt_regs = await self._read_input_register(self.REG_MPPT1_VOLTAGE, 4)
             if mppt_regs and len(mppt_regs) >= 4:
                 attrs["mppt1_voltage"] = round(mppt_regs[0] * 0.1, 1)
                 attrs["mppt1_current"] = round(mppt_regs[1] * 0.1, 1)
@@ -240,22 +281,22 @@ class SungrowController(InverterController):
                 attrs["mppt1_power"] = round(attrs["mppt1_voltage"] * attrs["mppt1_current"], 0)
                 attrs["mppt2_power"] = round(attrs["mppt2_voltage"] * attrs["mppt2_current"], 0)
 
-            # Read inverter temperature
-            inv_temp = await self._read_register(self.REG_INVERTER_TEMP, 1)
+            # Read inverter temperature (input register)
+            inv_temp = await self._read_input_register(self.REG_INVERTER_TEMP, 1)
             if inv_temp:
                 attrs["inverter_temperature"] = round(self._to_signed16(inv_temp[0]) * 0.1, 1)
 
-            # Read grid voltage
-            voltage = await self._read_register(self.REG_PHASE_A_VOLTAGE, 1)
+            # Read grid voltage (input register)
+            voltage = await self._read_input_register(self.REG_PHASE_A_VOLTAGE, 1)
             if voltage:
                 attrs["grid_voltage"] = round(voltage[0] * 0.1, 1)
 
-            # Read grid frequency
-            freq = await self._read_register(self.REG_GRID_FREQUENCY, 1)
+            # Read grid frequency (input register)
+            freq = await self._read_input_register(self.REG_GRID_FREQUENCY, 1)
             if freq:
                 attrs["grid_frequency"] = round(freq[0] * 0.1, 2)
 
-            # Read power limit settings
+            # Read power limit settings (holding registers - these are configurable)
             limit_toggle = await self._read_register(self.REGISTER_POWER_LIMIT_TOGGLE, 1)
             if limit_toggle:
                 attrs["power_limit_enabled"] = limit_toggle[0] == 170  # 0xAA = enabled
@@ -367,9 +408,8 @@ class SungrowController(InverterController):
             # Read all available registers
             attrs = await self._read_all_registers()
 
-            # Read running state register
-            state_regs = await self._read_register(self.REGISTER_RUNNING_STATE, 1)
-            power_regs = await self._read_register(self.REGISTER_TOTAL_ACTIVE_POWER, 1)
+            # Read running state register (input register for status data)
+            state_regs = await self._read_input_register(self.REGISTER_RUNNING_STATE, 1)
 
             if state_regs is None:
                 return InverterState(
@@ -379,7 +419,8 @@ class SungrowController(InverterController):
                 )
 
             running_state = state_regs[0]
-            power_output = power_regs[0] if power_regs else None
+            # Use dc_power from attrs (already read as 32-bit value)
+            power_output = attrs.get("dc_power")
 
             # Determine status based on running state
             is_curtailed = running_state in (
