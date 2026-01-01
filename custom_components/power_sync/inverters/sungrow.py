@@ -42,8 +42,9 @@ class SungrowController(InverterController):
     REGISTER_RUNNING_STATE = 5037     # Current running state
     REGISTER_TOTAL_ACTIVE_POWER = 5016  # Total active power (W)
 
-    # Running state values
-    STATE_RUNNING = 0x0002
+    # Running state values (varies by model - SG10RS uses 0x0000 for running)
+    STATE_RUNNING = 0x0000       # Normal operation (SG10RS)
+    STATE_RUNNING_ALT = 0x0002   # Normal operation (some models)
     STATE_STOP = 0x8000
     STATE_STANDBY = 0xA000
     STATE_INITIAL_STANDBY = 0x1400
@@ -242,36 +243,58 @@ class SungrowController(InverterController):
             return value - 0x10000
         return value
 
-    def _to_unsigned32(self, high: int, low: int) -> int:
-        """Convert two unsigned 16-bit registers to unsigned 32-bit."""
-        return (high << 16) | low
+    def _to_unsigned32(self, regs: list) -> int:
+        """Convert two unsigned 16-bit registers to unsigned 32-bit.
+
+        Sungrow stores 32-bit values as LOW:HIGH (little-endian),
+        so regs[0] is the low word and regs[1] is the high word.
+        """
+        return (regs[1] << 16) | regs[0]
+
+    async def _read_any_register(self, address: int, count: int = 1) -> Optional[list]:
+        """Try reading registers using input registers first, then holding registers.
+
+        Some Sungrow models/firmware versions use input registers (0x04),
+        others use holding registers (0x03). This method tries both.
+        """
+        # Try input registers first (most common for measurement data)
+        result = await self._read_input_register(address, count)
+        if result:
+            return result
+
+        # Fall back to holding registers
+        _LOGGER.debug(f"Input register read failed at {address}, trying holding registers")
+        return await self._read_register(address, count)
 
     async def _read_all_registers(self) -> dict:
         """Read all SG series registers and return as attributes dict.
 
-        Uses input registers (function code 0x04) for measurement data,
-        which is standard for Sungrow inverters in the 5xxx address range.
+        Tries input registers first, then falls back to holding registers
+        for compatibility with different Sungrow models/firmware.
         """
         attrs = {}
 
         try:
-            # Read daily yield (input register)
-            daily_yield = await self._read_input_register(self.REG_DAILY_YIELD, 1)
+            # Read DC power (32-bit) - this is the most important reading
+            dc_power = await self._read_any_register(self.REG_TOTAL_DC_POWER, 2)
+            if dc_power and len(dc_power) >= 2:
+                attrs["dc_power"] = self._to_unsigned32(dc_power)
+                _LOGGER.debug(f"Sungrow DC power: {attrs['dc_power']}W")
+            else:
+                _LOGGER.warning(f"Failed to read DC power from register {self.REG_TOTAL_DC_POWER}")
+
+            # Read daily yield
+            daily_yield = await self._read_any_register(self.REG_DAILY_YIELD, 1)
             if daily_yield:
                 attrs["daily_pv_generation"] = round(daily_yield[0] * 0.1, 2)
 
-            # Read total yield (32-bit, input register)
-            total_yield = await self._read_input_register(self.REG_TOTAL_YIELD, 2)
+            # Read total yield (32-bit)
+            total_yield = await self._read_any_register(self.REG_TOTAL_YIELD, 2)
             if total_yield and len(total_yield) >= 2:
-                attrs["total_pv_generation"] = round(self._to_unsigned32(total_yield[0], total_yield[1]) * 0.1, 1)
+                attrs["total_pv_generation"] = round(self._to_unsigned32(total_yield) * 0.1, 1)
 
-            # Read DC power (32-bit, input register)
-            dc_power = await self._read_input_register(self.REG_TOTAL_DC_POWER, 2)
-            if dc_power and len(dc_power) >= 2:
-                attrs["dc_power"] = self._to_unsigned32(dc_power[0], dc_power[1])
-
-            # Read MPPT values (input registers)
-            mppt_regs = await self._read_input_register(self.REG_MPPT1_VOLTAGE, 4)
+            # Read MPPT values
+            mppt_regs = await self._read_any_register(self.REG_MPPT1_VOLTAGE, 4)
             if mppt_regs and len(mppt_regs) >= 4:
                 attrs["mppt1_voltage"] = round(mppt_regs[0] * 0.1, 1)
                 attrs["mppt1_current"] = round(mppt_regs[1] * 0.1, 1)
@@ -281,18 +304,18 @@ class SungrowController(InverterController):
                 attrs["mppt1_power"] = round(attrs["mppt1_voltage"] * attrs["mppt1_current"], 0)
                 attrs["mppt2_power"] = round(attrs["mppt2_voltage"] * attrs["mppt2_current"], 0)
 
-            # Read inverter temperature (input register)
-            inv_temp = await self._read_input_register(self.REG_INVERTER_TEMP, 1)
+            # Read inverter temperature
+            inv_temp = await self._read_any_register(self.REG_INVERTER_TEMP, 1)
             if inv_temp:
                 attrs["inverter_temperature"] = round(self._to_signed16(inv_temp[0]) * 0.1, 1)
 
-            # Read grid voltage (input register)
-            voltage = await self._read_input_register(self.REG_PHASE_A_VOLTAGE, 1)
+            # Read grid voltage
+            voltage = await self._read_any_register(self.REG_PHASE_A_VOLTAGE, 1)
             if voltage:
                 attrs["grid_voltage"] = round(voltage[0] * 0.1, 1)
 
-            # Read grid frequency (input register)
-            freq = await self._read_input_register(self.REG_GRID_FREQUENCY, 1)
+            # Read grid frequency
+            freq = await self._read_any_register(self.REG_GRID_FREQUENCY, 1)
             if freq:
                 attrs["grid_frequency"] = round(freq[0] * 0.1, 2)
 
@@ -300,10 +323,15 @@ class SungrowController(InverterController):
             limit_toggle = await self._read_register(self.REGISTER_POWER_LIMIT_TOGGLE, 1)
             if limit_toggle:
                 attrs["power_limit_enabled"] = limit_toggle[0] == 170  # 0xAA = enabled
+                _LOGGER.debug(f"Sungrow power limit toggle: {limit_toggle[0]}")
 
             limit_percent = await self._read_register(self.REGISTER_POWER_LIMIT_PERCENT, 1)
             if limit_percent:
-                attrs["power_limit_percent"] = min(limit_percent[0], 100)  # Cap at 100%
+                # Value is stored as percentage * 10 (e.g., 1000 = 100%)
+                attrs["power_limit_percent"] = min(limit_percent[0] / 10, 100)
+                _LOGGER.debug(f"Sungrow power limit percent: {attrs['power_limit_percent']}%")
+
+            _LOGGER.info(f"Sungrow register read complete: {len(attrs)} attributes collected")
 
         except Exception as e:
             _LOGGER.warning(f"Error reading some registers: {e}")
@@ -430,7 +458,7 @@ class SungrowController(InverterController):
                 self.STATE_INITIAL_STANDBY,
             )
 
-            if running_state == self.STATE_RUNNING:
+            if running_state in (self.STATE_RUNNING, self.STATE_RUNNING_ALT):
                 status = InverterStatus.ONLINE
                 attrs["running_state"] = "running"
             elif running_state == self.STATE_FAULT:
