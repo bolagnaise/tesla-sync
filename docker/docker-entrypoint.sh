@@ -22,6 +22,10 @@ fi
 echo "Running database migrations..."
 flask db upgrade
 
+# Ensure all required columns exist (fixes Alembic version mismatches)
+echo "Verifying database schema..."
+python /app/docker/ensure_columns.py
+
 # Start the application
 echo "Starting application server..."
 exec "$@"
