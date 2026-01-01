@@ -525,12 +525,40 @@ def api_inverter_test():
 @bp.route('/api/inverter/curtail', methods=['POST'])
 @login_required
 def api_inverter_curtail():
-    """Manually trigger inverter curtailment"""
+    """Manually trigger inverter curtailment.
+
+    For Zeversolar, supports load-following mode via query param or JSON body:
+    - ?load_following=true - Auto-detect home load and limit to that
+    - {"power_limit_w": 1000} - Set specific power limit in watts
+    """
     import asyncio
     from datetime import datetime
 
     if not current_user.inverter_curtailment_enabled:
         return jsonify({'success': False, 'error': 'Inverter curtailment not enabled'})
+
+    # Check for load-following parameters
+    load_following = request.args.get('load_following', 'false').lower() == 'true'
+    data = request.get_json(silent=True) or {}
+    power_limit_w = data.get('power_limit_w')
+
+    # Get home load for load-following mode (Zeversolar only)
+    home_load_w = None
+    if current_user.inverter_brand == 'zeversolar':
+        if power_limit_w is not None:
+            home_load_w = int(power_limit_w)
+            logger.info(f"Manual power limit set to {home_load_w}W")
+        elif load_following:
+            # Auto-detect home load from Tesla
+            try:
+                tesla_client = get_tesla_client(current_user)
+                if tesla_client and current_user.tesla_energy_site_id:
+                    site_status = tesla_client.get_site_status(current_user.tesla_energy_site_id)
+                    if site_status:
+                        home_load_w = int(site_status.get('load_power', 0))
+                        logger.info(f"Load-following curtailment: home load is {home_load_w}W")
+            except Exception as e:
+                logger.warning(f"Failed to get home load for load-following: {e}")
 
     try:
         from app.inverters import get_inverter_controller_from_user
@@ -541,7 +569,11 @@ def api_inverter_curtail():
 
         # Run async function in sync context using asyncio.run()
         async def do_curtail():
-            result = await controller.curtail()
+            # Check if controller supports home_load_w parameter
+            if home_load_w is not None and hasattr(controller.curtail, '__code__') and 'home_load_w' in controller.curtail.__code__.co_varnames:
+                result = await controller.curtail(home_load_w=home_load_w)
+            else:
+                result = await controller.curtail()
             await controller.disconnect()
             return result
 
@@ -550,12 +582,77 @@ def api_inverter_curtail():
         if success:
             current_user.inverter_last_state = 'curtailed'
             current_user.inverter_last_state_updated = datetime.utcnow()
+            current_user.inverter_power_limit_w = home_load_w
             db.session.commit()
 
-        return jsonify({'success': success, 'state': 'curtailed' if success else 'unknown'})
+        response = {'success': success, 'state': 'curtailed' if success else 'unknown'}
+        if home_load_w is not None:
+            response['power_limit_w'] = home_load_w
+        return jsonify(response)
 
     except Exception as e:
         logger.error(f"Error curtailing inverter: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@bp.route('/api/inverter/set-power-limit', methods=['POST'])
+@login_required
+def api_inverter_set_power_limit():
+    """Set inverter power limit in watts (Zeversolar only).
+
+    JSON body:
+    - power_limit_w: Power limit in watts (0 to inverter capacity)
+    - percent: Power limit as percentage (0-100)
+    """
+    import asyncio
+    from datetime import datetime
+
+    if not current_user.inverter_curtailment_enabled:
+        return jsonify({'success': False, 'error': 'Inverter curtailment not enabled'})
+
+    if current_user.inverter_brand != 'zeversolar':
+        return jsonify({'success': False, 'error': 'Power limit control only supported for Zeversolar'})
+
+    data = request.get_json(silent=True) or {}
+    power_limit_w = data.get('power_limit_w')
+    percent = data.get('percent')
+
+    if power_limit_w is None and percent is None:
+        return jsonify({'success': False, 'error': 'Provide power_limit_w or percent'})
+
+    try:
+        from app.inverters import get_inverter_controller_from_user
+
+        controller = get_inverter_controller_from_user(current_user)
+        if not controller:
+            return jsonify({'success': False, 'error': 'Failed to create inverter controller'})
+
+        # Run async function in sync context using asyncio.run()
+        async def do_set_limit():
+            if power_limit_w is not None:
+                result = await controller.set_power_limit_watts(int(power_limit_w))
+            else:
+                result = await controller._set_power_limit(int(percent))
+            await controller.disconnect()
+            return result
+
+        success = asyncio.run(do_set_limit())
+
+        if success:
+            current_user.inverter_last_state = 'curtailed' if (percent is not None and percent < 100) or (power_limit_w is not None and power_limit_w < controller.ac_capacity_w) else 'online'
+            current_user.inverter_last_state_updated = datetime.utcnow()
+            current_user.inverter_power_limit_w = power_limit_w
+            db.session.commit()
+
+        response = {'success': success}
+        if power_limit_w is not None:
+            response['power_limit_w'] = power_limit_w
+        if percent is not None:
+            response['percent'] = percent
+        return jsonify(response)
+
+    except Exception as e:
+        logger.error(f"Error setting inverter power limit: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -587,6 +684,7 @@ def api_inverter_restore():
         if success:
             current_user.inverter_last_state = 'online'
             current_user.inverter_last_state_updated = datetime.utcnow()
+            current_user.inverter_power_limit_w = None  # Clear power limit
             db.session.commit()
 
         return jsonify({'success': success, 'state': 'online' if success else 'unknown'})

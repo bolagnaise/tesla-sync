@@ -173,13 +173,49 @@ class ZeversolarController(InverterController):
             _LOGGER.error(f"Unexpected error setting power limit: {e}")
             return False
 
-    async def curtail(self) -> bool:
-        """Curtail (stop) inverter production.
+    async def set_power_limit_watts(self, watts: int) -> bool:
+        """Set the power output limit in watts.
 
-        Sets power output to 0%.
+        Converts watts to percentage based on inverter capacity.
+        Used for load-following curtailment where we limit production
+        to match home load instead of fully shutting down.
+
+        Args:
+            watts: Power limit in watts (0 to ac_capacity_w)
+
+        Returns:
+            True if successful, False otherwise
         """
-        _LOGGER.info(f"Curtailing Zeversolar at {self.host}")
-        return await self._set_power_limit(0)
+        if watts < 0:
+            watts = 0
+        if watts > self.ac_capacity_w:
+            watts = self.ac_capacity_w
+
+        # Convert watts to percentage
+        # Round up to ensure we don't under-supply home load
+        percent = min(100, int((watts / self.ac_capacity_w) * 100) + 1)
+
+        _LOGGER.info(f"Setting Zeversolar power limit to {watts}W ({percent}% of {self.ac_capacity_w}W)")
+        return await self._set_power_limit(percent)
+
+    async def curtail(self, home_load_w: int = None) -> bool:
+        """Curtail inverter production.
+
+        If home_load_w is provided, uses load-following mode (limits to home load).
+        Otherwise, sets power output to 0% (full curtailment).
+
+        Args:
+            home_load_w: Optional home load in watts for load-following mode
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if home_load_w is not None and home_load_w > 0:
+            _LOGGER.info(f"Load-following curtailment: limiting to {home_load_w}W for {self.host}")
+            return await self.set_power_limit_watts(home_load_w)
+        else:
+            _LOGGER.info(f"Full curtailment: setting to 0% for {self.host}")
+            return await self._set_power_limit(0)
 
     async def restore(self) -> bool:
         """Restore normal inverter operation.

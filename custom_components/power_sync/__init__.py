@@ -1784,12 +1784,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.info(f"⚡ AC-COUPLED: Skipping inverter curtailment (battery can absorb solar)")
                     return True  # Success - intentionally not curtailing
 
+                # For Zeversolar, use load-following curtailment (limit to home load)
+                home_load_w = None
+                if inverter_brand == "zeversolar":
+                    live_status = await get_live_status()
+                    if live_status and live_status.get("load_power"):
+                        home_load_w = int(live_status.get("load_power", 0))
+                        _LOGGER.info(f"🔌 LOAD-FOLLOWING: Home load is {home_load_w}W")
+
                 _LOGGER.info(f"🔴 Curtailing inverter at {inverter_host}")
-                success = await controller.curtail()
+
+                # Pass home_load_w for load-following (Zeversolar)
+                if home_load_w is not None and hasattr(controller, 'curtail'):
+                    # Check if curtail accepts home_load_w parameter
+                    import inspect
+                    sig = inspect.signature(controller.curtail)
+                    if 'home_load_w' in sig.parameters:
+                        success = await controller.curtail(home_load_w=home_load_w)
+                    else:
+                        success = await controller.curtail()
+                else:
+                    success = await controller.curtail()
+
                 if success:
-                    _LOGGER.info(f"✅ Inverter curtailed successfully")
+                    if home_load_w is not None:
+                        _LOGGER.info(f"✅ Inverter load-following curtailment to {home_load_w}W")
+                    else:
+                        _LOGGER.info(f"✅ Inverter curtailed successfully")
                     # Store last state
                     hass.data[DOMAIN][entry.entry_id]["inverter_last_state"] = "curtailed"
+                    hass.data[DOMAIN][entry.entry_id]["inverter_power_limit_w"] = home_load_w
                 else:
                     _LOGGER.error(f"❌ Failed to curtail inverter")
                 return success
@@ -1800,6 +1824,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.info(f"✅ Inverter restored successfully")
                     # Store last state
                     hass.data[DOMAIN][entry.entry_id]["inverter_last_state"] = "running"
+                    hass.data[DOMAIN][entry.entry_id]["inverter_power_limit_w"] = None  # Clear power limit
                 else:
                     _LOGGER.error(f"❌ Failed to restore inverter")
                 return success

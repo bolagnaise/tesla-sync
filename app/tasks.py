@@ -2259,6 +2259,10 @@ def _apply_inverter_curtailment(user, curtail: bool = True):
     This is a non-blocking helper that runs inverter control in a separate thread
     to avoid blocking the main curtailment task.
 
+    For Zeversolar inverters, uses load-following mode when curtailing:
+    - Gets current home load from Tesla API
+    - Limits inverter output to match home load (prevents export while powering home)
+
     Note: For smart curtailment logic (checking battery SOC and import price),
     use _check_ac_coupled_curtailment() first to determine if curtailment is needed.
 
@@ -2280,6 +2284,21 @@ def _apply_inverter_curtailment(user, curtail: bool = True):
     action = "curtailing" if curtail else "restoring"
     logger.info(f"🔌 INVERTER: {action.upper()} inverter for {user.email} ({user.inverter_brand} at {user.inverter_host})")
 
+    # For load-following curtailment (Zeversolar), get current home load
+    home_load_w = None
+    if curtail and user.inverter_brand == 'zeversolar':
+        try:
+            tesla_client = get_tesla_client(user)
+            if tesla_client and user.tesla_energy_site_id:
+                site_status = tesla_client.get_site_status(user.tesla_energy_site_id)
+                if site_status:
+                    home_load_w = int(site_status.get('load_power', 0))
+                    logger.info(f"🔌 LOAD-FOLLOWING: Home load is {home_load_w}W for {user.email}")
+        except Exception as e:
+            logger.warning(f"Failed to get home load for load-following: {e}")
+            # Fall back to full curtailment if we can't get home load
+            home_load_w = None
+
     try:
         from app.inverters import get_inverter_controller_from_user
 
@@ -2293,7 +2312,12 @@ def _apply_inverter_curtailment(user, curtail: bool = True):
         async def run_inverter_action():
             try:
                 if curtail:
-                    result = await controller.curtail()
+                    # Pass home_load_w for load-following (Zeversolar)
+                    # Other inverters ignore this parameter
+                    if hasattr(controller.curtail, '__code__') and 'home_load_w' in controller.curtail.__code__.co_varnames:
+                        result = await controller.curtail(home_load_w=home_load_w)
+                    else:
+                        result = await controller.curtail()
                 else:
                     result = await controller.restore()
                 await controller.disconnect()
@@ -2308,8 +2332,15 @@ def _apply_inverter_curtailment(user, curtail: bool = True):
             new_state = 'curtailed' if curtail else 'online'
             user.inverter_last_state = new_state
             user.inverter_last_state_updated = datetime.utcnow()
+            if home_load_w is not None and curtail:
+                user.inverter_power_limit_w = home_load_w
+            elif not curtail:
+                user.inverter_power_limit_w = None  # Clear when restored
             db.session.commit()
-            logger.info(f"✅ INVERTER: Successfully {action} inverter for {user.email} (state: {new_state})")
+            if home_load_w is not None and curtail:
+                logger.info(f"✅ INVERTER: Load-following curtailment to {home_load_w}W for {user.email} (state: {new_state})")
+            else:
+                logger.info(f"✅ INVERTER: Successfully {action} inverter for {user.email} (state: {new_state})")
         else:
             logger.error(f"❌ INVERTER: Failed to {action[:-3]} inverter for {user.email}")
 

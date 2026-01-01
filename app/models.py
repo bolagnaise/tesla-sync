@@ -104,6 +104,7 @@ class User(UserMixin, db.Model):
     inverter_slave_id = db.Column(db.Integer, default=1)  # Modbus slave ID
     inverter_last_state = db.Column(db.String(20))  # Last known state: 'online', 'curtailed', 'offline'
     inverter_last_state_updated = db.Column(db.DateTime)  # When state was last updated
+    inverter_power_limit_w = db.Column(db.Integer)  # Current power limit in watts (for load-following)
 
     # Demand Charge Configuration
     enable_demand_charges = db.Column(db.Boolean, default=False)
