@@ -290,84 +290,105 @@ views:
       - type: horizontal-stack
         cards:
           # DC Solar Curtailment (Tesla Powerwall)
-          - type: markdown
-            content: >-
-              ## DC Solar (Tesla)
-
+          - type: custom:mushroom-template-card
+            entity: sensor.solar_curtailment
+            primary: DC Solar (Tesla)
+            secondary: >-
               {% set state = states('sensor.solar_curtailment') %}
-              {% set export_rule = state_attr('sensor.solar_curtailment', 'export_rule') %}
               {% if state == 'Active' %}
-              **CURTAILED**
-
-              Export blocked (negative price)
-
-              Rule: `{{ export_rule }}`
+              CURTAILED - Export blocked
               {% else %}
-              **Normal**
-
-              Export allowed
-
-              Rule: `{{ export_rule }}`
+              Normal - Export allowed
               {% endif %}
+            icon: >-
+              {% set state = states('sensor.solar_curtailment') %}
+              {% if state == 'Active' %}
+              mdi:solar-power-variant-outline
+              {% else %}
+              mdi:solar-power-variant
+              {% endif %}
+            icon_color: >-
+              {% set state = states('sensor.solar_curtailment') %}
+              {% if state == 'Active' %}
+              red
+              {% else %}
+              green
+              {% endif %}
+            badge_icon: >-
+              {% set state = states('sensor.solar_curtailment') %}
+              {% if state == 'Active' %}
+              mdi:close-circle
+              {% endif %}
+            badge_color: red
+            tap_action:
+              action: more-info
             card_mod:
               style: |
                 ha-card {
-                  height: 160px;
                   {% set state = states('sensor.solar_curtailment') %}
                   {% if state == 'Active' %}
-                  background: linear-gradient(135deg, rgba(244, 67, 54, 0.1) 0%, rgba(244, 67, 54, 0.05) 100%);
-                  border-left: 4px solid #F44336;
+                  background: linear-gradient(135deg, rgba(244, 67, 54, 0.15) 0%, rgba(244, 67, 54, 0.05) 100%);
                   {% else %}
-                  background: linear-gradient(135deg, rgba(76, 175, 80, 0.1) 0%, rgba(76, 175, 80, 0.05) 100%);
-                  border-left: 4px solid #4CAF50;
+                  background: linear-gradient(135deg, rgba(76, 175, 80, 0.15) 0%, rgba(76, 175, 80, 0.05) 100%);
                   {% endif %}
                 }
           # AC-Coupled Inverter Status
-          - type: markdown
-            content: >-
-              ## AC Inverter
-
+          - type: custom:mushroom-template-card
+            entity: sensor.inverter_status
+            primary: AC Inverter
+            secondary: >-
               {% set state = states('sensor.inverter_status') %}
-              {% set power_limit = state_attr('sensor.inverter_status', 'power_limit_percent') %}
+              {% set power = state_attr('sensor.inverter_status', 'power_limit_percent') %}
               {% set brand = state_attr('sensor.inverter_status', 'brand') %}
               {% if state == 'unavailable' or state == 'unknown' %}
-              **Not Configured**
-
-              Enable in integration settings
+              Not configured
               {% elif state == 'Curtailed' %}
-              **CURTAILED**
-
-              {% if power_limit %}Power: {{ power_limit }}%{% endif %}
-
-              {{ brand | title if brand else '' }}
+              CURTAILED{% if power %} - {{ power }}%{% endif %}
               {% elif state == 'Offline' %}
-              **Offline**
-
-              Cannot reach inverter
+              Offline - Cannot reach
               {% else %}
-              **Normal**
-
-              {% if power_limit %}Power: {{ power_limit }}%{% endif %}
-
-              {{ brand | title if brand else '' }}
+              {{ brand | title if brand else 'Normal' }}{% if power %} - {{ power }}%{% endif %}
               {% endif %}
+            icon: mdi:solar-panel
+            icon_color: >-
+              {% set state = states('sensor.inverter_status') %}
+              {% if state == 'Curtailed' %}
+              red
+              {% elif state == 'Offline' %}
+              orange
+              {% elif state == 'unavailable' or state == 'unknown' %}
+              disabled
+              {% else %}
+              green
+              {% endif %}
+            badge_icon: >-
+              {% set state = states('sensor.inverter_status') %}
+              {% if state == 'Curtailed' %}
+              mdi:close-circle
+              {% elif state == 'Offline' %}
+              mdi:alert-circle
+              {% endif %}
+            badge_color: >-
+              {% set state = states('sensor.inverter_status') %}
+              {% if state == 'Curtailed' %}
+              red
+              {% elif state == 'Offline' %}
+              orange
+              {% endif %}
+            tap_action:
+              action: more-info
             card_mod:
               style: |
                 ha-card {
-                  height: 160px;
                   {% set state = states('sensor.inverter_status') %}
                   {% if state == 'Curtailed' %}
-                  background: linear-gradient(135deg, rgba(244, 67, 54, 0.1) 0%, rgba(244, 67, 54, 0.05) 100%);
-                  border-left: 4px solid #F44336;
+                  background: linear-gradient(135deg, rgba(244, 67, 54, 0.15) 0%, rgba(244, 67, 54, 0.05) 100%);
                   {% elif state == 'Offline' %}
-                  background: linear-gradient(135deg, rgba(255, 152, 0, 0.1) 0%, rgba(255, 152, 0, 0.05) 100%);
-                  border-left: 4px solid #FF9800;
+                  background: linear-gradient(135deg, rgba(255, 152, 0, 0.15) 0%, rgba(255, 152, 0, 0.05) 100%);
                   {% elif state == 'unavailable' or state == 'unknown' %}
                   background: linear-gradient(135deg, rgba(158, 158, 158, 0.1) 0%, rgba(158, 158, 158, 0.05) 100%);
-                  border-left: 4px solid #9E9E9E;
                   {% else %}
-                  background: linear-gradient(135deg, rgba(76, 175, 80, 0.1) 0%, rgba(76, 175, 80, 0.05) 100%);
-                  border-left: 4px solid #4CAF50;
+                  background: linear-gradient(135deg, rgba(76, 175, 80, 0.15) 0%, rgba(76, 175, 80, 0.05) 100%);
                   {% endif %}
                 }
       # Battery Health Gauges
