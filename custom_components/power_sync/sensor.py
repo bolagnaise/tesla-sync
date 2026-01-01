@@ -107,14 +107,23 @@ def _get_import_price(data):
 
 
 def _get_export_price(data):
-    """Extract export (feedIn) price from Amber data."""
+    """Extract export earnings from Amber feedIn data.
+
+    Amber convention: feedIn.perKwh is NEGATIVE when you earn money (good)
+                      feedIn.perKwh is POSITIVE when you pay to export (bad)
+
+    We negate to show user-friendly "export earnings":
+        Positive = earning money per kWh exported
+        Negative = paying money per kWh exported
+    """
     if not data or not data.get("current"):
         return None
     for price in data.get("current", []):
         if price.get("channelType") == "feedIn":
-            # Pass through as-is to match Flask behavior
-            # Negative = earning money, Positive = paying to export
-            return price.get("perKwh", 0) / 100
+            # Negate to convert from Amber feedIn to export earnings
+            # Amber feedIn +10 (paying) → sensor -0.10 (negative earnings)
+            # Amber feedIn -10 (earning) → sensor +0.10 (positive earnings)
+            return -price.get("perKwh", 0) / 100
     return None
 
 
