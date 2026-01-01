@@ -255,6 +255,15 @@ class SungrowController(InverterController):
             if freq:
                 attrs["grid_frequency"] = round(freq[0] * 0.1, 2)
 
+            # Read power limit settings
+            limit_toggle = await self._read_register(self.REGISTER_POWER_LIMIT_TOGGLE, 1)
+            if limit_toggle:
+                attrs["power_limit_enabled"] = limit_toggle[0] == 170  # 0xAA = enabled
+
+            limit_percent = await self._read_register(self.REGISTER_POWER_LIMIT_PERCENT, 1)
+            if limit_percent:
+                attrs["power_limit_percent"] = min(limit_percent[0], 100)  # Cap at 100%
+
         except Exception as e:
             _LOGGER.warning(f"Error reading some registers: {e}")
 
@@ -405,10 +414,16 @@ class SungrowController(InverterController):
             attrs["model"] = self.model or "SG Series"
             attrs["host"] = self.host
 
+            # Get power limit percentage (default to 100 if not available or not enabled)
+            power_limit_pct = attrs.get("power_limit_percent", 100)
+            if not attrs.get("power_limit_enabled", False):
+                power_limit_pct = 100  # If limit not enabled, it's effectively 100%
+
             self._last_state = InverterState(
                 status=status,
                 is_curtailed=is_curtailed,
                 power_output_w=float(power_output) if power_output else None,
+                power_limit_percent=power_limit_pct,
                 attributes=attrs,
             )
 
