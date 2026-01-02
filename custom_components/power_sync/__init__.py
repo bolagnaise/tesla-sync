@@ -4572,6 +4572,83 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id]["curtailment_cancel"] = curtailment_cancel_timer
     _LOGGER.info("Solar curtailment check scheduled every 5 minutes at :01 (same as TOU sync)")
 
+    # Set up fast load-following update (every 30 seconds) for responsive power limiting
+    # This only updates the power limit when already in load-following mode, doesn't change curtail/restore decisions
+    async def fast_load_following_update(now):
+        """Update inverter power limit based on current home load (runs every 30s when in load-following mode)."""
+        try:
+            entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
+
+            # Check if AC curtailment is enabled
+            inverter_curtailment_enabled = entry.options.get(
+                CONF_INVERTER_CURTAILMENT_ENABLED,
+                entry.data.get(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+            )
+            if not inverter_curtailment_enabled:
+                return
+
+            # Check if currently in load-following mode (curtailed state)
+            inverter_last_state = entry_data.get("inverter_last_state")
+            if inverter_last_state != "curtailed":
+                return  # Only update when already in load-following mode
+
+            # Get inverter config
+            inverter_brand = entry.options.get(CONF_INVERTER_BRAND, entry.data.get(CONF_INVERTER_BRAND))
+            inverter_host = entry.options.get(CONF_INVERTER_HOST, entry.data.get(CONF_INVERTER_HOST))
+
+            # Only Zeversolar and Sigenergy support load-following
+            if inverter_brand not in ("zeversolar", "sigenergy"):
+                return
+
+            if not inverter_host:
+                return
+
+            # Get current home load from Tesla API
+            live_status = await get_live_status()
+            if not live_status or not live_status.get("load_power"):
+                return
+
+            home_load_w = int(live_status.get("load_power", 0))
+
+            # Add battery charge rate if charging
+            battery_power = live_status.get("battery_power", 0) or 0
+            battery_charge_w = max(0, -int(battery_power))  # Negative = charging
+            if battery_charge_w > 50:
+                home_load_w += battery_charge_w
+
+            # Get current power limit to avoid unnecessary updates
+            current_limit = entry_data.get("inverter_power_limit_w")
+
+            # Only update if changed by more than 50W (avoid constant small adjustments)
+            if current_limit is not None and abs(home_load_w - current_limit) < 50:
+                return
+
+            # Get inverter controller
+            controller = entry_data.get("inverter_controller")
+            if not controller:
+                return
+
+            # Update power limit
+            import inspect
+            if hasattr(controller, 'curtail'):
+                sig = inspect.signature(controller.curtail)
+                if 'home_load_w' in sig.parameters:
+                    success = await controller.curtail(home_load_w=home_load_w)
+                    if success:
+                        _LOGGER.debug(f"⚡ Fast load-following update: {home_load_w}W")
+                        hass.data[DOMAIN][entry.entry_id]["inverter_power_limit_w"] = home_load_w
+        except Exception as err:
+            _LOGGER.debug(f"Fast load-following update error (non-critical): {err}")
+
+    # Run every 30 seconds at :00 and :30
+    load_following_cancel_timer = async_track_utc_time_change(
+        hass,
+        fast_load_following_update,
+        second=[0, 30],
+    )
+    hass.data[DOMAIN][entry.entry_id]["load_following_cancel"] = load_following_cancel_timer
+    _LOGGER.info("Fast load-following update scheduled every 30 seconds")
+
     # Set up automatic AEMO spike check every minute if enabled
     if aemo_spike_manager:
         async def auto_aemo_spike_check(now):
@@ -4692,6 +4769,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if curtailment_cancel := entry_data.get("curtailment_cancel"):
         curtailment_cancel()
         _LOGGER.debug("Cancelled curtailment timer")
+
+    # Cancel the load-following timer if it exists
+    if load_following_cancel := entry_data.get("load_following_cancel"):
+        load_following_cancel()
+        _LOGGER.debug("Cancelled load-following timer")
 
     # Cancel the AEMO spike timer if it exists
     if aemo_spike_cancel := entry_data.get("aemo_spike_cancel"):
