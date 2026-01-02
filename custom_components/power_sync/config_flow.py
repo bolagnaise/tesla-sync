@@ -111,9 +111,11 @@ from .const import (
     CONF_INVERTER_HOST,
     CONF_INVERTER_PORT,
     CONF_INVERTER_SLAVE_ID,
+    CONF_INVERTER_RESTORE_SOC,
     INVERTER_BRANDS,
     DEFAULT_INVERTER_PORT,
     DEFAULT_INVERTER_SLAVE_ID,
+    DEFAULT_INVERTER_RESTORE_SOC,
     get_models_for_brand,
     get_brand_defaults,
     # Network Tariff configuration
@@ -1552,6 +1554,11 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
             else:
                 final_data[CONF_INVERTER_SLAVE_ID] = 1  # Default for HTTP-based inverters
 
+            # Restore SOC threshold for AC inverter curtailment
+            final_data[CONF_INVERTER_RESTORE_SOC] = user_input.get(
+                CONF_INVERTER_RESTORE_SOC, DEFAULT_INVERTER_RESTORE_SOC
+            )
+
             return self.async_create_entry(title="", data=final_data)
 
         # Get brand-specific models and defaults
@@ -1591,6 +1598,13 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                 CONF_INVERTER_SLAVE_ID,
                 default=current_slave_id,
             )] = vol.All(vol.Coerce(int), vol.Range(min=1, max=247))
+
+        # Restore SOC threshold - restore inverter when battery drops below this %
+        current_restore_soc = self._get_option(CONF_INVERTER_RESTORE_SOC, DEFAULT_INVERTER_RESTORE_SOC)
+        schema_dict[vol.Optional(
+            CONF_INVERTER_RESTORE_SOC,
+            default=current_restore_soc,
+        )] = vol.All(vol.Coerce(int), vol.Range(min=50, max=100))
 
         return self.async_show_form(
             step_id="inverter_config",

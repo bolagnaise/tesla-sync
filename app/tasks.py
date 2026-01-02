@@ -2196,6 +2196,9 @@ def _check_ac_coupled_curtailment(user, import_price: float = None, export_earni
         logger.info(f"🔌 AC-COUPLED: Import price negative ({import_price:.2f}c/kWh) - should curtail for {user.email}")
         return True
 
+    # Get configurable restore SOC threshold (default 98%)
+    restore_soc = getattr(user, 'inverter_restore_soc', 98) or 98
+
     # Get live site data for grid_power, battery_soc, solar_power, battery_power
     battery_soc = None
     grid_power = None
@@ -2235,6 +2238,19 @@ def _check_ac_coupled_curtailment(user, import_price: float = None, export_earni
     if battery_soc is None:
         logger.debug(f"Could not get battery SOC - not curtailing AC solar for {user.email}")
         return False
+
+    # Compute state flags
+    battery_is_charging = battery_power < -50  # At least 50W charging
+
+    # RESTORE CHECK: If battery SOC < restore threshold, allow inverter to run
+    # This ensures battery stays topped up before evening peak, even during negative export prices
+    if battery_soc < restore_soc:
+        if battery_is_charging or battery_soc < 100:  # Battery can still absorb
+            logger.info(
+                f"🔋 AC-COUPLED: Battery SOC {battery_soc:.0f}% < restore threshold {restore_soc}% "
+                f"- allowing inverter to run (topping up battery) for {user.email}"
+            )
+            return False
 
     # Check 2: If actually exporting (grid_power < 0) AND export earnings are negative
     # Only curtail when we're actually paying to export, not just when export price is negative

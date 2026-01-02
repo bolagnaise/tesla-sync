@@ -1411,6 +1411,13 @@ def amber_settings():
             except (ValueError, TypeError):
                 current_user.inverter_slave_id = 1
 
+        if 'inverter_restore_soc' in request.form:
+            try:
+                restore_soc = int(request.form.get('inverter_restore_soc', 98))
+                current_user.inverter_restore_soc = max(50, min(100, restore_soc))  # Clamp 50-100
+            except (ValueError, TypeError):
+                current_user.inverter_restore_soc = 98
+
         # Spike Protection setting
         current_user.spike_protection_enabled = 'spike_protection_enabled' in request.form
         logger.info(f"Saving spike protection enabled: {current_user.spike_protection_enabled}")

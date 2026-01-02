@@ -122,8 +122,10 @@ from .const import (
     CONF_INVERTER_HOST,
     CONF_INVERTER_PORT,
     CONF_INVERTER_SLAVE_ID,
+    CONF_INVERTER_RESTORE_SOC,
     DEFAULT_INVERTER_PORT,
     DEFAULT_INVERTER_SLAVE_ID,
+    DEFAULT_INVERTER_RESTORE_SOC,
 )
 from .inverters import get_inverter_controller
 from .coordinator import (
@@ -1715,6 +1717,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         battery_is_charging = battery_power < -50  # At least 50W charging
         is_exporting = grid_power is not None and grid_power < -100  # Exporting more than 100W
 
+        # Get configurable restore SOC threshold (restore inverter when battery drops below this)
+        restore_soc = entry.options.get(
+            CONF_INVERTER_RESTORE_SOC,
+            entry.data.get(CONF_INVERTER_RESTORE_SOC, DEFAULT_INVERTER_RESTORE_SOC)
+        )
+
         # PRIORITY CHECK 1: If import price is negative, ALWAYS curtail AC solar
         # Getting paid to import from grid is better than free solar - maximize grid import
         # This takes precedence over battery charging (charge from grid instead)
@@ -1724,6 +1732,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 f"(solar={solar_power:.0f}W, battery={battery_power:.0f}W)"
             )
             return True
+
+        # RESTORE CHECK: If battery SOC < restore threshold, allow inverter to run
+        # This ensures battery stays topped up before evening peak, even during negative export prices
+        # Only applies when battery can absorb solar (not full) and import price is not negative
+        if battery_soc is not None and battery_soc < restore_soc:
+            if battery_is_charging or battery_soc < 100:  # Battery can still absorb
+                _LOGGER.info(
+                    f"🔋 AC-COUPLED: Battery SOC {battery_soc:.0f}% < restore threshold {restore_soc}% "
+                    f"- allowing inverter to run (topping up battery)"
+                )
+                return False
 
         # PRIORITY CHECK 2: If battery is charging (absorbing solar) and not exporting, don't curtail
         # Solar going to battery is good (when import price is not negative)
