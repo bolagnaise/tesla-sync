@@ -10,8 +10,7 @@ from .base import InverterController
 
 _LOGGER = logging.getLogger(__name__)
 
-# Supported AC-coupled inverter brands (for systems with separate solar inverter)
-# Note: Sigenergy is NOT here - it's a DC-coupled battery system, not an AC inverter
+# Supported inverter brands for curtailment control
 INVERTER_BRANDS = {
     "sungrow": "Sungrow",
     "fronius": "Fronius",
@@ -19,6 +18,7 @@ INVERTER_BRANDS = {
     "huawei": "Huawei",
     "enphase": "Enphase",
     "zeversolar": "Zeversolar",
+    "sigenergy": "Sigenergy",
 }
 
 # Fronius models (SunSpec Modbus)
@@ -290,6 +290,15 @@ def get_inverter_controller(
         if port == 502:
             port = 80
         return ZeversolarController(
+            host=host,
+            port=port,
+            slave_id=slave_id,
+            model=model,
+        )
+
+    if brand_lower == "sigenergy":
+        from .sigenergy import SigenergyController
+        return SigenergyController(
             host=host,
             port=port,
             slave_id=slave_id,

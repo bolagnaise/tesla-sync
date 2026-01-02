@@ -87,17 +87,11 @@ class GoodWeController(InverterController):
         """
         super().__init__(host, port, slave_id, model)
         self._client: Optional[AsyncModbusTcpClient] = None
-        self._lock: Optional[asyncio.Lock] = None
-
-    def _get_lock(self) -> asyncio.Lock:
-        """Get or create the async lock (must be called from async context)."""
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        return self._lock
+        self._lock = asyncio.Lock()
 
     async def connect(self) -> bool:
         """Connect to the GoodWe inverter via Modbus TCP."""
-        async with self._get_lock():
+        async with self._lock:
             try:
                 if self._client and self._client.connected:
                     return True
@@ -124,7 +118,7 @@ class GoodWeController(InverterController):
 
     async def disconnect(self) -> None:
         """Disconnect from the GoodWe inverter."""
-        async with self._get_lock():
+        async with self._lock:
             if self._client:
                 self._client.close()
                 self._client = None

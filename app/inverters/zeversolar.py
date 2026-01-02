@@ -30,6 +30,9 @@ class ZeversolarController(InverterController):
     Restore sets ac_value1=100 (100% power).
     """
 
+    # Timeout for HTTP operations
+    TIMEOUT_SECONDS = 30.0
+
     def __init__(
         self,
         host: str,
@@ -64,7 +67,7 @@ class ZeversolarController(InverterController):
         """
         try:
             if self._session is None:
-                timeout = aiohttp.ClientTimeout(total=30)
+                timeout = aiohttp.ClientTimeout(total=self.TIMEOUT_SECONDS)
                 self._session = aiohttp.ClientSession(timeout=timeout)
 
             # Test connectivity by fetching the advanced settings page
@@ -273,3 +276,12 @@ class ZeversolarController(InverterController):
         except Exception as e:
             _LOGGER.error(f"Zeversolar connection test failed: {e}")
             return False, f"Connection error: {str(e)}"
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.disconnect()

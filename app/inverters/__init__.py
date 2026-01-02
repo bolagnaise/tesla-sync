@@ -10,7 +10,7 @@ from .base import InverterController
 
 _LOGGER = logging.getLogger(__name__)
 
-# Supported inverter brands
+# Supported inverter brands for curtailment control
 INVERTER_BRANDS = {
     "sungrow": "Sungrow",
     "fronius": "Fronius",
@@ -18,6 +18,7 @@ INVERTER_BRANDS = {
     "huawei": "Huawei",
     "enphase": "Enphase",
     "zeversolar": "Zeversolar",
+    "sigenergy": "Sigenergy",
 }
 
 # Fronius models (SunSpec Modbus)
@@ -114,16 +115,15 @@ ENPHASE_MODELS = {
     **ENPHASE_GATEWAY_MODELS,
 }
 
-# Zeversolar models (HTTP API for power limiting)
-# Reference: Zeversolar WiFi module web interface
+# Zeversolar models (via HTTP API to built-in web interface)
+# Uses POST to /pwrlim.cgi for power limiting
 ZEVERSOLAR_MODELS = {
     "tlc5000": "TLC5000",
     "tlc6000": "TLC6000",
-    "zevershine-5000tl": "Zevershine 5000TL",
-    "zevershine-6000tl": "Zevershine 6000TL",
-    "evershine-tlc5000": "Evershine TLC5000",
-    "evershine-tlc6000": "Evershine TLC6000",
-    "other": "Other Zeversolar",
+    "tlc8000": "TLC8000",
+    "tlc10000": "TLC10000",
+    "zeversolair-mini-3000": "Zeversolair Mini 3000",
+    "zeversolair-tl3000": "Zeversolair TL3000",
 }
 
 # Sungrow SG series (string inverters) - single phase residential
@@ -198,7 +198,6 @@ SUNGROW_MODELS = {
     **SUNGROW_SG_MODELS,
     **SUNGROW_SH_MODELS,
 }
-
 
 def get_inverter_controller(
     brand: str,
@@ -291,6 +290,15 @@ def get_inverter_controller(
         if port == 502:
             port = 80
         return ZeversolarController(
+            host=host,
+            port=port,
+            slave_id=slave_id,
+            model=model,
+        )
+
+    if brand_lower == "sigenergy":
+        from .sigenergy import SigenergyController
+        return SigenergyController(
             host=host,
             port=port,
             slave_id=slave_id,
