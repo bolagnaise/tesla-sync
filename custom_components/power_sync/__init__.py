@@ -1680,8 +1680,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def should_curtail_ac_coupled(import_price: float | None, export_earnings: float | None) -> bool:
         """Smart curtailment logic for AC-coupled solar systems.
 
-        For AC-coupled systems, we only curtail the inverter when:
-        1. Import price is negative (cheaper to buy power than generate it), OR
+        For AC-coupled systems, we curtail the inverter when:
+        1. Import price is negative (get paid to import - curtail to maximize grid import), OR
         2. Actually exporting (grid_power < 0) AND export earnings are negative, OR
         3. Battery is full (100%) AND export is unprofitable, OR
         4. Solar producing but battery NOT charging AND exporting at negative price
@@ -1711,26 +1711,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             f"grid={grid_power}W (neg=export), load={load_power:.0f}W, SOC={battery_soc}%"
         )
 
-        # PRIORITY CHECK: If battery is charging (absorbing solar) and not exporting, don't curtail
-        # This takes precedence over negative import prices - solar going to battery is always good
+        # Compute state flags
         battery_is_charging = battery_power < -50  # At least 50W charging
         is_exporting = grid_power is not None and grid_power < -100  # Exporting more than 100W
 
+        # PRIORITY CHECK 1: If import price is negative, ALWAYS curtail AC solar
+        # Getting paid to import from grid is better than free solar - maximize grid import
+        # This takes precedence over battery charging (charge from grid instead)
+        if import_price is not None and import_price < 0:
+            _LOGGER.info(
+                f"🔌 AC-COUPLED: Import price negative ({import_price:.2f}c/kWh) - curtailing to maximize grid import "
+                f"(solar={solar_power:.0f}W, battery={battery_power:.0f}W)"
+            )
+            return True
+
+        # PRIORITY CHECK 2: If battery is charging (absorbing solar) and not exporting, don't curtail
+        # Solar going to battery is good (when import price is not negative)
         if battery_is_charging and not is_exporting:
             _LOGGER.info(
                 f"⚡ AC-COUPLED: Battery charging ({abs(battery_power):.0f}W) at SOC {battery_soc:.0f}%, "
                 f"not exporting (grid={grid_power}W) - skipping curtailment (solar being absorbed)"
             )
             return False
-
-        # Check 1: If import price is negative AND we're exporting, curtail
-        # (Only curtail for negative import if we'd be exporting - otherwise solar goes to battery)
-        if import_price is not None and import_price < 0:
-            if is_exporting:
-                _LOGGER.info(f"🔌 AC-COUPLED: Import price negative ({import_price:.2f}c/kWh) AND exporting - should curtail")
-                return True
-            else:
-                _LOGGER.debug(f"Import price negative ({import_price:.2f}c/kWh) but not exporting - not curtailing")
 
         # Check 2: If actually exporting (grid_power < 0) AND export earnings are negative
         # Only curtail when we're actually paying to export, not just when export price is negative
