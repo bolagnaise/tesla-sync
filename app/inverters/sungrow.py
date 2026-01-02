@@ -152,7 +152,41 @@ class SungrowController(InverterController):
         model_key = (model or "").lower().replace(".", "").replace("-", "").replace(" ", "")
         map_name = MODEL_MAP.get(model_key, "sg10rs")  # Default to sg10rs
         self._reg_map = REGISTER_MAPS[map_name]
-        _LOGGER.info(f"Sungrow controller using register map '{map_name}' for model '{model}'")
+
+        # Parse rated capacity from model name for load-following
+        self._rated_capacity_w = self._parse_capacity_from_model(model)
+        _LOGGER.info(f"Sungrow controller using register map '{map_name}' for model '{model}' (capacity: {self._rated_capacity_w}W)")
+
+    def _parse_capacity_from_model(self, model: Optional[str]) -> int:
+        """Parse rated capacity in watts from model name.
+
+        Examples:
+            SG5.0RS -> 5000W
+            SG10RS -> 10000W
+            SG3.6RS -> 3600W
+            SH8.0RT -> 8000W
+        """
+        import re
+        if not model:
+            return 5000  # Default to 5kW
+
+        # Try to extract number from model (e.g., "5.0" from "SG5.0RS", "10" from "SG10RS")
+        # Match patterns like: SG5.0RS, SG10RS, SH8.0RT, etc.
+        match = re.search(r'[A-Z]{2}(\d+\.?\d*)(?:RS|RT|T)?', model.upper())
+        if match:
+            capacity_kw = float(match.group(1))
+            return int(capacity_kw * 1000)
+
+        # Fallback: try to find any number in the model
+        match = re.search(r'(\d+\.?\d*)', model)
+        if match:
+            capacity_kw = float(match.group(1))
+            # If it's a small number, assume kW
+            if capacity_kw < 100:
+                return int(capacity_kw * 1000)
+            return int(capacity_kw)
+
+        return 5000  # Default to 5kW
 
     async def connect(self) -> bool:
         """Connect to the Sungrow inverter via Modbus TCP."""
@@ -439,18 +473,31 @@ class SungrowController(InverterController):
         return attrs
 
     async def curtail(self, home_load_w: Optional[int] = None) -> bool:
-        """Stop the Sungrow inverter to prevent solar export.
+        """Curtail the Sungrow inverter using power limiting.
 
-        Uses power limit registers to set output to 0%.
-        Falls back to run mode shutdown if power limit not available.
+        Uses power limit registers to set output percentage.
+        If home_load_w is provided, calculates percentage for load-following.
+        Otherwise sets to 0% (full curtailment).
 
         Args:
-            home_load_w: Ignored for Sungrow (on/off only, no load-following)
+            home_load_w: Home load in watts for load-following. If provided,
+                        sets power limit to match home load (no export).
+                        If None or 0, sets to 0% (full shutdown).
 
         Returns:
             True if curtailment successful
         """
-        _LOGGER.info(f"Curtailing Sungrow inverter at {self.host} (power limit 0%)")
+        # Calculate target percentage
+        if home_load_w and home_load_w > 0 and self._rated_capacity_w > 0:
+            # Load-following: set limit to match home load
+            target_percent = min(100, max(1, int((home_load_w / self._rated_capacity_w) * 100)))
+            target_value = target_percent * 10  # Register uses /10 scale
+            _LOGGER.info(f"Sungrow load-following: {home_load_w}W / {self._rated_capacity_w}W = {target_percent}%")
+        else:
+            # Full curtailment
+            target_percent = 0
+            target_value = 0
+            _LOGGER.info(f"Curtailing Sungrow inverter at {self.host} (power limit 0%)")
 
         try:
             # Ensure connected
@@ -465,7 +512,7 @@ class SungrowController(InverterController):
             success = False
 
             if power_limit_toggle_reg and power_limit_percent_reg:
-                # Use power limiting - enable limit and set to 0%
+                # Use power limiting - enable limit and set percentage
                 # First enable power limiting
                 toggle_success = await self._write_register(
                     power_limit_toggle_reg[0],
@@ -474,17 +521,17 @@ class SungrowController(InverterController):
                 if toggle_success:
                     _LOGGER.debug(f"Power limit enabled (wrote {self.POWER_LIMIT_ENABLED} to {power_limit_toggle_reg[0]})")
 
-                # Then set limit to 0% (register value 0, since it's /10)
+                # Then set limit percentage
                 percent_success = await self._write_register(
                     power_limit_percent_reg[0],
-                    0,  # 0% output
+                    target_value,
                 )
                 if percent_success:
-                    _LOGGER.debug(f"Power limit set to 0% (wrote 0 to {power_limit_percent_reg[0]})")
+                    _LOGGER.debug(f"Power limit set to {target_percent}% (wrote {target_value} to {power_limit_percent_reg[0]})")
 
                 success = toggle_success and percent_success
             else:
-                # Fallback to run mode shutdown
+                # Fallback to run mode shutdown (no load-following possible)
                 _LOGGER.debug("Power limit registers not available, using run mode shutdown")
                 success = await self._write_register(
                     self.REGISTER_RUN_MODE,
@@ -492,14 +539,10 @@ class SungrowController(InverterController):
                 )
 
             if success:
-                _LOGGER.info(f"Successfully curtailed Sungrow inverter at {self.host}")
-                # Verify the change
-                await asyncio.sleep(1)  # Brief delay for inverter to process
-                state = await self.get_status()
-                if state.is_curtailed:
-                    _LOGGER.info("Curtailment verified - inverter output limited to 0%")
+                if target_percent > 0:
+                    _LOGGER.info(f"Sungrow load-following curtailment to {target_percent}% ({home_load_w}W)")
                 else:
-                    _LOGGER.warning("Curtailment command sent but state not verified")
+                    _LOGGER.info(f"Successfully curtailed Sungrow inverter at {self.host} (0%)")
             else:
                 _LOGGER.error(f"Failed to curtail Sungrow inverter at {self.host}")
 
