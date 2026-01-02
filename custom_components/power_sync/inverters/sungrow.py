@@ -649,6 +649,7 @@ class SungrowController(InverterController):
                 state_regs = await self._read_input_register(running_state_reg[0], 1)
                 if state_regs:
                     running_state = state_regs[0]
+                    _LOGGER.debug(f"Sungrow running_state register {running_state_reg[0]}: 0x{running_state:04X} ({running_state})")
 
             # Determine status based on running state (if available) or power output
             if running_state is not None:
