@@ -381,6 +381,39 @@ views:
                   background: linear-gradient(135deg, rgba(76, 175, 80, 0.15) 0%, rgba(76, 175, 80, 0.05) 100%);
                   {% endif %}
                 }
+      # AC Inverter Manual Control Buttons (only shown if inverter configured)
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: sensor.inverter_status
+            state_not: unavailable
+          - condition: state
+            entity: sensor.inverter_status
+            state_not: unknown
+        card:
+          type: custom:mushroom-chips-card
+          alignment: center
+          chips:
+            # Curtail Inverter Button
+            - type: template
+              icon: mdi:power-plug-off
+              icon_color: red
+              content: Curtail Inverter
+              tap_action:
+                action: call-service
+                service: power_sync.curtail_inverter
+                confirmation:
+                  text: Curtail AC inverter (load-following mode)?
+            # Restore Inverter Button
+            - type: template
+              icon: mdi:power-plug
+              icon_color: green
+              content: Restore Inverter
+              tap_action:
+                action: call-service
+                service: power_sync.restore_inverter
+                confirmation:
+                  text: Restore AC inverter to normal operation?
       # Battery Health Gauges
       - type: horizontal-stack
         cards:

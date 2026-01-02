@@ -424,6 +424,8 @@ SERVICE_SET_BACKUP_RESERVE = "set_backup_reserve"
 SERVICE_SET_OPERATION_MODE = "set_operation_mode"
 SERVICE_SET_GRID_EXPORT = "set_grid_export"
 SERVICE_SET_GRID_CHARGING = "set_grid_charging"
+SERVICE_CURTAIL_INVERTER = "curtail_inverter"
+SERVICE_RESTORE_INVERTER = "restore_inverter"
 
 # Manual discharge/charge duration options (minutes)
 DISCHARGE_DURATIONS = [15, 30, 45, 60, 75, 90, 105, 120]

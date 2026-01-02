@@ -52,6 +52,8 @@ from .const import (
     SERVICE_SET_OPERATION_MODE,
     SERVICE_SET_GRID_EXPORT,
     SERVICE_SET_GRID_CHARGING,
+    SERVICE_CURTAIL_INVERTER,
+    SERVICE_RESTORE_INVERTER,
     DISCHARGE_DURATIONS,
     DEFAULT_DISCHARGE_DURATION,
     TESLEMETRY_API_BASE_URL,
@@ -3988,6 +3990,160 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.services.async_register(DOMAIN, SERVICE_SET_GRID_CHARGING, handle_set_grid_charging)
 
     _LOGGER.info("🔋 Force charge/discharge, restore, and Powerwall settings services registered")
+
+    # ======================================================================
+    # AC INVERTER MANUAL CURTAIL/RESTORE SERVICES
+    # ======================================================================
+
+    async def handle_curtail_inverter(call: ServiceCall) -> None:
+        """Manually curtail the AC-coupled inverter."""
+        _LOGGER.info("🔴 Manual inverter curtailment requested")
+
+        inverter_enabled = entry.options.get(
+            CONF_INVERTER_CURTAILMENT_ENABLED,
+            entry.data.get(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+        )
+
+        if not inverter_enabled:
+            _LOGGER.warning("Inverter curtailment not enabled in config")
+            return
+
+        inverter_brand = entry.options.get(
+            CONF_INVERTER_BRAND,
+            entry.data.get(CONF_INVERTER_BRAND, "sungrow")
+        )
+        inverter_host = entry.options.get(
+            CONF_INVERTER_HOST,
+            entry.data.get(CONF_INVERTER_HOST, "")
+        )
+        inverter_port = entry.options.get(
+            CONF_INVERTER_PORT,
+            entry.data.get(CONF_INVERTER_PORT, DEFAULT_INVERTER_PORT)
+        )
+        inverter_slave_id = entry.options.get(
+            CONF_INVERTER_SLAVE_ID,
+            entry.data.get(CONF_INVERTER_SLAVE_ID, DEFAULT_INVERTER_SLAVE_ID)
+        )
+        inverter_model = entry.options.get(
+            CONF_INVERTER_MODEL,
+            entry.data.get(CONF_INVERTER_MODEL)
+        )
+
+        if not inverter_host:
+            _LOGGER.warning("No inverter host configured")
+            return
+
+        try:
+            controller = get_inverter_controller(
+                brand=inverter_brand,
+                host=inverter_host,
+                port=inverter_port,
+                slave_id=inverter_slave_id,
+                model=inverter_model,
+            )
+
+            # Get home load for load-following (Zeversolar/Sigenergy)
+            home_load_w = None
+            if inverter_brand in ("zeversolar", "sigenergy"):
+                live_status = await get_live_status()
+                if live_status and live_status.get("load_power"):
+                    home_load_w = int(live_status.get("load_power", 0))
+                    _LOGGER.info(f"🔌 Load-following: Home load is {home_load_w}W")
+
+            _LOGGER.info(f"🔴 Curtailing {inverter_brand} inverter at {inverter_host}")
+
+            if home_load_w is not None and hasattr(controller, 'curtail'):
+                import inspect
+                sig = inspect.signature(controller.curtail)
+                if 'home_load_w' in sig.parameters:
+                    success = await controller.curtail(home_load_w=home_load_w)
+                else:
+                    success = await controller.curtail()
+            else:
+                success = await controller.curtail()
+
+            if success:
+                if home_load_w is not None:
+                    _LOGGER.info(f"✅ Inverter curtailed (load-following to {home_load_w}W)")
+                else:
+                    _LOGGER.info(f"✅ Inverter curtailed successfully")
+                hass.data[DOMAIN][entry.entry_id]["inverter_last_state"] = "curtailed"
+                hass.data[DOMAIN][entry.entry_id]["inverter_power_limit_w"] = home_load_w
+            else:
+                _LOGGER.error("❌ Failed to curtail inverter")
+
+            await controller.disconnect()
+
+        except Exception as e:
+            _LOGGER.error(f"Error curtailing inverter: {e}")
+
+    async def handle_restore_inverter(call: ServiceCall) -> None:
+        """Manually restore the AC-coupled inverter to normal operation."""
+        _LOGGER.info("🟢 Manual inverter restore requested")
+
+        inverter_enabled = entry.options.get(
+            CONF_INVERTER_CURTAILMENT_ENABLED,
+            entry.data.get(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+        )
+
+        if not inverter_enabled:
+            _LOGGER.warning("Inverter curtailment not enabled in config")
+            return
+
+        inverter_brand = entry.options.get(
+            CONF_INVERTER_BRAND,
+            entry.data.get(CONF_INVERTER_BRAND, "sungrow")
+        )
+        inverter_host = entry.options.get(
+            CONF_INVERTER_HOST,
+            entry.data.get(CONF_INVERTER_HOST, "")
+        )
+        inverter_port = entry.options.get(
+            CONF_INVERTER_PORT,
+            entry.data.get(CONF_INVERTER_PORT, DEFAULT_INVERTER_PORT)
+        )
+        inverter_slave_id = entry.options.get(
+            CONF_INVERTER_SLAVE_ID,
+            entry.data.get(CONF_INVERTER_SLAVE_ID, DEFAULT_INVERTER_SLAVE_ID)
+        )
+        inverter_model = entry.options.get(
+            CONF_INVERTER_MODEL,
+            entry.data.get(CONF_INVERTER_MODEL)
+        )
+
+        if not inverter_host:
+            _LOGGER.warning("No inverter host configured")
+            return
+
+        try:
+            controller = get_inverter_controller(
+                brand=inverter_brand,
+                host=inverter_host,
+                port=inverter_port,
+                slave_id=inverter_slave_id,
+                model=inverter_model,
+            )
+
+            _LOGGER.info(f"🟢 Restoring {inverter_brand} inverter at {inverter_host}")
+
+            success = await controller.restore()
+
+            if success:
+                _LOGGER.info(f"✅ Inverter restored to normal operation")
+                hass.data[DOMAIN][entry.entry_id]["inverter_last_state"] = "normal"
+                hass.data[DOMAIN][entry.entry_id]["inverter_power_limit_w"] = None
+            else:
+                _LOGGER.error("❌ Failed to restore inverter")
+
+            await controller.disconnect()
+
+        except Exception as e:
+            _LOGGER.error(f"Error restoring inverter: {e}")
+
+    hass.services.async_register(DOMAIN, SERVICE_CURTAIL_INVERTER, handle_curtail_inverter)
+    hass.services.async_register(DOMAIN, SERVICE_RESTORE_INVERTER, handle_restore_inverter)
+
+    _LOGGER.info("🔌 AC inverter curtail/restore services registered")
 
     # ======================================================================
     # CALENDAR HISTORY SERVICE (for mobile app energy summaries)

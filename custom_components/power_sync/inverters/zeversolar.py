@@ -10,6 +10,7 @@ Key parameters:
 - ac_sys: Inverter AC capacity in watts (informational only)
 """
 import logging
+import math
 from typing import Optional
 
 import aiohttp
@@ -191,9 +192,9 @@ class ZeversolarController(InverterController):
         if watts > self.ac_capacity_w:
             watts = self.ac_capacity_w
 
-        # Convert watts to percentage
-        # Round up to ensure we don't under-supply home load
-        percent = min(100, int((watts / self.ac_capacity_w) * 100) + 1)
+        # Convert watts to percentage using ceiling to ensure we don't under-supply home load
+        # math.ceil gives proper rounding: 200W on 5kW = ceil(4.0) = 4%, not 5%
+        percent = min(100, math.ceil((watts / self.ac_capacity_w) * 100))
 
         _LOGGER.info(f"Setting Zeversolar power limit to {watts}W ({percent}% of {self.ac_capacity_w}W)")
         return await self._set_power_limit(percent)
