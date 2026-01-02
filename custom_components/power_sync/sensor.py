@@ -819,13 +819,14 @@ class InverterStatusSensor(SensorEntity):
             _handle_curtailment_update,
         )
 
+        # Track consecutive offline/error states for backoff
+        # Initialize BEFORE initial poll so exception handler can use it
+        self._offline_count = 0
+        self._max_offline_before_backoff = 3  # After 3 failed polls, reduce frequency
+
         # Do initial poll
         _LOGGER.info("Performing initial inverter poll")
         await self._async_poll_inverter()
-
-        # Track consecutive offline/error states for backoff
-        self._offline_count = 0
-        self._max_offline_before_backoff = 3  # After 3 failed polls, reduce frequency
 
         # Set up periodic polling (every 30 seconds for responsive load-following)
         async def _periodic_poll(_now=None):
