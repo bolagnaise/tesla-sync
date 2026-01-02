@@ -1679,11 +1679,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         Returns:
             True if we should curtail, False if we should allow production
         """
-        # Check 1: If import price is negative, always curtail (get paid to import instead)
-        if import_price is not None and import_price < 0:
-            _LOGGER.info(f"🔌 AC-COUPLED: Import price negative ({import_price:.2f}c/kWh) - should curtail")
-            return True
-
         # Get live status for grid_power, battery_soc, solar_power, battery_power
         live_status = await get_live_status()
 
@@ -1701,6 +1696,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             f"AC-Coupled check: solar={solar_power:.0f}W, battery={battery_power:.0f}W (neg=charging), "
             f"grid={grid_power}W (neg=export), load={load_power:.0f}W, SOC={battery_soc}%"
         )
+
+        # PRIORITY CHECK: If battery is charging (absorbing solar) and not exporting, don't curtail
+        # This takes precedence over negative import prices - solar going to battery is always good
+        battery_is_charging = battery_power < -50  # At least 50W charging
+        is_exporting = grid_power is not None and grid_power < -100  # Exporting more than 100W
+
+        if battery_is_charging and not is_exporting:
+            _LOGGER.info(
+                f"⚡ AC-COUPLED: Battery charging ({abs(battery_power):.0f}W) at SOC {battery_soc:.0f}%, "
+                f"not exporting (grid={grid_power}W) - skipping curtailment (solar being absorbed)"
+            )
+            return False
+
+        # Check 1: If import price is negative AND we're exporting, curtail
+        # (Only curtail for negative import if we'd be exporting - otherwise solar goes to battery)
+        if import_price is not None and import_price < 0:
+            if is_exporting:
+                _LOGGER.info(f"🔌 AC-COUPLED: Import price negative ({import_price:.2f}c/kWh) AND exporting - should curtail")
+                return True
+            else:
+                _LOGGER.debug(f"Import price negative ({import_price:.2f}c/kWh) but not exporting - not curtailing")
 
         # Check 2: If actually exporting (grid_power < 0) AND export earnings are negative
         # Only curtail when we're actually paying to export, not just when export price is negative
@@ -1722,38 +1738,89 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.debug(f"Battery full ({battery_soc:.0f}%) but export still profitable ({export_earnings:.2f}c/kWh) - not curtailing")
                 return False
 
-        # Check 4: Solar producing but battery NOT absorbing it
-        # battery_power < 0 means charging, >= 0 means discharging or idle
-        if solar_power > 100:  # Meaningful solar production
-            battery_is_charging = battery_power < -50  # At least 50W charging
-            if not battery_is_charging:
-                # Solar is producing but battery isn't absorbing - check if we're exporting at bad prices
-                if grid_power is not None and grid_power < -100:  # Exporting more than 100W
-                    if export_earnings is not None and export_earnings < 0:
-                        _LOGGER.info(
-                            f"🔌 AC-COUPLED: Solar producing {solar_power:.0f}W but battery NOT charging "
-                            f"(battery_power={battery_power:.0f}W), exporting {abs(grid_power):.0f}W at negative price "
-                            f"({export_earnings:.2f}c/kWh) - should curtail"
-                        )
-                        return True
-                    else:
-                        _LOGGER.debug(
-                            f"Solar producing but battery not charging, however export price OK ({export_earnings:.2f}c/kWh)"
-                        )
-                else:
-                    _LOGGER.debug(
-                        f"Solar producing {solar_power:.0f}W, battery not charging, but not exporting significantly (grid={grid_power}W)"
-                    )
-            else:
-                _LOGGER.debug(f"Battery is charging ({abs(battery_power):.0f}W) - solar being absorbed, not curtailing")
-                return False
-        else:
-            _LOGGER.debug(f"Low/no solar production ({solar_power:.0f}W) - not curtailing")
-            return False
+        # Check 4: Solar producing but battery NOT absorbing AND exporting at negative price
+        # (battery_is_charging already computed above)
+        if solar_power > 100 and not battery_is_charging and is_exporting:
+            if export_earnings is not None and export_earnings < 0:
+                _LOGGER.info(
+                    f"🔌 AC-COUPLED: Solar producing {solar_power:.0f}W but battery NOT charging "
+                    f"(battery_power={battery_power:.0f}W), exporting {abs(grid_power):.0f}W at negative price "
+                    f"({export_earnings:.2f}c/kWh) - should curtail"
+                )
+                return True
 
-        # Default: don't curtail
+        # Default: don't curtail - solar is being used productively
         _LOGGER.debug(f"No curtailment conditions met - allowing solar production")
         return False
+
+    # Smart DC curtailment check (for Tesla export='never')
+    async def should_curtail_dc(export_earnings: float | None) -> bool:
+        """Smart curtailment logic for DC-coupled solar (Tesla Powerwall export rule).
+
+        For DC-coupled systems, we only curtail (set export='never') when:
+        1. Battery is full (99%+), OR
+        2. Battery is NOT charging (not absorbing solar)
+
+        If the battery is actively charging and not full, solar is being used
+        productively so we don't need to block export.
+
+        Args:
+            export_earnings: Current export earnings in c/kWh
+
+        Returns:
+            True if we should curtail, False if we should allow (battery absorbing solar)
+        """
+        # Get live status for battery_soc and battery_power
+        live_status = await get_live_status()
+
+        if live_status is None:
+            _LOGGER.debug("Could not get live status for DC curtailment check - applying curtailment (conservative)")
+            return True
+
+        battery_soc = live_status.get("battery_soc")
+        battery_power = live_status.get("battery_power", 0) or 0  # Negative = charging
+        grid_power = live_status.get("grid_power", 0) or 0  # Negative = exporting
+
+        _LOGGER.debug(
+            f"DC curtailment check: SOC={battery_soc}%, battery={battery_power:.0f}W (neg=charging), "
+            f"grid={grid_power:.0f}W (neg=export), export_earnings={export_earnings}c/kWh"
+        )
+
+        # Compute state flags
+        battery_is_charging = battery_power < -50  # At least 50W charging
+        is_exporting = grid_power < -100  # Exporting more than 100W
+
+        # PRIORITY CHECK: If battery is charging AND not exporting, don't curtail
+        # Solar going to battery is always good - takes precedence over everything
+        if battery_is_charging and not is_exporting:
+            _LOGGER.info(
+                f"⚡ DC-COUPLED: Battery charging ({abs(battery_power):.0f}W) at SOC {battery_soc:.0f}%, "
+                f"not exporting (grid={grid_power:.0f}W) - skipping curtailment (solar being absorbed)"
+            )
+            return False
+
+        # Check 1: If battery is full (99%+) AND exporting, curtail
+        if battery_soc is not None and battery_soc >= 99:
+            if is_exporting:
+                _LOGGER.info(f"🔋 DC-COUPLED: Battery full ({battery_soc:.0f}%) AND exporting - should curtail")
+                return True
+            else:
+                _LOGGER.debug(f"Battery full ({battery_soc:.0f}%) but not exporting - not curtailing")
+                return False
+
+        # Check 2: If not exporting, no need to curtail
+        if not is_exporting:
+            _LOGGER.info(
+                f"⚡ DC-COUPLED: Not exporting (grid={grid_power:.0f}W) - skipping curtailment"
+            )
+            return False
+
+        # Battery not charging and exporting - should curtail
+        _LOGGER.info(
+            f"🔋 DC-COUPLED: Battery not charging ({battery_power:.0f}W), exporting ({abs(grid_power):.0f}W) "
+            f"at {export_earnings:.2f}c/kWh - should curtail"
+        )
+        return True
 
     # Helper function for AC-coupled inverter curtailment
     async def apply_inverter_curtailment(curtail: bool, import_price: float | None = None, export_earnings: float | None = None) -> bool:
@@ -2562,7 +2629,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # CURTAILMENT LOGIC: Curtail when export earnings < 1c/kWh
             # (i.e., when feedin_price > -1, meaning you earn less than 1c or pay to export)
             if export_earnings < 1:
-                _LOGGER.info(f"🚫 CURTAILMENT TRIGGERED: Export earnings {export_earnings:.2f}c/kWh (<1c)")
+                _LOGGER.info(f"🚫 CURTAILMENT CHECK: Export earnings {export_earnings:.2f}c/kWh (<1c)")
+
+                # Smart DC curtailment: check if battery can absorb solar before blocking export
+                dc_should_curtail = await should_curtail_dc(export_earnings)
+
+                if not dc_should_curtail:
+                    # Battery is absorbing solar - skip DC curtailment but still handle AC-coupled
+                    _LOGGER.info(f"⚡ DC-COUPLED: Skipping Tesla export='never' (battery absorbing solar)")
+                    await apply_inverter_curtailment(curtail=True, import_price=import_price, export_earnings=export_earnings)
+                    _LOGGER.info(f"📊 Action summary: DC curtailment skipped (battery absorbing), AC curtailment applied if configured")
+                    return
+
+                _LOGGER.info(f"🚫 CURTAILMENT TRIGGERED: Applying DC curtailment (export='never')")
 
                 # If already curtailed AND verified from API, no action needed
                 # If using cache, always apply curtailment to be safe (cache may be stale)
@@ -2819,7 +2898,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # CURTAILMENT LOGIC: Curtail when export earnings < 1c/kWh
             # (i.e., when feedin_price > -1, meaning you earn less than 1c or pay to export)
             if export_earnings < 1:
-                _LOGGER.info(f"🚫 CURTAILMENT TRIGGERED: Export earnings {export_earnings:.2f}c/kWh (<1c)")
+                _LOGGER.info(f"🚫 CURTAILMENT CHECK: Export earnings {export_earnings:.2f}c/kWh (<1c)")
+
+                # Smart DC curtailment: check if battery can absorb solar before blocking export
+                dc_should_curtail = await should_curtail_dc(export_earnings)
+
+                if not dc_should_curtail:
+                    # Battery is absorbing solar - skip DC curtailment but still handle AC-coupled
+                    _LOGGER.info(f"⚡ DC-COUPLED: Skipping Tesla export='never' (battery absorbing solar)")
+                    await apply_inverter_curtailment(curtail=True, import_price=import_price, export_earnings=export_earnings)
+                    _LOGGER.info(f"📊 Action summary: DC curtailment skipped (battery absorbing), AC curtailment applied if configured")
+                    return
+
+                _LOGGER.info(f"🚫 CURTAILMENT TRIGGERED: Applying DC curtailment (export='never')")
 
                 # If already curtailed AND verified from API, no action needed
                 # If using cache, always apply curtailment to be safe (cache may be stale)
