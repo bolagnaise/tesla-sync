@@ -394,26 +394,40 @@ views:
           type: custom:mushroom-chips-card
           alignment: center
           chips:
-            # Curtail Inverter Button
+            # Load-Following Curtail Button
             - type: template
-              icon: mdi:power-plug-off
-              icon_color: red
-              content: Curtail Inverter
+              icon: mdi:home-lightning-bolt
+              icon_color: orange
+              content: Load Follow
               tap_action:
                 action: call-service
                 service: power_sync.curtail_inverter
+                data:
+                  mode: load_following
                 confirmation:
-                  text: Curtail AC inverter (load-following mode)?
+                  text: Limit inverter to home load only?
+            # Full Shutdown Button
+            - type: template
+              icon: mdi:power-plug-off
+              icon_color: red
+              content: Shutdown
+              tap_action:
+                action: call-service
+                service: power_sync.curtail_inverter
+                data:
+                  mode: shutdown
+                confirmation:
+                  text: Fully shut down inverter (0% output)?
             # Restore Inverter Button
             - type: template
               icon: mdi:power-plug
               icon_color: green
-              content: Restore Inverter
+              content: Restore
               tap_action:
                 action: call-service
                 service: power_sync.restore_inverter
                 confirmation:
-                  text: Restore AC inverter to normal operation?
+                  text: Restore inverter to normal operation?
       # Battery Health Gauges
       - type: horizontal-stack
         cards:

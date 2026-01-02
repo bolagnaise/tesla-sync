@@ -3996,8 +3996,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # ======================================================================
 
     async def handle_curtail_inverter(call: ServiceCall) -> None:
-        """Manually curtail the AC-coupled inverter."""
-        _LOGGER.info("🔴 Manual inverter curtailment requested")
+        """Manually curtail the AC-coupled inverter.
+
+        Supports two modes via 'mode' parameter:
+        - 'load_following' (default): Limit production to home load (Zeversolar/Sigenergy)
+                                      or zero-export mode (other brands)
+        - 'shutdown': Full shutdown/0% output (for inverters that support it)
+        """
+        mode = call.data.get("mode", "load_following")
+        _LOGGER.info(f"🔴 Manual inverter curtailment requested (mode: {mode})")
 
         inverter_enabled = entry.options.get(
             CONF_INVERTER_CURTAILMENT_ENABLED,
@@ -4042,16 +4049,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 model=inverter_model,
             )
 
-            # Get home load for load-following (Zeversolar/Sigenergy)
             home_load_w = None
-            if inverter_brand in ("zeversolar", "sigenergy"):
-                live_status = await get_live_status()
-                if live_status and live_status.get("load_power"):
-                    home_load_w = int(live_status.get("load_power", 0))
-                    _LOGGER.info(f"🔌 Load-following: Home load is {home_load_w}W")
 
-            _LOGGER.info(f"🔴 Curtailing {inverter_brand} inverter at {inverter_host}")
+            if mode == "shutdown":
+                # Full shutdown mode - pass 0 or None to trigger full curtailment
+                _LOGGER.info(f"🔴 Shutting down {inverter_brand} inverter at {inverter_host}")
+                # For Zeversolar, home_load_w=0 triggers 0% shutdown
+                # For others, curtail() does their native shutdown/zero-export
+                if inverter_brand == "zeversolar":
+                    home_load_w = 0
+            else:
+                # Load-following mode - get home load for dynamic limiting
+                if inverter_brand in ("zeversolar", "sigenergy"):
+                    live_status = await get_live_status()
+                    if live_status and live_status.get("load_power"):
+                        home_load_w = int(live_status.get("load_power", 0))
+                        _LOGGER.info(f"🔌 Load-following: Home load is {home_load_w}W")
 
+                _LOGGER.info(f"🔴 Curtailing {inverter_brand} inverter at {inverter_host}")
+
+            # Call curtail with appropriate parameters
             if home_load_w is not None and hasattr(controller, 'curtail'):
                 import inspect
                 sig = inspect.signature(controller.curtail)
@@ -4063,7 +4080,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 success = await controller.curtail()
 
             if success:
-                if home_load_w is not None:
+                if mode == "shutdown":
+                    _LOGGER.info(f"✅ Inverter shut down (0% output)")
+                elif home_load_w is not None and home_load_w > 0:
                     _LOGGER.info(f"✅ Inverter curtailed (load-following to {home_load_w}W)")
                 else:
                     _LOGGER.info(f"✅ Inverter curtailed successfully")
