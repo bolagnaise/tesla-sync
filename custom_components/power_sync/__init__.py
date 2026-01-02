@@ -2668,15 +2668,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if export_earnings < 1:
                 _LOGGER.info(f"🚫 CURTAILMENT CHECK: Export earnings {export_earnings:.2f}c/kWh (<1c)")
 
-                # Smart DC curtailment: check if battery can absorb solar before blocking export
+                # Always apply Tesla export='never' when export earnings are negative
+                # This is a safety net - even if battery is absorbing now, it might stop
+                # and we don't want excess solar going to grid at negative prices
                 dc_should_curtail = await should_curtail_dc(export_earnings)
 
                 if not dc_should_curtail:
-                    # Battery is absorbing solar - skip DC curtailment but still handle AC-coupled
-                    _LOGGER.info(f"⚡ DC-COUPLED: Skipping Tesla export='never' (battery absorbing solar)")
-                    await apply_inverter_curtailment(curtail=True, import_price=import_price, export_earnings=export_earnings)
-                    _LOGGER.info(f"📊 Action summary: DC curtailment skipped (battery absorbing), AC curtailment applied if configured")
-                    return
+                    # Battery is absorbing - log it but STILL apply export='never' as safety net
+                    _LOGGER.info(f"⚡ DC-COUPLED: Battery absorbing solar, but applying export='never' as safety net")
+                else:
+                    _LOGGER.info(f"⚡ DC-COUPLED: Battery not absorbing, applying export='never'")
 
                 _LOGGER.info(f"🚫 CURTAILMENT TRIGGERED: Applying DC curtailment (export='never')")
 
@@ -2937,15 +2938,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if export_earnings < 1:
                 _LOGGER.info(f"🚫 CURTAILMENT CHECK: Export earnings {export_earnings:.2f}c/kWh (<1c)")
 
-                # Smart DC curtailment: check if battery can absorb solar before blocking export
+                # Always apply Tesla export='never' when export earnings are negative
+                # This is a safety net - even if battery is absorbing now, it might stop
+                # and we don't want excess solar going to grid at negative prices
                 dc_should_curtail = await should_curtail_dc(export_earnings)
 
                 if not dc_should_curtail:
-                    # Battery is absorbing solar - skip DC curtailment but still handle AC-coupled
-                    _LOGGER.info(f"⚡ DC-COUPLED: Skipping Tesla export='never' (battery absorbing solar)")
-                    await apply_inverter_curtailment(curtail=True, import_price=import_price, export_earnings=export_earnings)
-                    _LOGGER.info(f"📊 Action summary: DC curtailment skipped (battery absorbing), AC curtailment applied if configured")
-                    return
+                    # Battery is absorbing - log it but STILL apply export='never' as safety net
+                    _LOGGER.info(f"⚡ DC-COUPLED: Battery absorbing solar, but applying export='never' as safety net")
+                else:
+                    _LOGGER.info(f"⚡ DC-COUPLED: Battery not absorbing, applying export='never'")
 
                 _LOGGER.info(f"🚫 CURTAILMENT TRIGGERED: Applying DC curtailment (export='never')")
 
