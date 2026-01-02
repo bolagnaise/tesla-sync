@@ -309,6 +309,8 @@ def _repair_missing_columns(db, logger):
         ('flow_power_base_rate', 'FLOAT', 'NULL'),
         ('pea_enabled', 'BOOLEAN', 'NULL'),
         ('pea_custom_value', 'FLOAT', 'NULL'),
+        # Enphase JWT token
+        ('inverter_token', 'VARCHAR(2000)', 'NULL'),
     ]
 
     missing_columns = [col for col in required_columns if col[0] not in existing_columns]
