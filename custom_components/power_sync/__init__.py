@@ -2956,8 +2956,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 else:
                     _LOGGER.debug(f"Already in normal mode (export='{current_export_rule}') - no action needed")
 
-                    # Still need to ensure AC-coupled inverter is restored (independent of Tesla state)
-                    await apply_inverter_curtailment(curtail=False)
+                    # Only restore AC-coupled inverter if it was previously curtailed
+                    # This prevents spamming the inverter with restore commands at night when it's off
+                    inverter_last_state = hass.data[DOMAIN][entry.entry_id].get("inverter_last_state")
+                    if inverter_last_state == "curtailed":
+                        _LOGGER.info(f"🔄 Inverter was curtailed - restoring to normal")
+                        await apply_inverter_curtailment(curtail=False)
 
                     _LOGGER.info(f"📊 Action summary: No change needed (earnings: {export_earnings:.2f}c/kWh, export: '{current_export_rule}')")
 
@@ -3225,8 +3229,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 else:
                     _LOGGER.debug(f"Already in normal mode (export='{current_export_rule}') - no action needed")
 
-                    # Still need to ensure AC-coupled inverter is restored (independent of Tesla state)
-                    await apply_inverter_curtailment(curtail=False)
+                    # Only restore AC-coupled inverter if it was previously curtailed
+                    # This prevents spamming the inverter with restore commands at night when it's off
+                    inverter_last_state = hass.data[DOMAIN][entry.entry_id].get("inverter_last_state")
+                    if inverter_last_state == "curtailed":
+                        _LOGGER.info(f"🔄 Inverter was curtailed - restoring to normal")
+                        await apply_inverter_curtailment(curtail=False)
 
                     _LOGGER.info(f"📊 Action summary: No change needed (earnings: {export_earnings:.2f}c/kWh, export: '{current_export_rule}')")
 

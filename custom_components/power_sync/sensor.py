@@ -823,8 +823,20 @@ class InverterStatusSensor(SensorEntity):
         _LOGGER.info("Performing initial inverter poll")
         await self._async_poll_inverter()
 
+        # Track consecutive offline/error states for backoff
+        self._offline_count = 0
+        self._max_offline_before_backoff = 3  # After 3 failed polls, reduce frequency
+
         # Set up periodic polling (every 30 seconds for responsive load-following)
         async def _periodic_poll(_now=None):
+            # If inverter has been offline for a while, reduce polling frequency
+            if self._offline_count >= self._max_offline_before_backoff:
+                # Only poll every 5 minutes when offline (every 10th call at 30s interval)
+                if self._offline_count % 10 != 0:
+                    self._offline_count += 1
+                    _LOGGER.debug(f"Inverter offline - skipping poll (backoff, count={self._offline_count})")
+                    return
+
             _LOGGER.debug("Periodic inverter poll triggered")
             await self._async_poll_inverter()
 
@@ -833,7 +845,7 @@ class InverterStatusSensor(SensorEntity):
             _periodic_poll,
             timedelta(seconds=30),
         )
-        _LOGGER.info("Inverter polling scheduled every 30 seconds")
+        _LOGGER.info("Inverter polling scheduled every 30 seconds (with offline backoff)")
 
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity is removed from hass."""
@@ -890,12 +902,16 @@ class InverterStatusSensor(SensorEntity):
             # Update cached state based on inverter response
             if state.status.value == "offline":
                 self._cached_state = "offline"
+                self._offline_count += 1
             elif state.status.value == "error":
                 self._cached_state = "error"
+                self._offline_count += 1
             elif state.is_curtailed:
                 self._cached_state = "curtailed"
+                self._offline_count = 0  # Reset backoff on successful poll
             else:
                 self._cached_state = "running"
+                self._offline_count = 0  # Reset backoff on successful poll
 
             # Store attributes from inverter
             self._cached_attrs = state.attributes or {}
@@ -916,6 +932,7 @@ class InverterStatusSensor(SensorEntity):
             _LOGGER.warning(f"Error polling inverter {inverter_host}: {e}")
             self._cached_state = "error"
             self._cached_attrs = {"error": str(e), "brand": inverter_brand}
+            self._offline_count += 1  # Increment backoff counter on error
 
         self.async_write_ha_state()
 
