@@ -1341,6 +1341,110 @@ class PowerwallSettingsView(HomeAssistantView):
             )
 
 
+class PowerwallTypeView(HomeAssistantView):
+    """HTTP view to get Powerwall type (PW2/PW3) for mobile app Settings."""
+
+    url = "/api/power_sync/powerwall_type"
+    name = "api:power_sync:powerwall_type"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant):
+        """Initialize the view."""
+        self._hass = hass
+
+    async def get(self, request: web.Request) -> web.Response:
+        """Handle GET request for Powerwall type."""
+        _LOGGER.info("🔋 Powerwall type HTTP request")
+
+        # Find the power_sync entry and get token/site_id
+        entry = None
+        for config_entry in self._hass.config_entries.async_entries(DOMAIN):
+            entry = config_entry
+            break
+
+        if not entry:
+            return web.json_response(
+                {"success": False, "error": "PowerSync not configured"},
+                status=503
+            )
+
+        try:
+            current_token, provider = get_tesla_api_token(self._hass, entry)
+            site_id = entry.data.get(CONF_TESLA_ENERGY_SITE_ID)
+
+            if not site_id or not current_token:
+                return web.json_response(
+                    {"success": False, "error": "Missing Tesla site ID or token"},
+                    status=503
+                )
+
+            session = async_get_clientsession(self._hass)
+            headers = {
+                "Authorization": f"Bearer {current_token}",
+                "Content-Type": "application/json",
+            }
+            api_base = TESLEMETRY_API_BASE_URL if provider == TESLA_PROVIDER_TESLEMETRY else FLEET_API_BASE_URL
+
+            # Fetch site info
+            async with session.get(
+                f"{api_base}/api/1/energy_sites/{site_id}/site_info",
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    _LOGGER.error(f"Failed to get site info: {response.status} - {text}")
+                    return web.json_response(
+                        {"success": False, "error": f"Failed to get site info: {response.status}"},
+                        status=500
+                    )
+                data = await response.json()
+                site_info = data.get("response", {})
+
+            # Extract gateway info - gateways array contains part_name
+            components = site_info.get("components", {})
+            gateways = components.get("gateways", [])
+            if not gateways:
+                # Try top-level gateways
+                gateways = site_info.get("gateways", [])
+
+            powerwall_type = "unknown"
+            part_name = None
+
+            if gateways and len(gateways) > 0:
+                gateway = gateways[0]  # Primary gateway
+                part_name = gateway.get("part_name", "")
+
+                # Detect type from part_name
+                if "Powerwall 3" in part_name:
+                    powerwall_type = "PW3"
+                elif "Powerwall 2" in part_name or "Powerwall+" in part_name:
+                    powerwall_type = "PW2"
+                elif "Powerwall" in part_name:
+                    # Generic Powerwall, try to determine from part_number
+                    part_number = gateway.get("part_number", "")
+                    if part_number.startswith("170"):  # PW3 part numbers start with 170
+                        powerwall_type = "PW3"
+                    else:
+                        powerwall_type = "PW2"  # Default to PW2 for older units
+
+            _LOGGER.info(f"✅ Powerwall type: {powerwall_type} (part_name: {part_name})")
+
+            return web.json_response({
+                "success": True,
+                "powerwall_type": powerwall_type,
+                "part_name": part_name,
+                "gateway_count": len(gateways),
+            })
+
+        except Exception as e:
+            _LOGGER.error(f"Error fetching Powerwall type: {e}", exc_info=True)
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up PowerSync from a config entry."""
     _LOGGER.info("=" * 60)
@@ -4306,6 +4410,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register HTTP endpoint for Powerwall settings (for mobile app Controls)
     hass.http.register_view(PowerwallSettingsView(hass))
     _LOGGER.info("⚙️ Powerwall settings HTTP endpoint registered at /api/power_sync/powerwall_settings")
+
+    # Register HTTP endpoint for Powerwall type (for mobile app Settings)
+    hass.http.register_view(PowerwallTypeView(hass))
+    _LOGGER.info("🔋 Powerwall type HTTP endpoint registered at /api/power_sync/powerwall_type")
 
     # ======================================================================
     # SYNC BATTERY HEALTH SERVICE (from mobile app TEDAPI scans)
