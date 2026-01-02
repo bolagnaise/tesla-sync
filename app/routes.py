@@ -500,6 +500,7 @@ def api_inverter_test():
     host = data.get('host')
     port = data.get('port', 502)
     slave_id = data.get('slave_id', 1)
+    token = data.get('token')  # JWT token for Enphase
 
     if not brand or not host:
         return jsonify({'success': False, 'error': 'Brand and host are required'})
@@ -511,7 +512,8 @@ def api_inverter_test():
             brand=brand,
             host=host,
             port=port,
-            slave_id=slave_id
+            slave_id=slave_id,
+            token=token,
         )
 
         if not controller:
@@ -1436,6 +1438,9 @@ def amber_settings():
                 current_user.inverter_slave_id = int(request.form.get('inverter_slave_id', 1))
             except (ValueError, TypeError):
                 current_user.inverter_slave_id = 1
+
+        if 'inverter_token' in request.form:
+            current_user.inverter_token = request.form.get('inverter_token', '') or None
 
         if 'inverter_restore_soc' in request.form:
             try:

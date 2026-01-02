@@ -103,6 +103,7 @@ class User(UserMixin, db.Model):
     inverter_host = db.Column(db.String(100))  # IP address of inverter/gateway
     inverter_port = db.Column(db.Integer, default=502)  # Modbus TCP port
     inverter_slave_id = db.Column(db.Integer, default=1)  # Modbus slave ID
+    inverter_token = db.Column(db.String(2000))  # JWT token for Enphase (firmware 7.x+)
     inverter_restore_soc = db.Column(db.Integer, default=98)  # Restore inverter when battery drops below this %
     inverter_last_state = db.Column(db.String(20))  # Last known state: 'online', 'curtailed', 'offline'
     inverter_last_state_updated = db.Column(db.DateTime)  # When state was last updated

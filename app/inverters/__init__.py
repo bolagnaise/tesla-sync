@@ -205,6 +205,7 @@ def get_inverter_controller(
     port: int = 502,
     slave_id: int = 1,
     model: Optional[str] = None,
+    token: Optional[str] = None,
 ) -> Optional[InverterController]:
     """Factory function to get the appropriate inverter controller.
 
@@ -214,6 +215,7 @@ def get_inverter_controller(
         port: Modbus TCP port (default: 502)
         slave_id: Modbus slave ID (default: 1)
         model: Inverter model (optional, for brand-specific features)
+        token: JWT token for Enphase IQ Gateway authentication (firmware 7.x+)
 
     Returns:
         InverterController instance or None if brand not supported
@@ -282,6 +284,7 @@ def get_inverter_controller(
             port=port,
             slave_id=slave_id,
             model=model,
+            token=token,
         )
 
     if brand_lower == "zeversolar":
@@ -329,6 +332,7 @@ def get_inverter_controller_from_user(user) -> Optional[InverterController]:
     port = getattr(user, 'inverter_port', 502) or 502
     slave_id = getattr(user, 'inverter_slave_id', 1) or 1
     model = getattr(user, 'inverter_model', None)
+    token = getattr(user, 'inverter_token', None)  # JWT token for Enphase
 
     if not brand or not host:
         _LOGGER.warning("Inverter brand or host not configured")
@@ -341,4 +345,5 @@ def get_inverter_controller_from_user(user) -> Optional[InverterController]:
         port=port,
         slave_id=slave_id,
         model=model,
+        token=token,
     )

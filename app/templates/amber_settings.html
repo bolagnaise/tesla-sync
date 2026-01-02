@@ -214,6 +214,13 @@
                                    placeholder="1" inputmode="numeric" pattern="[0-9]*">
                             <small style="font-size: 0.75em; color: var(--muted-color);">GoodWe: 247, Others: 1</small>
                         </label>
+                        <label for="inverter_token" id="tokenLabel" style="display: none;">
+                            <span>JWT Token</span>
+                            <input type="password" id="inverter_token" name="inverter_token"
+                                   value="{{ current_user.inverter_token or '' }}"
+                                   placeholder="eyJ0eXAi...">
+                            <small style="font-size: 0.75em; color: var(--muted-color);">Required for Enphase firmware 7.x+. Get from <a href="https://entrez.enphaseenergy.com/" target="_blank">entrez.enphaseenergy.com</a></small>
+                        </label>
                     </div>
 
                     <div style="margin-top: 1em;">
@@ -590,7 +597,13 @@
 
                 // Show/hide Slave ID for Enphase (doesn't use Modbus)
                 if (slaveIdLabel) {
-                    slaveIdLabel.style.display = (brand === 'enphase') ? 'none' : 'block';
+                    slaveIdLabel.style.display = (brand === 'enphase' || brand === 'zeversolar') ? 'none' : 'block';
+                }
+
+                // Show/hide JWT Token for Enphase (required for firmware 7.x+)
+                const tokenLabel = document.getElementById('tokenLabel');
+                if (tokenLabel) {
+                    tokenLabel.style.display = (brand === 'enphase') ? 'block' : 'none';
                 }
             }
         }
@@ -614,6 +627,7 @@
             const port = document.getElementById('inverter_port').value;
             const slaveId = document.getElementById('inverter_slave_id').value;
             const brand = document.getElementById('inverter_brand').value;
+            const token = document.getElementById('inverter_token').value;
 
             if (!host || !brand) {
                 result.innerHTML = '<span style="color: #ff6b6b;">Please enter IP address and select brand</span>';
@@ -632,7 +646,8 @@
                         brand: brand,
                         host: host,
                         port: parseInt(port) || 502,
-                        slave_id: parseInt(slaveId) || 1
+                        slave_id: parseInt(slaveId) || 1,
+                        token: token || null
                     })
                 });
 
