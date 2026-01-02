@@ -1731,8 +1731,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             _LOGGER.debug(f"Not exporting (grid={grid_power}W) - no need to curtail for negative export")
 
-        # Check 3: Battery full (99%+) AND export is unprofitable (< 1c/kWh)
-        if battery_soc is not None and battery_soc >= 99:
+        # Check 3: Battery full (100%) AND export is unprofitable (< 1c/kWh)
+        if battery_soc is not None and battery_soc >= 100:
             if export_earnings is not None and export_earnings < 1:
                 _LOGGER.info(f"🔌 AC-COUPLED: Battery full ({battery_soc:.0f}%) AND export unprofitable ({export_earnings:.2f}c/kWh) - should curtail")
                 return True
@@ -1801,8 +1801,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             return False
 
-        # Check 1: If battery is full (99%+) AND exporting, curtail
-        if battery_soc is not None and battery_soc >= 99:
+        # Check 1: If battery is full (100%) AND exporting, curtail
+        if battery_soc is not None and battery_soc >= 100:
             if is_exporting:
                 _LOGGER.info(f"🔋 DC-COUPLED: Battery full ({battery_soc:.0f}%) AND exporting - should curtail")
                 return True
@@ -1883,21 +1883,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             if curtail:
                 # Use smart AC-coupled curtailment logic
-                # Only curtail if: import price < 0 OR (battery >= 99% AND export < 1c)
+                # Only curtail if: import price < 0 OR (battery = 100% AND export < 1c)
                 should_curtail = await should_curtail_ac_coupled(import_price, export_earnings)
 
                 if not should_curtail:
                     # Smart logic says don't curtail - battery can still absorb solar
-                    _LOGGER.info(f"⚡ AC-COUPLED: Skipping inverter curtailment (battery can absorb solar)")
-                    return True  # Success - intentionally not curtailing
+                    # Check if inverter is currently curtailed and needs restoring
+                    inverter_last_state = hass.data[DOMAIN][entry.entry_id].get("inverter_last_state")
+                    if inverter_last_state == "curtailed":
+                        _LOGGER.info(f"⚡ AC-COUPLED: Battery absorbing solar - RESTORING previously curtailed inverter")
+                        success = await controller.restore()
+                        if success:
+                            _LOGGER.info(f"✅ Inverter restored (battery can absorb solar)")
+                            hass.data[DOMAIN][entry.entry_id]["inverter_last_state"] = "running"
+                            hass.data[DOMAIN][entry.entry_id]["inverter_power_limit_w"] = None
+                        else:
+                            _LOGGER.error(f"❌ Failed to restore inverter")
+                        return success
+                    else:
+                        _LOGGER.info(f"⚡ AC-COUPLED: Skipping inverter curtailment (battery can absorb solar)")
+                        return True  # Success - intentionally not curtailing
 
-                # For Zeversolar and Sigenergy, use load-following curtailment (limit to home load)
+                # For Zeversolar and Sigenergy, use load-following curtailment
+                # Limit = home load + battery charge rate (so we don't export but still charge battery)
                 home_load_w = None
                 if inverter_brand in ("zeversolar", "sigenergy"):
                     live_status = await get_live_status()
                     if live_status and live_status.get("load_power"):
                         home_load_w = int(live_status.get("load_power", 0))
-                        _LOGGER.info(f"🔌 LOAD-FOLLOWING: Home load is {home_load_w}W")
+                        # Add battery charge rate if battery is charging
+                        # battery_power > 0 means charging (consuming power from solar)
+                        battery_power = live_status.get("battery_power", 0) or 0
+                        battery_charge_w = max(0, int(battery_power))  # Only add if charging
+                        if battery_charge_w > 0:
+                            total_load_w = home_load_w + battery_charge_w
+                            _LOGGER.info(f"🔌 LOAD-FOLLOWING: Home={home_load_w}W + Battery charging={battery_charge_w}W = {total_load_w}W")
+                            home_load_w = total_load_w
+                        else:
+                            _LOGGER.info(f"🔌 LOAD-FOLLOWING: Home load is {home_load_w}W (battery not charging)")
 
                 _LOGGER.info(f"🔴 Curtailing inverter at {inverter_host}")
 

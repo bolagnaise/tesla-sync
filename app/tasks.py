@@ -2175,7 +2175,7 @@ def _check_ac_coupled_curtailment(user, import_price: float = None, export_earni
     For AC-coupled systems, we only curtail the inverter when:
     1. Import price is negative (cheaper to buy power than generate it), OR
     2. Actually exporting (grid_power < 0) AND export earnings are negative, OR
-    3. Battery is at 99%+ (can't absorb more solar) AND export is unprofitable, OR
+    3. Battery is at 100% (can't absorb more solar) AND export is unprofitable, OR
     4. Solar producing but battery NOT charging AND exporting at negative price
 
     Args:
@@ -2247,8 +2247,8 @@ def _check_ac_coupled_curtailment(user, import_price: float = None, export_earni
     else:
         logger.debug(f"Not exporting (grid={grid_power}W) - no need to curtail for negative export for {user.email}")
 
-    # Check 3: Battery full (99%+) AND export is unprofitable (< 1c/kWh)
-    if battery_soc >= 99:
+    # Check 3: Battery full (100%) AND export is unprofitable (< 1c/kWh)
+    if battery_soc >= 100:
         if export_earnings is not None and export_earnings < 1:
             logger.info(f"🔌 AC-COUPLED: Battery full ({battery_soc}%) AND export unprofitable ({export_earnings:.2f}c/kWh) - should curtail for {user.email}")
             return True
@@ -2322,7 +2322,7 @@ def _apply_inverter_curtailment(user, curtail: bool = True):
     action = "curtailing" if curtail else "restoring"
     logger.info(f"🔌 INVERTER: {action.upper()} inverter for {user.email} ({user.inverter_brand} at {user.inverter_host})")
 
-    # For load-following curtailment (Zeversolar), get current home load
+    # For load-following curtailment (Zeversolar), get current home load + battery charge rate
     home_load_w = None
     if curtail and user.inverter_brand == 'zeversolar':
         try:
@@ -2331,7 +2331,16 @@ def _apply_inverter_curtailment(user, curtail: bool = True):
                 site_status = tesla_client.get_site_status(user.tesla_energy_site_id)
                 if site_status:
                     home_load_w = int(site_status.get('load_power', 0))
-                    logger.info(f"🔌 LOAD-FOLLOWING: Home load is {home_load_w}W for {user.email}")
+                    # Add battery charge rate if battery is charging
+                    # battery_power > 0 means charging (consuming power from solar)
+                    battery_power = site_status.get('battery_power', 0) or 0
+                    battery_charge_w = max(0, int(battery_power))  # Only add if charging
+                    if battery_charge_w > 0:
+                        total_load_w = home_load_w + battery_charge_w
+                        logger.info(f"🔌 LOAD-FOLLOWING: Home={home_load_w}W + Battery charging={battery_charge_w}W = {total_load_w}W for {user.email}")
+                        home_load_w = total_load_w
+                    else:
+                        logger.info(f"🔌 LOAD-FOLLOWING: Home load is {home_load_w}W (battery not charging) for {user.email}")
         except Exception as e:
             logger.warning(f"Failed to get home load for load-following: {e}")
             # Fall back to full curtailment if we can't get home load
@@ -2391,7 +2400,7 @@ def _apply_sigenergy_curtailment(user, export_earnings: float, import_price: flo
     Apply or remove Sigenergy curtailment via Modbus TCP with SMART logic.
 
     Smart curtailment logic (same as Tesla+AC-coupled):
-    - Only curtail when battery is full (99%+) OR import price is negative
+    - Only curtail when battery is full (100%) OR import price is negative
     - If battery can still absorb solar, don't curtail (let it charge)
     - Use load-following: set export limit = home load (not 0kW)
 
@@ -2427,14 +2436,14 @@ def _apply_sigenergy_curtailment(user, export_earnings: float, import_price: flo
                 logger.info(f"📊 SIGENERGY STATUS: SOC={battery_soc}%, Load={home_load_w}W, Solar={solar_power_w}W")
 
             # SMART LOGIC: Should we actually curtail?
-            # Only curtail if: battery is full (99%+) OR import price is negative
+            # Only curtail if: battery is full (100%) OR import price is negative
             should_curtail = False
 
             if import_price is not None and import_price < 0:
                 # Import price is negative - definitely curtail (cheaper to buy than generate)
                 logger.info(f"🔌 SIGENERGY: Import price negative ({import_price:.2f}c/kWh) - curtailing")
                 should_curtail = True
-            elif battery_soc >= 99:
+            elif battery_soc >= 100:
                 # Battery is full - curtail (can't absorb more solar)
                 logger.info(f"🔋 SIGENERGY: Battery full ({battery_soc}%) - curtailing with load-following")
                 should_curtail = True
@@ -2668,14 +2677,18 @@ def solar_curtailment_check():
                     db.session.commit()
 
                 # AC-coupled inverter curtailment uses smart logic:
-                # Only curtail if battery is full (99%+) OR import price is negative
+                # Only curtail if battery is full (100%) OR import price is negative
                 if getattr(user, 'inverter_curtailment_enabled', False):
                     should_curtail = _check_ac_coupled_curtailment(user, import_price, export_earnings)
                     if should_curtail:
                         _apply_inverter_curtailment(user, curtail=True)
                     else:
-                        # Battery can still absorb solar - don't curtail inverter even if export is unprofitable
-                        logger.info(f"🔌 AC-COUPLED: Skipping inverter curtailment (battery can absorb solar) for {user.email}")
+                        # Battery can still absorb solar - restore if previously curtailed
+                        if getattr(user, 'inverter_last_state', None) == 'curtailed':
+                            logger.info(f"🔌 AC-COUPLED: Battery absorbing solar - RESTORING inverter for {user.email}")
+                            _apply_inverter_curtailment(user, curtail=False)
+                        else:
+                            logger.info(f"🔌 AC-COUPLED: Skipping inverter curtailment (battery can absorb solar) for {user.email}")
 
                 success_count += 1
                 logger.info(f"📊 Action summary: Curtailment active (earnings: {export_earnings:.2f}c/kWh, export: 'never')")
@@ -2856,7 +2869,12 @@ def solar_curtailment_with_websocket_data(prices_data):
                     if should_curtail:
                         _apply_inverter_curtailment(user, curtail=True)
                     else:
-                        logger.info(f"🔌 AC-COUPLED: Skipping inverter curtailment (battery can absorb solar) for {user.email}")
+                        # Battery can still absorb solar - restore if previously curtailed
+                        if getattr(user, 'inverter_last_state', None) == 'curtailed':
+                            logger.info(f"🔌 AC-COUPLED: Battery absorbing solar - RESTORING inverter for {user.email}")
+                            _apply_inverter_curtailment(user, curtail=False)
+                        else:
+                            logger.info(f"🔌 AC-COUPLED: Skipping inverter curtailment (battery can absorb solar) for {user.email}")
 
                 success_count += 1
 
