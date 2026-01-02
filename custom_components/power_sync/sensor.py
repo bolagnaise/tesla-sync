@@ -890,6 +890,8 @@ class InverterStatusSensor(SensorEntity):
             # Update cached state based on inverter response
             if state.status.value == "offline":
                 self._cached_state = "offline"
+            elif state.status.value == "error":
+                self._cached_state = "error"
             elif state.is_curtailed:
                 self._cached_state = "curtailed"
             else:
@@ -974,6 +976,8 @@ class InverterStatusSensor(SensorEntity):
             attrs["description"] = "Inverter operating normally"
         elif self._cached_state == "offline":
             attrs["description"] = "Cannot reach inverter"
+        elif self._cached_state == "error":
+            attrs["description"] = "Inverter reported fault condition"
         elif self._cached_state == "disabled":
             attrs["description"] = "Inverter curtailment not enabled"
         elif self._cached_state == "not_configured":
