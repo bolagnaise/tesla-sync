@@ -2178,6 +2178,58 @@ def tesla_status(tesla_client, api_user=None, **kwargs):
     return jsonify(site_status)
 
 
+@bp.route('/api/tesla/powerwall-type')
+@require_tesla_client
+@require_tesla_site_id
+def powerwall_type(tesla_client, api_user=None, **kwargs):
+    """Get Powerwall type (PW2 or PW3) from Tesla site info.
+
+    Returns the gateway part_name which indicates Powerwall version.
+    Supports both session login and Bearer token authentication.
+    """
+    user = api_user or current_user
+    logger.info(f"Powerwall type requested by user: {user.email}")
+
+    site_info = tesla_client.get_site_info(user.tesla_energy_site_id)
+    if not site_info:
+        logger.error("Failed to fetch Tesla site info")
+        return jsonify({'error': 'Failed to fetch site info'}), 500
+
+    # Extract gateway info - gateways array contains part_name
+    gateways = site_info.get('components', {}).get('gateways', [])
+    if not gateways:
+        # Try top-level gateways
+        gateways = site_info.get('gateways', [])
+
+    powerwall_type = 'unknown'
+    part_name = None
+
+    if gateways and len(gateways) > 0:
+        gateway = gateways[0]  # Primary gateway
+        part_name = gateway.get('part_name', '')
+
+        # Detect type from part_name
+        if 'Powerwall 3' in part_name:
+            powerwall_type = 'PW3'
+        elif 'Powerwall 2' in part_name or 'Powerwall+' in part_name:
+            powerwall_type = 'PW2'
+        elif 'Powerwall' in part_name:
+            # Generic Powerwall, try to determine from part_number
+            part_number = gateway.get('part_number', '')
+            if part_number.startswith('170'):  # PW3 part numbers start with 170
+                powerwall_type = 'PW3'
+            else:
+                powerwall_type = 'PW2'  # Default to PW2 for older units
+
+    logger.info(f"Powerwall type: {powerwall_type} (part_name: {part_name})")
+
+    return jsonify({
+        'powerwall_type': powerwall_type,
+        'part_name': part_name,
+        'gateway_count': len(gateways)
+    })
+
+
 @bp.route('/api/sigenergy/live-status')
 @api_auth_required
 def sigenergy_live_status(api_user=None, **kwargs):
