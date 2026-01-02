@@ -229,6 +229,20 @@
                         <span id="inverterTestResult" style="margin-left: 1em; font-size: 0.9em;"></span>
                     </div>
 
+                    <div style="margin-top: 1.5em; padding-top: 1em; border-top: 1px solid rgba(128,128,128,0.2);">
+                        <label for="inverter_restore_soc">
+                            <span>Restore SOC Threshold (%)</span>
+                            <small style="display: block; margin-top: 0.2em; color: var(--muted-color);">Restore inverter when battery drops below this %. Default: 98%</small>
+                            <input type="number" id="inverter_restore_soc" name="inverter_restore_soc"
+                                   value="{{ current_user.inverter_restore_soc or 98 }}"
+                                   min="50" max="100" step="1"
+                                   style="width: 150px;">
+                        </label>
+                        <p style="font-size: 0.75em; margin: 0.5em 0 0 0; color: var(--muted-color);">
+                            When battery SOC drops below this threshold, the inverter will be restored to allow solar production. Ensures battery stays topped up before evening peak.
+                        </p>
+                    </div>
+
                     {% if current_user.inverter_last_state %}
                     <p style="font-size: 0.8em; color: var(--muted-color); margin-top: 1em;">
                         Last state: <strong>{{ current_user.inverter_last_state }}</strong>
