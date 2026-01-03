@@ -6034,6 +6034,7 @@ def api_battery_health_update():
         battery_count = data.get('batteryCount', 1)
         scanned_at_str = data.get('scannedAt')
         pack_data = data.get('packData')  # Optional per-pack data
+        individual_batteries = data.get('individualBatteries')  # Per-battery data for HA display
 
         # Parse scanned_at timestamp or use current time
         if scanned_at_str:
@@ -6056,6 +6057,10 @@ def api_battery_health_update():
 
         # Save to history
         import json
+        # Store individual_batteries in pack_data if provided (for HA display)
+        combined_pack_data = pack_data or {}
+        if individual_batteries:
+            combined_pack_data['individual_batteries'] = individual_batteries
         history_entry = BatteryHealthHistory(
             user_id=user.id,
             scanned_at=scanned_at,
@@ -6064,7 +6069,7 @@ def api_battery_health_update():
             health_percent=health_percent,
             degradation_percent=degradation or 0,
             battery_count=battery_count,
-            pack_data=json.dumps(pack_data) if pack_data else None
+            pack_data=json.dumps(combined_pack_data) if combined_pack_data else None
         )
         db.session.add(history_entry)
         db.session.commit()
@@ -6116,12 +6121,26 @@ def api_battery_health_get(api_user=None, **kwargs):
         except Exception as e:
             logger.warning(f"Could not auto-fetch install date: {e}")
 
+    # Get individual batteries from latest history entry
+    individual_batteries = None
+    latest_history = BatteryHealthHistory.query.filter_by(
+        user_id=user.id
+    ).order_by(BatteryHealthHistory.scanned_at.desc()).first()
+    if latest_history and latest_history.pack_data:
+        try:
+            import json
+            pack_data = json.loads(latest_history.pack_data)
+            individual_batteries = pack_data.get('individual_batteries')
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     return jsonify({
         'has_data': True,
         'originalCapacityWh': user.battery_original_capacity_wh,
         'currentCapacityWh': user.battery_current_capacity_wh,
         'degradationPercent': user.battery_degradation_percent,
         'batteryCount': user.battery_count,
+        'individualBatteries': individual_batteries,
         'updatedAt': user.battery_health_updated.isoformat() if user.battery_health_updated else None,
         'installDate': install_date.isoformat() if install_date else None
     })
