@@ -32,6 +32,27 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
+def run_async_with_cleanup(coro):
+    """Run an async coroutine in a new event loop with proper cleanup.
+
+    This prevents 'Task was destroyed but it is pending!' errors by
+    cancelling all pending tasks before closing the loop.
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        # Cancel all pending tasks
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            task.cancel()
+        # Wait for cancellation to complete
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()
+
+
 def get_user_from_api_token():
     """
     Get user from Bearer token in Authorization header.
@@ -467,18 +488,15 @@ def api_inverter_status():
         if not controller:
             return jsonify({'enabled': True, 'error': 'Failed to create inverter controller'})
 
-        # Run async function in sync context - create new event loop for thread
+        # Run async function in sync context
         async def get_status_and_disconnect():
-            state = await controller.get_status()
-            await controller.disconnect()
+            try:
+                state = await controller.get_status()
+            finally:
+                await controller.disconnect()
             return state
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            state = loop.run_until_complete(get_status_and_disconnect())
-        finally:
-            loop.close()
+        state = run_async_with_cleanup(get_status_and_disconnect())
 
         # Convert state to dict for response
         state_dict = state.to_dict()
@@ -565,13 +583,8 @@ def api_inverter_test():
         if not controller:
             return jsonify({'success': False, 'error': f'Unsupported inverter brand: {brand}'})
 
-        # Run async function in sync context - create new event loop for thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            success, message = loop.run_until_complete(controller.test_connection())
-        finally:
-            loop.close()
+        # Run async function in sync context
+        success, message = run_async_with_cleanup(controller.test_connection())
 
         return jsonify({'success': success, 'message': message})
 
@@ -629,23 +642,19 @@ def api_inverter_curtail():
         if not controller:
             return jsonify({'success': False, 'error': 'Failed to create inverter controller'})
 
-        # Run async function in sync context - create new event loop for thread
+        # Run async function in sync context
         async def do_curtail():
-            # Check if controller supports home_load_w parameter
-            if home_load_w is not None and hasattr(controller.curtail, '__code__') and 'home_load_w' in controller.curtail.__code__.co_varnames:
-                result = await controller.curtail(home_load_w=home_load_w)
-            else:
-                result = await controller.curtail()
-            await controller.disconnect()
-            return result
+            try:
+                # Check if controller supports home_load_w parameter
+                if home_load_w is not None and hasattr(controller.curtail, '__code__') and 'home_load_w' in controller.curtail.__code__.co_varnames:
+                    result = await controller.curtail(home_load_w=home_load_w)
+                else:
+                    result = await controller.curtail()
+                return result
+            finally:
+                await controller.disconnect()
 
-        # Use new_event_loop for thread safety in Flask
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            success = loop.run_until_complete(do_curtail())
-        finally:
-            loop.close()
+        success = run_async_with_cleanup(do_curtail())
 
         if success:
             user.inverter_last_state = 'curtailed'
@@ -695,7 +704,7 @@ def api_inverter_set_power_limit():
         if not controller:
             return jsonify({'success': False, 'error': 'Failed to create inverter controller'})
 
-        # Run async function in sync context - create new event loop for thread
+        # Run async function in sync context with proper cleanup
         async def do_set_limit():
             if power_limit_w is not None:
                 result = await controller.set_power_limit_watts(int(power_limit_w))
@@ -704,12 +713,7 @@ def api_inverter_set_power_limit():
             await controller.disconnect()
             return result
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            success = loop.run_until_complete(do_set_limit())
-        finally:
-            loop.close()
+        success = run_async_with_cleanup(do_set_limit())
 
         if success:
             current_user.inverter_last_state = 'curtailed' if (percent is not None and percent < 100) or (power_limit_w is not None and power_limit_w < controller.ac_capacity_w) else 'online'
@@ -750,18 +754,13 @@ def api_inverter_restore():
         if not controller:
             return jsonify({'success': False, 'error': 'Failed to create inverter controller'})
 
-        # Run async function in sync context - create new event loop for thread
+        # Run async function in sync context with proper cleanup
         async def do_restore():
             result = await controller.restore()
             await controller.disconnect()
             return result
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            success = loop.run_until_complete(do_restore())
-        finally:
-            loop.close()
+        success = run_async_with_cleanup(do_restore())
 
         if success:
             user.inverter_last_state = 'online'
