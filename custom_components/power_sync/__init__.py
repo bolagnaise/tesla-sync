@@ -1554,10 +1554,19 @@ class InverterStatusView(HomeAssistantView):
 
         except Exception as e:
             _LOGGER.error(f"Error getting inverter status: {e}", exc_info=True)
-            return web.json_response(
-                {"success": False, "enabled": True, "error": str(e)},
-                status=500
-            )
+            # Return 200 with offline status so mobile app can show the card
+            return web.json_response({
+                "success": True,
+                "enabled": True,
+                "status": "offline",
+                "is_curtailed": False,
+                "power_output_w": None,
+                "power_limit_percent": None,
+                "brand": inverter_brand,
+                "model": inverter_model,
+                "host": inverter_host,
+                "error_message": str(e)
+            })
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

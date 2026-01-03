@@ -486,7 +486,18 @@ def api_inverter_status():
 
     except Exception as e:
         logger.error(f"Error getting inverter status: {e}")
-        return jsonify({'enabled': True, 'error': str(e)}), 500
+        # Return 200 with error info so mobile app can show "offline" status
+        return jsonify({
+            'enabled': True,
+            'status': 'offline',
+            'is_curtailed': False,
+            'power_output_w': None,
+            'power_limit_percent': None,
+            'brand': current_user.inverter_brand,
+            'model': current_user.inverter_model,
+            'host': current_user.inverter_host,
+            'error_message': str(e)
+        })
 
 
 @bp.route('/api/inverter/test', methods=['POST'])
