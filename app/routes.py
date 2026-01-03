@@ -502,20 +502,26 @@ def api_inverter_status():
         # Convert state to dict for response
         state_dict = state.to_dict()
 
-        # Check if inverter reported offline/error and apply sleep detection
-        if state_dict.get('status') in ('offline', 'error'):
-            from datetime import datetime
-            import pytz
-            try:
-                tz = pytz.timezone(user.timezone or 'Australia/Sydney')
-                local_hour = datetime.now(tz).hour
-                # Consider 6pm-6am as "night" when inverter sleep is expected
-                is_night = local_hour >= 18 or local_hour < 6
-                if is_night:
-                    state_dict['status'] = 'sleep'
-                    state_dict['error_message'] = 'Inverter in sleep mode (night)'
-            except Exception:
-                pass  # Keep original status if timezone fails
+        # Check if it's nighttime for sleep detection
+        import pytz
+        is_night = False
+        try:
+            tz = pytz.timezone(user.timezone or 'Australia/Sydney')
+            local_hour = datetime.now(tz).hour
+            # Consider 6pm-6am as "night" when inverter sleep is expected
+            is_night = local_hour >= 18 or local_hour < 6
+        except Exception:
+            pass
+
+        # Apply sleep detection at night if:
+        # - Status is offline/error, OR
+        # - Power output is very low (< 100W, e.g. Sungrow PID recovery mode)
+        if is_night:
+            power_output = state_dict.get('power_output_w', 0) or 0
+            status = state_dict.get('status')
+            if status in ('offline', 'error') or power_output < 100:
+                state_dict['status'] = 'sleep'
+                state_dict['error_message'] = 'Inverter in sleep mode (night)'
 
         return jsonify({
             'enabled': True,

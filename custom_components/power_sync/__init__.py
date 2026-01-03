@@ -1543,22 +1543,27 @@ class InverterStatusView(HomeAssistantView):
             # Convert state to dict
             state_dict = state.to_dict()
 
-            # Check if inverter reported offline/error and apply sleep detection
-            if state_dict.get('status') in ('offline', 'error'):
-                is_night = False
-                try:
-                    sun_state = self._hass.states.get("sun.sun")
-                    if sun_state:
-                        is_night = sun_state.state == "below_horizon"
-                    else:
-                        # Fallback to hour-based check (6pm-6am)
-                        from datetime import datetime
-                        local_hour = datetime.now().hour
-                        is_night = local_hour >= 18 or local_hour < 6
-                except Exception:
-                    pass
+            # Check if it's nighttime for sleep detection
+            is_night = False
+            try:
+                sun_state = self._hass.states.get("sun.sun")
+                if sun_state:
+                    is_night = sun_state.state == "below_horizon"
+                else:
+                    # Fallback to hour-based check (6pm-6am)
+                    from datetime import datetime
+                    local_hour = datetime.now().hour
+                    is_night = local_hour >= 18 or local_hour < 6
+            except Exception:
+                pass
 
-                if is_night:
+            # Apply sleep detection at night if:
+            # - Status is offline/error, OR
+            # - Power output is very low (< 100W, e.g. Sungrow PID recovery mode)
+            if is_night:
+                power_output = state_dict.get('power_output_w', 0) or 0
+                status = state_dict.get('status')
+                if status in ('offline', 'error') or power_output < 100:
                     state_dict['status'] = 'sleep'
                     state_dict['error_message'] = 'Inverter in sleep mode (night)'
 
