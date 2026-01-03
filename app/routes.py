@@ -538,7 +538,7 @@ def api_inverter_status():
     except Exception as e:
         logger.error(f"Error getting inverter status: {e}")
         # Determine if it's likely nighttime (inverter sleep) vs actual offline
-        from datetime import datetime
+        # Note: datetime is already imported at module level, don't re-import here
         import pytz
         try:
             tz = pytz.timezone(user.timezone or 'Australia/Sydney')
