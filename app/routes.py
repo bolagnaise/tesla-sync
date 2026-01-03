@@ -480,12 +480,30 @@ def api_inverter_status():
         finally:
             loop.close()
 
+        # Convert state to dict for response
+        state_dict = state.to_dict()
+
+        # Check if inverter reported offline/error and apply sleep detection
+        if state_dict.get('status') in ('offline', 'error'):
+            from datetime import datetime
+            import pytz
+            try:
+                tz = pytz.timezone(user.timezone or 'Australia/Sydney')
+                local_hour = datetime.now(tz).hour
+                # Consider 6pm-6am as "night" when inverter sleep is expected
+                is_night = local_hour >= 18 or local_hour < 6
+                if is_night:
+                    state_dict['status'] = 'sleep'
+                    state_dict['error_message'] = 'Inverter in sleep mode (night)'
+            except Exception:
+                pass  # Keep original status if timezone fails
+
         return jsonify({
             'enabled': True,
             'brand': user.inverter_brand,
             'model': user.inverter_model,
             'host': user.inverter_host,
-            **state.to_dict()
+            **state_dict
         })
 
     except Exception as e:

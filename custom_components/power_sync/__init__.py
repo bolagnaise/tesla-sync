@@ -1540,16 +1540,38 @@ class InverterStatusView(HomeAssistantView):
             state = await controller.get_status()
             await controller.disconnect()
 
+            # Convert state to dict
+            state_dict = state.to_dict()
+
+            # Check if inverter reported offline/error and apply sleep detection
+            if state_dict.get('status') in ('offline', 'error'):
+                is_night = False
+                try:
+                    sun_state = self._hass.states.get("sun.sun")
+                    if sun_state:
+                        is_night = sun_state.state == "below_horizon"
+                    else:
+                        # Fallback to hour-based check (6pm-6am)
+                        from datetime import datetime
+                        local_hour = datetime.now().hour
+                        is_night = local_hour >= 18 or local_hour < 6
+                except Exception:
+                    pass
+
+                if is_night:
+                    state_dict['status'] = 'sleep'
+                    state_dict['error_message'] = 'Inverter in sleep mode (night)'
+
             result = {
                 "success": True,
                 "enabled": True,
                 "brand": inverter_brand,
                 "model": inverter_model,
                 "host": inverter_host,
-                **state.to_dict()
+                **state_dict
             }
 
-            _LOGGER.info(f"✅ Inverter status: {state.status.value}, curtailed: {state.is_curtailed}")
+            _LOGGER.info(f"✅ Inverter status: {state_dict.get('status')}, curtailed: {state.is_curtailed}")
             return web.json_response(result)
 
         except Exception as e:
