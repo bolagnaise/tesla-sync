@@ -318,14 +318,23 @@ class EnphaseController(InverterController):
         Returns:
             True if successful
         """
+        # Firmware D8.x requires 'dynamic_pel_settings' wrapper
         data = {
-            "enabled": enabled,
-            "limit": limit_watts,
+            "dynamic_pel_settings": {
+                "enabled": enabled,
+                "limit": limit_watts,
+            }
         }
         # Try POST first (required by most firmware), fall back to PUT
         if await self._post(self.ENDPOINT_DPEL, data):
             return True
-        return await self._put(self.ENDPOINT_DPEL, data)
+
+        # Try without wrapper for older firmware
+        data_simple = {
+            "enabled": enabled,
+            "limit": limit_watts,
+        }
+        return await self._put(self.ENDPOINT_DPEL, data_simple)
 
     async def _get_der_settings(self) -> Optional[dict]:
         """Get DER (Distributed Energy Resource) settings."""
