@@ -187,7 +187,7 @@ class EnphaseController(InverterController):
                     _LOGGER.error(f"Authentication required for {endpoint}")
                     return False
                 else:
-                    _LOGGER.error(f"PUT {endpoint} returned status {response.status}")
+                    _LOGGER.debug(f"PUT {endpoint} returned status {response.status}")
                     return False
 
         except aiohttp.ClientError as e:
@@ -195,6 +195,34 @@ class EnphaseController(InverterController):
             return False
         except Exception as e:
             _LOGGER.error(f"Error putting {endpoint}: {e}")
+            return False
+
+    async def _post(self, endpoint: str, data: dict) -> bool:
+        """Make a POST request to the IQ Gateway."""
+        if not self._session:
+            if not await self.connect():
+                return False
+
+        url = f"https://{self.host}:{self.port}{endpoint}"
+        try:
+            async with self._session.post(
+                url, headers=self._get_headers(), json=data
+            ) as response:
+                if response.status in (200, 201, 204):
+                    _LOGGER.debug(f"POST {endpoint} successful")
+                    return True
+                elif response.status == 401:
+                    _LOGGER.error(f"Authentication required for {endpoint}")
+                    return False
+                else:
+                    _LOGGER.debug(f"POST {endpoint} returned status {response.status}")
+                    return False
+
+        except aiohttp.ClientError as e:
+            _LOGGER.error(f"HTTP error posting {endpoint}: {e}")
+            return False
+        except Exception as e:
+            _LOGGER.error(f"Error posting {endpoint}: {e}")
             return False
 
     async def _get_info(self) -> Optional[dict]:
@@ -278,6 +306,9 @@ class EnphaseController(InverterController):
             "enabled": enabled,
             "limit": limit_watts,
         }
+        # Try POST first (required by most firmware), fall back to PUT
+        if await self._post(self.ENDPOINT_DPEL, data):
+            return True
         return await self._put(self.ENDPOINT_DPEL, data)
 
     async def _get_der_settings(self) -> Optional[dict]:
@@ -302,6 +333,9 @@ class EnphaseController(InverterController):
         current["exportLimit"] = limit_watts
         current["exportLimitEnabled"] = limit_watts == 0 or limit_watts > 0
 
+        # Try POST first (required by most firmware), fall back to PUT
+        if await self._post(self.ENDPOINT_DER_SETTINGS, current):
+            return True
         return await self._put(self.ENDPOINT_DER_SETTINGS, current)
 
     async def curtail(
