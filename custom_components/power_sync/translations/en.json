@@ -39,6 +39,10 @@
           "auto_sync_enabled": "Enable automatic TOU schedule syncing",
           "solar_curtailment_enabled": "Enable DC Solar Curtailment (stop export at negative prices)"
         },
+        "data_description": {
+          "auto_sync_enabled": "Automatically upload TOU tariff schedules to your battery system based on current electricity prices",
+          "solar_curtailment_enabled": "Automatically stop DC solar production when feed-in prices go negative to avoid paying to export"
+        },
         "submit_button": "Next"
       },
       "amber": {
@@ -71,9 +75,20 @@
           "spike_protection_enabled": "When Amber detects a price spike, artificially inflate buy prices to prevent your battery from charging from grid",
           "settled_prices_only": "Skip forecast sync at :00 and only sync when actual prices arrive at :35/:60",
           "force_tariff_mode_toggle": "After uploading a new tariff, briefly toggle operation mode to force immediate recalculation (Tesla only)",
+          "export_boost_enabled": "Artificially increase sell prices during configured hours to encourage battery export during high-value periods",
           "export_boost_threshold": "Boost only applies if actual price is at or above this value (0 = always apply)",
           "chip_mode_enabled": "Suppress exports during configured hours unless price exceeds threshold (inverse of Export Boost)",
           "chip_mode_threshold": "Allow exports only when price is at or above this value"
+        },
+        "submit_button": "Next"
+      },
+      "aemo_config": {
+        "title": "AEMO Spike Detection",
+        "description": "Configure AEMO wholesale price spike detection. When prices spike above your threshold, your battery will be configured to export energy to the grid.\n\n{threshold_hint}",
+        "data": {
+          "aemo_spike_enabled": "Enable AEMO Spike Detection",
+          "aemo_region": "NEM Region",
+          "aemo_spike_threshold": "Spike Threshold ($/MWh)"
         },
         "submit_button": "Next"
       },
@@ -118,6 +133,14 @@
         },
         "submit_button": "Finish"
       },
+      "tesla_provider": {
+        "title": "Choose Tesla API Provider",
+        "description": "{fleet_detected}\n\nSelect how you want to access your Tesla Powerwall. Tesla Fleet API is free but requires the Tesla Fleet integration to be installed. Teslemetry is a paid proxy service (~$4/month) that's easier to set up.",
+        "data": {
+          "tesla_api_provider": "Tesla API Provider"
+        },
+        "submit_button": "Next"
+      },
       "teslemetry": {
         "title": "Teslemetry Configuration",
         "description": "Enter your Teslemetry API token. You can get this from {teslemetry_url}",
@@ -136,20 +159,23 @@
           "amber_forecast_type": "Amber Forecast Type",
           "solar_curtailment_enabled": "Enable DC Solar Curtailment (stop export at negative prices)"
         },
+        "data_description": {
+          "auto_sync_enabled": "Automatically upload TOU tariff schedules to your battery system based on current electricity prices",
+          "solar_curtailment_enabled": "Automatically stop DC solar production when feed-in prices go negative to avoid paying to export"
+        },
         "submit_button": "Submit"
       },
       "demand_charges": {
         "title": "Demand Charge Configuration (Optional)",
-        "description": "Configure demand charge tracking for electricity plans with capacity-based fees. Leave 'Enable Demand Charge Tracking' unchecked to skip this step.",
+        "description": "Configure demand charge tracking for electricity plans with capacity-based fees. Demand charges are applied during peak periods based on your maximum power draw. Leave 'Enable Demand Charge Tracking' unchecked to skip this step.",
         "data": {
           "demand_charge_enabled": "Enable Demand Charge Tracking",
           "demand_charge_rate": "Demand Charge Rate ($/kW)",
-          "demand_charge_start_time": "Demand Period Start Time (HH:MM:SS)",
-          "demand_charge_end_time": "Demand Period End Time (HH:MM:SS)",
-          "demand_charge_days": "Active Days",
-          "demand_charge_billing_day": "Billing Cycle Day (1-28)",
-          "demand_charge_apply_to": "Apply Demand Charge To",
-          "demand_artificial_price_enabled": "Artificial Price Increase (ALPHA)"
+          "demand_charge_start_time": "Peak Period Start Time (HH:MM)",
+          "demand_charge_end_time": "Peak Period End Time (HH:MM)"
+        },
+        "data_description": {
+          "demand_charge_enabled": "Track your peak grid draw during demand charge periods and calculate monthly capacity fees based on your highest 30-minute average"
         },
         "submit_button": "Submit"
       }
@@ -158,7 +184,10 @@
       "invalid_auth": "Invalid API token. Please check your token and try again.",
       "cannot_connect": "Unable to connect to API. Please check your internet connection.",
       "no_sites": "No Amber Electric sites found for this account.",
-      "no_energy_sites": "No Tesla energy sites found in your Teslemetry account.",
+      "no_energy_sites": "No Tesla energy sites found in your account.",
+      "no_token_provided": "Please provide a Teslemetry API token.",
+      "aemo_region_required": "Please select an AEMO NEM region when spike detection is enabled.",
+      "aemo_required_in_aemo_mode": "AEMO spike detection must be enabled in AEMO-only mode.",
       "missing_credentials": "Please provide all Sigenergy credentials (email, password, and device ID).",
       "invalid_device_id": "Device ID must be exactly 13 digits.",
       "no_stations": "No Sigenergy stations found for this account.",
@@ -198,6 +227,7 @@
           "solar_curtailment_enabled": "Enable DC Solar Curtailment (stop export at negative prices)",
           "spike_protection_enabled": "Enable Spike Protection (prevent grid charging during spikes)",
           "settled_prices_only": "Settled Prices Only (skip forecast sync)",
+          "force_tariff_mode_toggle": "Force Mode Toggle (ALPHA) - faster PW response",
           "export_boost_enabled": "Enable Export Price Boost",
           "export_price_offset": "Export Price Offset (c/kWh)",
           "export_min_price": "Minimum Export Price (c/kWh)",
@@ -226,9 +256,14 @@
           "inverter_slave_id": "Modbus Slave ID"
         },
         "data_description": {
+          "auto_sync_enabled": "Automatically upload TOU tariff schedules to your battery system based on current electricity prices",
+          "solar_curtailment_enabled": "Automatically stop DC solar production when feed-in prices go negative to avoid paying to export",
           "spike_protection_enabled": "When Amber detects a price spike, artificially inflate buy prices to prevent your battery from charging from grid (stops arbitrage behavior)",
           "inverter_curtailment_enabled": "Shutdown AC-coupled solar inverter when feed-in price is negative (stops solar export that bypasses your battery)",
           "settled_prices_only": "Skip the initial forecast sync at :00 and only sync when actual/settled prices arrive at :35/:60 seconds. Use this if forecast prices differ significantly from settled prices.",
+          "force_tariff_mode_toggle": "After uploading a new tariff, briefly toggle operation mode to force immediate recalculation of battery behavior (Tesla only, ~5 second interruption)",
+          "export_boost_enabled": "Artificially increase sell prices during configured hours to encourage battery export during high-value periods",
+          "demand_charge_enabled": "Track your peak grid draw during demand charge periods and calculate monthly capacity fees based on your highest 30-minute average",
           "demand_artificial_price_enabled": "Artificially increases the current price by $2 during demand charge periods to encourage battery discharge",
           "export_boost_threshold": "Boost will only apply if actual export price is at or above this value (0 = always apply)",
           "chip_mode_enabled": "Suppress exports during configured hours unless price exceeds threshold (inverse of Export Boost)",
@@ -246,17 +281,6 @@
           "pea_enabled": "Enable PEA Pricing (Recommended)",
           "flow_power_base_rate": "Base Rate (c/kWh)",
           "pea_custom_value": "Custom PEA Override (c/kWh, leave empty for auto)",
-          "network_tariff_type": "Network Tariff Type (for AEMO)",
-          "network_flat_rate": "Network Flat Rate (c/kWh)",
-          "network_peak_rate": "Network Peak Rate (c/kWh)",
-          "network_shoulder_rate": "Network Shoulder Rate (c/kWh)",
-          "network_offpeak_rate": "Network Off-Peak Rate (c/kWh)",
-          "network_peak_start": "Peak Period Start (HH:MM)",
-          "network_peak_end": "Peak Period End (HH:MM)",
-          "network_offpeak_start": "Off-Peak Start (HH:MM)",
-          "network_offpeak_end": "Off-Peak End (HH:MM)",
-          "network_other_fees": "Other Fees (c/kWh)",
-          "network_include_gst": "Include GST (10%)",
           "auto_sync_enabled": "Enable automatic TOU schedule syncing",
           "solar_curtailment_enabled": "Enable DC Solar Curtailment (stop export at negative prices)",
           "demand_charge_enabled": "Enable Demand Charge Tracking",
@@ -268,6 +292,11 @@
           "demand_charge_apply_to": "Apply Demand Charge To",
           "daily_supply_charge": "Daily Supply Charge ($)",
           "monthly_supply_charge": "Monthly Supply Charge ($)"
+        },
+        "data_description": {
+          "auto_sync_enabled": "Automatically upload TOU tariff schedules to your battery system based on current electricity prices",
+          "solar_curtailment_enabled": "Automatically stop DC solar production when feed-in prices go negative to avoid paying to export",
+          "demand_charge_enabled": "Track your peak grid draw during demand charge periods and calculate monthly capacity fees based on your highest 30-minute average"
         }
       },
       "globird_options": {
@@ -340,6 +369,12 @@
       },
       "days_until_demand_reset": {
         "name": "Days Until Demand Reset"
+      },
+      "aemo_price": {
+        "name": "AEMO Wholesale Price"
+      },
+      "aemo_spike_status": {
+        "name": "AEMO Spike Status"
       },
       "tariff_schedule": {
         "name": "Tariff Schedule"

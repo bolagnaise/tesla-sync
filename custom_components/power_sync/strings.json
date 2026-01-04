@@ -39,6 +39,10 @@
           "auto_sync_enabled": "Enable automatic TOU schedule syncing",
           "solar_curtailment_enabled": "Enable DC Solar Curtailment (stop export at negative prices)"
         },
+        "data_description": {
+          "auto_sync_enabled": "Automatically upload TOU tariff schedules to your battery system based on current electricity prices",
+          "solar_curtailment_enabled": "Automatically stop DC solar production when feed-in prices go negative to avoid paying to export"
+        },
         "submit_button": "Next"
       },
       "amber": {
@@ -71,6 +75,7 @@
           "spike_protection_enabled": "When Amber detects a price spike, artificially inflate buy prices to prevent your battery from charging from grid",
           "settled_prices_only": "Skip forecast sync at :00 and only sync when actual prices arrive at :35/:60",
           "force_tariff_mode_toggle": "After uploading a new tariff, briefly toggle operation mode to force immediate recalculation (Tesla only)",
+          "export_boost_enabled": "Artificially increase sell prices during configured hours to encourage battery export during high-value periods",
           "export_boost_threshold": "Boost only applies if actual price is at or above this value (0 = always apply)",
           "chip_mode_enabled": "Suppress exports during configured hours unless price exceeds threshold (inverse of Export Boost)",
           "chip_mode_threshold": "Allow exports only when price is at or above this value"
@@ -154,6 +159,10 @@
           "amber_forecast_type": "Amber Forecast Type",
           "solar_curtailment_enabled": "Enable DC Solar Curtailment (stop export at negative prices)"
         },
+        "data_description": {
+          "auto_sync_enabled": "Automatically upload TOU tariff schedules to your battery system based on current electricity prices",
+          "solar_curtailment_enabled": "Automatically stop DC solar production when feed-in prices go negative to avoid paying to export"
+        },
         "submit_button": "Submit"
       },
       "demand_charges": {
@@ -164,6 +173,9 @@
           "demand_charge_rate": "Demand Charge Rate ($/kW)",
           "demand_charge_start_time": "Peak Period Start Time (HH:MM)",
           "demand_charge_end_time": "Peak Period End Time (HH:MM)"
+        },
+        "data_description": {
+          "demand_charge_enabled": "Track your peak grid draw during demand charge periods and calculate monthly capacity fees based on your highest 30-minute average"
         },
         "submit_button": "Submit"
       }
@@ -244,10 +256,14 @@
           "inverter_slave_id": "Modbus Slave ID"
         },
         "data_description": {
+          "auto_sync_enabled": "Automatically upload TOU tariff schedules to your battery system based on current electricity prices",
+          "solar_curtailment_enabled": "Automatically stop DC solar production when feed-in prices go negative to avoid paying to export",
           "spike_protection_enabled": "When Amber detects a price spike, artificially inflate buy prices to prevent your battery from charging from grid (stops arbitrage behavior)",
           "inverter_curtailment_enabled": "Shutdown AC-coupled solar inverter when feed-in price is negative (stops solar export that bypasses your battery)",
           "settled_prices_only": "Skip the initial forecast sync at :00 and only sync when actual/settled prices arrive at :35/:60 seconds. Use this if forecast prices differ significantly from settled prices.",
-          "force_tariff_mode_toggle": "After uploading a new tariff, briefly toggle operation mode to force immediate recalculation of battery behavior (Tesla only, ~5 second interruption).",
+          "force_tariff_mode_toggle": "After uploading a new tariff, briefly toggle operation mode to force immediate recalculation of battery behavior (Tesla only, ~5 second interruption)",
+          "export_boost_enabled": "Artificially increase sell prices during configured hours to encourage battery export during high-value periods",
+          "demand_charge_enabled": "Track your peak grid draw during demand charge periods and calculate monthly capacity fees based on your highest 30-minute average",
           "demand_artificial_price_enabled": "Artificially increases the current price by $2 during demand charge periods to encourage battery discharge",
           "export_boost_threshold": "Boost will only apply if actual export price is at or above this value (0 = always apply)",
           "chip_mode_enabled": "Suppress exports during configured hours unless price exceeds threshold (inverse of Export Boost)",
@@ -276,6 +292,11 @@
           "demand_charge_apply_to": "Apply Demand Charge To",
           "daily_supply_charge": "Daily Supply Charge ($)",
           "monthly_supply_charge": "Monthly Supply Charge ($)"
+        },
+        "data_description": {
+          "auto_sync_enabled": "Automatically upload TOU tariff schedules to your battery system based on current electricity prices",
+          "solar_curtailment_enabled": "Automatically stop DC solar production when feed-in prices go negative to avoid paying to export",
+          "demand_charge_enabled": "Track your peak grid draw during demand charge periods and calculate monthly capacity fees based on your highest 30-minute average"
         }
       },
       "globird_options": {
