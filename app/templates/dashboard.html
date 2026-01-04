@@ -15,7 +15,8 @@
     <!-- API Connection Status -->
     <article id="connection-status" style="max-width: 800px; padding: 0.75rem; margin: 0 auto 1rem auto;">
         <header style="margin-bottom: 0.5rem; text-align: center;"><strong>Connection Status</strong></header>
-        <div style="display: grid; grid-template-columns: {% if solar_curtailment_enabled %}1fr 1fr 1fr{% else %}1fr 1fr{% endif %}; gap: 0.75rem;">
+        {% set num_cols = 2 + (1 if solar_curtailment_enabled else 0) + (1 if inverter_curtailment_enabled else 0) %}
+        <div style="display: grid; grid-template-columns: repeat({{ num_cols }}, 1fr); gap: 0.75rem;">
             <div id="amber-status" class="status-box">
                 <h4 style="margin: 0 0 0.25em 0; font-size: 0.85em;">⚡ Amber Electric</h4>
                 <div id="amber-status-content">
@@ -34,8 +35,16 @@
             </div>
             {% if solar_curtailment_enabled %}
             <div id="curtailment-status" class="status-box">
-                <h4 style="margin: 0 0 0.25em 0; font-size: 0.85em;">🌞 DC Solar Curtailment</h4>
+                <h4 style="margin: 0 0 0.25em 0; font-size: 0.85em;">🌞 DC Curtailment</h4>
                 <div id="curtailment-status-content">
+                    <p style="margin: 0; font-size: 0.8em;" class="text-muted">Checking status...</p>
+                </div>
+            </div>
+            {% endif %}
+            {% if inverter_curtailment_enabled %}
+            <div id="ac-inverter-status" class="status-box">
+                <h4 style="margin: 0 0 0.25em 0; font-size: 0.85em;">☀️ AC Inverter</h4>
+                <div id="ac-inverter-status-content">
                     <p style="margin: 0; font-size: 0.8em;" class="text-muted">Checking status...</p>
                 </div>
             </div>
@@ -718,6 +727,11 @@
                 await fetchCurtailmentStatus();
                 {% endif %}
 
+                // Fetch AC inverter status if enabled
+                {% if inverter_curtailment_enabled %}
+                await fetchACInverterStatus();
+                {% endif %}
+
                 // Always try to fetch AEMO price (independent of Amber/Tesla)
                 await fetchAEMOPrice();
             } catch (error) {
@@ -775,6 +789,62 @@
                 }
             } catch (error) {
                 console.error('Error fetching curtailment status:', error);
+            }
+        }
+        {% endif %}
+
+        // Fetch and display AC inverter status
+        {% if inverter_curtailment_enabled %}
+        async function fetchACInverterStatus() {
+            try {
+                const response = await fetch('/api/inverter/status');
+                const data = await response.json();
+
+                const inverterDiv = document.getElementById('ac-inverter-status');
+                const inverterContent = document.getElementById('ac-inverter-status-content');
+
+                if (!inverterDiv || !inverterContent) return;
+
+                if (data.error) {
+                    inverterDiv.style.background = 'rgba(255, 165, 0, 0.1)';
+                    inverterContent.innerHTML = `
+                        <p style="margin: 0; color: orange; font-weight: bold;">⚠ ${data.error}</p>
+                    `;
+                    return;
+                }
+
+                const status = data.status || 'unknown';
+                const powerW = data.power_output_w;
+                const powerStr = powerW !== null ? `${(powerW / 1000).toFixed(1)}kW` : '';
+
+                if (status === 'sleep') {
+                    inverterDiv.style.background = 'rgba(96, 125, 139, 0.15)';
+                    inverterContent.innerHTML = `
+                        <p style="margin: 0; color: #607D8B; font-weight: bold;">🌙 Sleep</p>
+                        <p style="margin: 0.2em 0 0 0; font-size: 0.75em;">${data.brand || 'Inverter'} - Nighttime</p>
+                    `;
+                } else if (status === 'curtailed' || data.is_curtailed) {
+                    inverterDiv.style.background = 'rgba(255, 0, 0, 0.15)';
+                    inverterContent.innerHTML = `
+                        <p style="margin: 0; color: var(--del-color); font-weight: bold;">🚫 Curtailed</p>
+                        <p style="margin: 0.2em 0 0 0; font-size: 0.75em;">${data.brand || 'Inverter'} - ${data.power_limit_percent || 0}%</p>
+                    `;
+                } else if (status === 'offline' || status === 'error') {
+                    inverterDiv.style.background = 'rgba(255, 165, 0, 0.1)';
+                    inverterContent.innerHTML = `
+                        <p style="margin: 0; color: orange; font-weight: bold;">⚠ Offline</p>
+                        <p style="margin: 0.2em 0 0 0; font-size: 0.75em;">${data.error_message || 'Cannot reach inverter'}</p>
+                    `;
+                } else {
+                    // Online/running
+                    inverterDiv.style.background = 'rgba(0, 255, 0, 0.1)';
+                    inverterContent.innerHTML = `
+                        <p style="margin: 0; color: var(--ins-color); font-weight: bold;">✓ Online</p>
+                        <p style="margin: 0.2em 0 0 0; font-size: 0.75em;">${data.brand || 'Inverter'}${powerStr ? ' - ' + powerStr : ''}</p>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error fetching AC inverter status:', error);
             }
         }
         {% endif %}

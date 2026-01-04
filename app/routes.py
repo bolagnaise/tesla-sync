@@ -410,6 +410,7 @@ def dashboard():
     tesla_api_provider = current_user.tesla_api_provider or 'teslemetry'
     return render_template('dashboard.html', title='Dashboard', has_amber_token=has_amber_token,
                            solar_curtailment_enabled=current_user.solar_curtailment_enabled or False,
+                           inverter_curtailment_enabled=current_user.inverter_curtailment_enabled or False,
                            tesla_api_provider=tesla_api_provider)
 
 
