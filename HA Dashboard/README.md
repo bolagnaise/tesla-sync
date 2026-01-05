@@ -98,6 +98,55 @@ The price gauges are configured for typical Australian electricity prices:
 
 Adjust the `min` and `max` values if your prices differ.
 
+## Amber Price Models
+
+PowerSync supports three different Amber pricing models for TOU schedule generation. Configure this in the PowerSync integration options.
+
+### Predicted (Default)
+
+Uses Amber's **forecast price** - their best estimate of what the price will be at each interval.
+
+- **Best for:** Most users, balanced approach
+- **Behavior:** Schedules battery based on expected prices
+- **Risk level:** Medium - prices may end up higher or lower than predicted
+
+### High (Conservative)
+
+Uses Amber's **high estimate** - the upper bound of their price confidence interval.
+
+- **Best for:** Risk-averse users who want to avoid unexpected high prices
+- **Behavior:** Assumes prices will be at the higher end, leading to more conservative battery usage
+- **Risk level:** Low - you're prepared for worst-case pricing
+- **Trade-off:** May charge battery when actual prices end up being low
+
+### Low (Aggressive)
+
+Uses Amber's **low estimate** - the lower bound of their price confidence interval.
+
+- **Best for:** Users comfortable with price volatility who want to maximize savings
+- **Behavior:** Assumes prices will be at the lower end, leading to more aggressive battery usage
+- **Risk level:** High - actual prices may be significantly higher than planned
+- **Trade-off:** Better savings when predictions are accurate, but exposed to price spikes
+
+### Which Model Should I Use?
+
+| Scenario | Recommended Model |
+|----------|-------------------|
+| New to Amber/PowerSync | **Predicted** - see how it performs first |
+| Want to minimize bill surprises | **High** - conservative approach |
+| Comfortable with volatility | **Low** - maximize potential savings |
+| High solar generation | **Predicted** or **Low** - excess solar provides buffer |
+| Limited battery capacity | **High** - ensure battery is charged before peaks |
+
+### Changing the Price Model
+
+1. Go to **Settings → Devices & Services → PowerSync**
+2. Click **Configure**
+3. Select your preferred **Price Model** (Predicted, High, or Low)
+4. Click **Submit**
+
+The new model takes effect on the next price sync (typically within 5 minutes).
+
 ## Troubleshooting
 
 ### Cards showing "Custom element doesn't exist"
