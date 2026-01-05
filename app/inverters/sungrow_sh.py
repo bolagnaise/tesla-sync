@@ -11,10 +11,18 @@ from typing import Optional
 
 from pymodbus.client import AsyncModbusTcpClient
 from pymodbus.exceptions import ModbusException
+import pymodbus
 
 from .base import InverterController, InverterState, InverterStatus
 
 _LOGGER = logging.getLogger(__name__)
+
+# pymodbus 3.9+ changed 'slave' parameter to 'device_id'
+try:
+    _pymodbus_version = tuple(int(x) for x in pymodbus.__version__.split(".")[:2])
+    _SLAVE_PARAM = "device_id" if _pymodbus_version >= (3, 9) else "slave"
+except Exception:
+    _SLAVE_PARAM = "slave"  # Fallback to older parameter name
 
 
 class SungrowSHController(InverterController):
@@ -161,7 +169,7 @@ class SungrowSHController(InverterController):
             result = await self._client.write_register(
                 address=address,
                 value=value,
-                slave=self.slave_id,
+                **{_SLAVE_PARAM: self.slave_id},
             )
 
             if result.isError():
@@ -196,7 +204,7 @@ class SungrowSHController(InverterController):
             result = await self._client.read_holding_registers(
                 address=address,
                 count=count,
-                slave=self.slave_id,
+                **{_SLAVE_PARAM: self.slave_id},
             )
 
             if result.isError():
