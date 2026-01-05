@@ -1615,6 +1615,101 @@ class InverterStatusView(HomeAssistantView):
             })
 
 
+class ConfigView(HomeAssistantView):
+    """HTTP view to get backend configuration for mobile app auto-detection."""
+
+    url = "/api/power_sync/config"
+    name = "api:power_sync:config"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant):
+        """Initialize the view."""
+        self._hass = hass
+
+    async def get(self, request: web.Request) -> web.Response:
+        """Handle GET request for backend configuration."""
+        _LOGGER.info("📱 Config HTTP request (mobile app auto-detection)")
+
+        # Find the power_sync entry
+        entry = None
+        for config_entry in self._hass.config_entries.async_entries(DOMAIN):
+            entry = config_entry
+            break
+
+        if not entry:
+            return web.json_response(
+                {"success": False, "error": "PowerSync not configured"},
+                status=503
+            )
+
+        try:
+            # Get battery system from config
+            battery_system = entry.data.get(CONF_BATTERY_SYSTEM, "tesla")
+
+            # Get electricity provider
+            electricity_provider = entry.options.get(
+                CONF_ELECTRICITY_PROVIDER,
+                entry.data.get(CONF_ELECTRICITY_PROVIDER, "amber")
+            )
+
+            # Build features dict based on configuration
+            features = {
+                "solar_curtailment": entry.options.get(
+                    CONF_SOLAR_CURTAILMENT_ENABLED,
+                    entry.data.get(CONF_SOLAR_CURTAILMENT_ENABLED, False)
+                ),
+                "inverter_control": entry.options.get(
+                    CONF_INVERTER_CURTAILMENT_ENABLED,
+                    entry.data.get(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+                ),
+                "spike_protection": entry.options.get(
+                    CONF_SPIKE_PROTECTION_ENABLED,
+                    entry.data.get(CONF_SPIKE_PROTECTION_ENABLED, False)
+                ),
+                "export_boost": entry.options.get(
+                    CONF_EXPORT_BOOST_ENABLED,
+                    entry.data.get(CONF_EXPORT_BOOST_ENABLED, False)
+                ),
+                "demand_charges": entry.options.get(
+                    CONF_DEMAND_CHARGE_ENABLED,
+                    entry.data.get(CONF_DEMAND_CHARGE_ENABLED, False)
+                ),
+                "auto_sync": entry.options.get(
+                    CONF_AUTO_SYNC_ENABLED,
+                    entry.data.get(CONF_AUTO_SYNC_ENABLED, True)
+                ),
+            }
+
+            # Add Sigenergy-specific info if applicable
+            sigenergy_config = None
+            if battery_system == "sigenergy":
+                sigenergy_config = {
+                    "station_id": entry.data.get(CONF_SIGENERGY_STATION_ID),
+                    "modbus_enabled": bool(entry.options.get(
+                        CONF_SIGENERGY_MODBUS_HOST,
+                        entry.data.get(CONF_SIGENERGY_MODBUS_HOST)
+                    )),
+                }
+
+            result = {
+                "success": True,
+                "battery_system": battery_system,
+                "electricity_provider": electricity_provider,
+                "features": features,
+                "sigenergy": sigenergy_config,
+            }
+
+            _LOGGER.info(f"✅ Config response: battery_system={battery_system}, provider={electricity_provider}")
+            return web.json_response(result)
+
+        except Exception as e:
+            _LOGGER.error(f"Error fetching config: {e}", exc_info=True)
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up PowerSync from a config entry."""
     _LOGGER.info("=" * 60)
@@ -4620,6 +4715,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register HTTP endpoint for Inverter status (for mobile app Solar controls)
     hass.http.register_view(InverterStatusView(hass))
     _LOGGER.info("☀️ Inverter status HTTP endpoint registered at /api/power_sync/inverter_status")
+
+    # Register HTTP endpoint for Config (for mobile app auto-detection)
+    hass.http.register_view(ConfigView(hass))
+    _LOGGER.info("📱 Config HTTP endpoint registered at /api/power_sync/config")
 
     # ======================================================================
     # SYNC BATTERY HEALTH SERVICE (from mobile app TEDAPI scans)

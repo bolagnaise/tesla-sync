@@ -463,6 +463,44 @@ def api_curtailment_status():
     })
 
 
+@bp.route('/api/config')
+@login_required
+def api_config():
+    """
+    Get backend configuration for mobile app auto-detection.
+
+    Returns battery system type, electricity provider, and enabled features
+    so the mobile app can auto-configure itself without manual selection.
+    """
+    battery_system = getattr(current_user, 'battery_system', 'tesla') or 'tesla'
+    electricity_provider = getattr(current_user, 'electricity_provider', 'amber') or 'amber'
+
+    # Build features dict based on user configuration
+    features = {
+        'solar_curtailment': getattr(current_user, 'solar_curtailment_enabled', False),
+        'inverter_control': getattr(current_user, 'inverter_curtailment_enabled', False),
+        'spike_protection': getattr(current_user, 'spike_protection_enabled', False),
+        'export_boost': getattr(current_user, 'export_boost_enabled', False),
+        'demand_charges': getattr(current_user, 'enable_demand_charges', False),
+        'auto_sync': getattr(current_user, 'auto_sync_enabled', True),
+    }
+
+    # Add Sigenergy-specific info if applicable
+    sigenergy_config = None
+    if battery_system == 'sigenergy':
+        sigenergy_config = {
+            'station_id': getattr(current_user, 'sigenergy_station_id', None),
+            'modbus_enabled': bool(getattr(current_user, 'sigenergy_modbus_host', None)),
+        }
+
+    return jsonify({
+        'battery_system': battery_system,
+        'electricity_provider': electricity_provider,
+        'features': features,
+        'sigenergy': sigenergy_config,
+    })
+
+
 # =============================================================================
 # Inverter Curtailment API Endpoints
 # =============================================================================
