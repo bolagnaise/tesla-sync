@@ -161,6 +161,7 @@
         },
         "data_description": {
           "auto_sync_enabled": "Automatically upload TOU tariff schedules to your battery system based on current electricity prices",
+          "amber_forecast_type": "Which Amber price forecast to use: Predicted (balanced), Low/Aggressive (assumes cheaper prices), High/Conservative (assumes higher prices)",
           "solar_curtailment_enabled": "Automatically stop battery exports and DC solar production when feed-in prices go negative to avoid paying to export"
         },
         "submit_button": "Submit"
@@ -257,6 +258,7 @@
         },
         "data_description": {
           "auto_sync_enabled": "Automatically upload TOU tariff schedules to your battery system based on current electricity prices",
+          "amber_forecast_type": "Which Amber price forecast to use: Predicted (balanced), Low/Aggressive (assumes cheaper prices), High/Conservative (assumes higher prices)",
           "solar_curtailment_enabled": "Automatically stop battery exports and DC solar production when feed-in prices go negative to avoid paying to export",
           "spike_protection_enabled": "When Amber detects a price spike, artificially inflate buy prices to prevent your battery from charging from grid (stops arbitrage behavior)",
           "inverter_curtailment_enabled": "Shutdown AC-coupled solar inverter when feed-in price is negative (stops solar export that bypasses your battery)",
