@@ -1067,8 +1067,8 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema_dict[vol.Optional(CONF_AUTO_SYNC_ENABLED, default=True)] = bool
             data_schema_dict[vol.Optional(CONF_AMBER_FORECAST_TYPE, default="predicted")] = vol.In({
                 "predicted": "Predicted (Default)",
-                "low": "Low (Conservative)",
-                "high": "High (Optimistic)"
+                "low": "Low (Aggressive)",
+                "high": "High (Conservative)"
             })
             data_schema_dict[vol.Optional(CONF_SOLAR_CURTAILMENT_ENABLED, default=False)] = bool
         elif has_amber_sites and is_flow_power:
@@ -1409,8 +1409,8 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_option(CONF_AMBER_FORECAST_TYPE, "predicted"),
             ): vol.In({
                 "predicted": "Predicted (Default)",
-                "low": "Low (Conservative)",
-                "high": "High (Optimistic)"
+                "low": "Low (Aggressive)",
+                "high": "High (Conservative)"
             }),
             vol.Optional(
                 CONF_SOLAR_CURTAILMENT_ENABLED,

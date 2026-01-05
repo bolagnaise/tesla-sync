@@ -161,10 +161,10 @@ class AmberSettingsForm(FlaskForm):
     # Forecast type selection
     amber_forecast_type = SelectField('Forecast Pricing Type', choices=[
         ('predicted', 'Predicted (Default)'),
-        ('low', 'Low (Conservative)'),
-        ('high', 'High (Optimistic)')
+        ('low', 'Low (Aggressive)'),
+        ('high', 'High (Conservative)')
     ], default='predicted', validators=[DataRequired()],
-    description='Select which Amber forecast to use for TOU tariff: Low (conservative), Predicted (default), or High (optimistic)')
+    description='Select which Amber forecast to use for TOU tariff: Low (aggressive), Predicted (default), or High (conservative)')
 
     # Solar curtailment toggle
     solar_curtailment_enabled = BooleanField('Enable DC Solar Curtailment',
