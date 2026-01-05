@@ -464,6 +464,20 @@ Works anywhere in Australia without configuration:
 
 The system automatically extracts timezone information from Amber's API data, ensuring correct "past vs future" period detection for all locations.
 
+### Price Models
+
+PowerSync supports three different Amber pricing models for TOU schedule generation:
+
+| Model | Description | Best For |
+|-------|-------------|----------|
+| **Predicted** (Default) | Uses Amber's forecast price - their best estimate | Most users, balanced approach |
+| **High** (Conservative) | Uses Amber's high estimate - upper bound of confidence interval | Risk-averse users who want to avoid unexpected high prices |
+| **Low** (Aggressive) | Uses Amber's low estimate - lower bound of confidence interval | Users comfortable with volatility who want to maximize savings |
+
+**Predicted** is recommended for most users. Use **High** if you want to ensure your battery is always prepared for worst-case pricing. Use **Low** if you're comfortable with price volatility and want to maximize potential savings.
+
+Configure the price model in the integration options (HA) or Amber Settings (Flask).
+
 #### 5. **Precision Matching**
 Prices are rounded to **4 decimal places** with trailing zeros automatically removed:
 - `0.2014191` → `0.2014` (4 decimals)
