@@ -1,17 +1,18 @@
 # Home Assistant Dashboard for PowerSync
 
-A pre-built Lovelace dashboard for visualizing your Tesla Powerwall and Amber Electric data.
+A pre-built Lovelace dashboard for visualizing your battery system and energy data.
 
 ## Preview
 
 The dashboard includes:
-- **Price Gauges** - Compact gauges for import price, feed-in price, and battery level
+- **Price Gauges** - Compact gauges for import price, export price, and battery level
 - **Battery Control** - Force charge, force discharge, and restore normal buttons with duration selectors
 - **Power Flow Card** - Real-time energy flow visualization
-- **Price Charts** - Amber prices and TOU schedule sent to Tesla
-- **Battery Health** - Radial chart showing overall and individual battery health (up to 4 batteries)
+- **Price Charts** - Amber/Flow Power prices and TOU schedule sent to battery
+- **Solar Curtailment Status** - DC curtailment (Tesla) and AC inverter status cards
+- **AC Inverter Controls** - Load following, shutdown, and restore buttons for AC-coupled inverters
+- **Battery Health** - Gauges showing overall and individual battery health (up to 4 batteries)
 - **Energy Charts** - Solar, Battery, Grid, and Home load graphs
-- **Solar Curtailment Status** - Shows when export is blocked due to negative prices
 
 ## Requirements
 
@@ -56,7 +57,7 @@ The entity IDs are automatically derived from the names (`input_select.force_dis
 5. Click **Create**
 6. Open the new dashboard and click the three dots menu → **Edit Dashboard**
 7. Click the three dots menu again → **Raw configuration editor**
-8. Delete any existing content and paste the entire contents of `tesla_sync_dashboard.yaml`
+8. Delete any existing content and paste the entire contents of `power_sync_dashboard.yaml`
 9. Click **Save**
 
 ### Method 2: Add as a View to Existing Dashboard
@@ -64,7 +65,7 @@ The entity IDs are automatically derived from the names (`input_select.force_dis
 1. Open your existing dashboard
 2. Click the three dots menu → **Edit Dashboard**
 3. Click the three dots menu → **Raw configuration editor**
-4. Add the view from `tesla_sync_dashboard.yaml` to your existing views array
+4. Add the view from `power_sync_dashboard.yaml` to your existing views array
 5. Click **Save**
 
 ## Customization
@@ -101,52 +102,15 @@ Adjust the `min` and `max` values if your prices differ.
 
 ## Amber Price Models
 
-PowerSync supports three different Amber pricing models for TOU schedule generation. Configure this in the PowerSync integration options.
+PowerSync supports three pricing models: **Predicted** (default), **High** (conservative), and **Low** (aggressive).
 
-### Predicted (Default)
+See the [main README](../README.md#price-models) for full details on each model.
 
-Uses Amber's **forecast price** - their best estimate of what the price will be at each interval.
-
-- **Best for:** Most users, balanced approach
-- **Behavior:** Schedules battery based on expected prices
-- **Risk level:** Medium - prices may end up higher or lower than predicted
-
-### High (Conservative)
-
-Uses Amber's **high estimate** - the upper bound of their price confidence interval.
-
-- **Best for:** Risk-averse users who want to avoid unexpected high prices
-- **Behavior:** Assumes prices will be at the higher end, leading to more conservative battery usage
-- **Risk level:** Low - you're prepared for worst-case pricing
-- **Trade-off:** May charge battery when actual prices end up being low
-
-### Low (Aggressive)
-
-Uses Amber's **low estimate** - the lower bound of their price confidence interval.
-
-- **Best for:** Users comfortable with price volatility who want to maximize savings
-- **Behavior:** Assumes prices will be at the lower end, leading to more aggressive battery usage
-- **Risk level:** High - actual prices may be significantly higher than planned
-- **Trade-off:** Better savings when predictions are accurate, but exposed to price spikes
-
-### Which Model Should I Use?
-
-| Scenario | Recommended Model |
-|----------|-------------------|
-| New to Amber/PowerSync | **Predicted** - see how it performs first |
-| Want to minimize bill surprises | **High** - conservative approach |
-| Comfortable with volatility | **Low** - maximize potential savings |
-| High solar generation | **Predicted** or **Low** - excess solar provides buffer |
-| Limited battery capacity | **High** - ensure battery is charged before peaks |
-
-### Changing the Price Model
-
+To change the price model:
 1. Go to **Settings → Devices & Services → PowerSync**
 2. Click **Configure**
-3. Select your preferred **Price Model** (Predicted, High, or Low)
+3. Select your preferred **Price Model**
 4. Click **Submit**
-
-The new model takes effect on the next price sync (typically within 5 minutes).
 
 ## Troubleshooting
 
@@ -180,14 +144,12 @@ The dashboard uses generic entity names like `sensor.tariff_schedule`. Your actu
 
 To find your actual entity IDs:
 1. Go to **Developer Tools → States**
-2. Search for "tesla" or "tariff" to find your entities
-3. Look in the HA logs for: `Tariff schedule sensor registered with entity_id: sensor.xxx`
-4. Update the dashboard YAML with your actual entity IDs
+2. Search for "power_sync" or "tariff" to find your entities
+3. Update the dashboard YAML with your actual entity IDs
 
 Common entity ID patterns:
-- `sensor.tariff_schedule` (if no device prefix)
-- `sensor.tesla_sync_tariff_schedule` (with integration prefix)
-- `sensor.<site_name>_tariff_schedule` (with site name prefix)
+- `sensor.tariff_schedule` (default)
+- `sensor.power_sync_tariff_schedule` (with integration prefix)
 
 ### TOU Schedule Chart Not Updating
 
