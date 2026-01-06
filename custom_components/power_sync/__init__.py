@@ -1627,7 +1627,7 @@ class InverterStatusView(HomeAssistantView):
                 **state_dict
             }
 
-            _LOGGER.info(f"✅ Inverter status: {state_dict.get('status')}, curtailed: {state.is_curtailed}")
+            _LOGGER.info(f"✅ Inverter status: {state_dict.get('status')}, curtailed: {state_dict.get('is_curtailed')}")
             return web.json_response(result)
 
         except Exception as e:
