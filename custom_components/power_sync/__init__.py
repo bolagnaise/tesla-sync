@@ -132,6 +132,8 @@ from .const import (
     CONF_SIGENERGY_MODBUS_HOST,
     CONF_SIGENERGY_MODBUS_PORT,
     CONF_SIGENERGY_MODBUS_SLAVE_ID,
+    # Battery system selection
+    CONF_BATTERY_SYSTEM,
 )
 from .inverters import get_inverter_controller
 from .coordinator import (
@@ -2674,7 +2676,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Fetch Powerwall timezone from site_info
         # This ensures correct timezone handling for TOU schedule alignment
         powerwall_timezone = None
-        site_info = await tesla_coordinator.async_get_site_info()
+        site_info = None
+        if tesla_coordinator:
+            site_info = await tesla_coordinator.async_get_site_info()
         if site_info:
             powerwall_timezone = site_info.get("installation_time_zone")
             if powerwall_timezone:
@@ -3040,7 +3044,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info("Immediate data refresh requested")
         if amber_coordinator:
             await amber_coordinator.async_request_refresh()
-        await tesla_coordinator.async_request_refresh()
+        if tesla_coordinator:
+            await tesla_coordinator.async_request_refresh()
 
     async def handle_solar_curtailment_check(call: ServiceCall = None) -> None:
         """
