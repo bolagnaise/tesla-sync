@@ -304,9 +304,11 @@ async def async_setup_entry(
     """Set up PowerSync sensor entities."""
     domain_data = hass.data[DOMAIN][entry.entry_id]
     amber_coordinator: AmberPriceCoordinator | None = domain_data.get("amber_coordinator")
-    tesla_coordinator: TeslaEnergyCoordinator = domain_data["tesla_coordinator"]
+    tesla_coordinator: TeslaEnergyCoordinator | None = domain_data.get("tesla_coordinator")
+    sigenergy_coordinator = domain_data.get("sigenergy_coordinator")
     demand_charge_coordinator: DemandChargeCoordinator | None = domain_data.get("demand_charge_coordinator")
     aemo_spike_manager = domain_data.get("aemo_spike_manager")
+    is_sigenergy = domain_data.get("is_sigenergy", False)
 
     entities: list[SensorEntity] = []
 
@@ -321,15 +323,20 @@ async def async_setup_entry(
                 )
             )
 
-    # Add energy sensors
-    for description in ENERGY_SENSORS:
-        entities.append(
-            TeslaEnergySensor(
-                coordinator=tesla_coordinator,
-                description=description,
-                entry=entry,
+    # Add energy sensors - use Tesla or Sigenergy coordinator depending on battery system
+    # Both coordinators return data with same field names (solar_power, grid_power, etc.)
+    energy_coordinator = sigenergy_coordinator if is_sigenergy else tesla_coordinator
+    if energy_coordinator:
+        for description in ENERGY_SENSORS:
+            entities.append(
+                TeslaEnergySensor(
+                    coordinator=energy_coordinator,
+                    description=description,
+                    entry=entry,
+                )
             )
-        )
+    else:
+        _LOGGER.warning("No energy coordinator available - energy sensors will not be created")
 
     # Add demand charge sensors if enabled and coordinator exists
     if demand_charge_coordinator and demand_charge_coordinator.enabled:

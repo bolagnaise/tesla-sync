@@ -996,3 +996,90 @@ class AEMOPriceCoordinator(DataUpdateCoordinator):
 
 # Keep old name as alias for backwards compatibility
 AEMOSensorCoordinator = AEMOPriceCoordinator
+
+
+class SigenergyEnergyCoordinator(DataUpdateCoordinator):
+    """Coordinator to fetch Sigenergy energy data via Modbus.
+
+    Polls the Sigenergy inverter system via Modbus TCP to get real-time
+    power data (solar, battery, grid, load) and battery state of charge.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        host: str,
+        port: int = 502,
+        slave_id: int = 1,
+    ) -> None:
+        """Initialize the coordinator.
+
+        Args:
+            hass: HomeAssistant instance
+            host: IP address of Sigenergy system
+            port: Modbus TCP port (default: 502)
+            slave_id: Modbus slave ID (default: 1)
+        """
+        from .inverters.sigenergy import SigenergyController
+
+        self.host = host
+        self.port = port
+        self.slave_id = slave_id
+        self._controller = SigenergyController(host, port, slave_id)
+
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_sigenergy_energy",
+            update_interval=UPDATE_INTERVAL_ENERGY,
+        )
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch data from Sigenergy system via Modbus."""
+        try:
+            status = await self._controller.get_status()
+
+            attrs = status.attributes or {}
+
+            # Map Sigenergy data to standard format (same as Tesla)
+            # Power values in kW from Modbus, we keep them in kW for sensors
+            energy_data = {
+                "solar_power": attrs.get("pv_power_kw", 0),  # kW
+                "grid_power": attrs.get("grid_power_kw", 0),  # kW, positive = importing
+                "battery_power": 0,  # Sigenergy doesn't separate battery power easily
+                "load_power": 0,  # Calculate from other values if needed
+                "battery_level": attrs.get("battery_soc", 0),  # %
+                "last_update": dt_util.utcnow(),
+                # Extra Sigenergy-specific data
+                "active_power_kw": attrs.get("active_power_kw", 0),
+                "export_limit_kw": attrs.get("export_limit_kw"),
+                "ems_work_mode": attrs.get("ems_work_mode"),
+                "is_curtailed": status.is_curtailed,
+            }
+
+            # Calculate load power: load = solar - grid_export + grid_import - battery_charge + battery_discharge
+            # Simplified: if we have active power and PV power, we can estimate
+            solar_kw = attrs.get("pv_power_kw", 0)
+            grid_kw = attrs.get("grid_power_kw", 0)  # Positive = importing, negative = exporting
+
+            # Home load approximation (this may need refinement based on actual Sigenergy data)
+            # If grid is negative (exporting), load = solar + grid (where grid is negative)
+            # If grid is positive (importing), load = solar + grid
+            energy_data["load_power"] = solar_kw + grid_kw
+
+            _LOGGER.debug(
+                "Sigenergy data: solar=%.2f kW, grid=%.2f kW, battery=%.0f%%, curtailed=%s",
+                energy_data["solar_power"],
+                energy_data["grid_power"],
+                energy_data["battery_level"],
+                energy_data["is_curtailed"],
+            )
+
+            return energy_data
+
+        except Exception as err:
+            raise UpdateFailed(f"Error fetching Sigenergy energy data: {err}") from err
+
+    async def async_shutdown(self) -> None:
+        """Disconnect from Sigenergy system on shutdown."""
+        await self._controller.disconnect()

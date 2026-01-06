@@ -129,11 +129,15 @@ from .const import (
     DEFAULT_INVERTER_RESTORE_SOC,
     # Sigenergy configuration
     CONF_SIGENERGY_STATION_ID,
+    CONF_SIGENERGY_MODBUS_HOST,
+    CONF_SIGENERGY_MODBUS_PORT,
+    CONF_SIGENERGY_MODBUS_SLAVE_ID,
 )
 from .inverters import get_inverter_controller
 from .coordinator import (
     AmberPriceCoordinator,
     TeslaEnergyCoordinator,
+    SigenergyEnergyCoordinator,
     DemandChargeCoordinator,
     AEMOSensorCoordinator,
 )
@@ -1165,10 +1169,25 @@ class CalendarHistoryView(HomeAssistantView):
 
         # Find the power_sync entry and coordinator
         tesla_coordinator = None
+        is_sigenergy = False
         for entry_id, data in self._hass.data.get(DOMAIN, {}).items():
-            if isinstance(data, dict) and "tesla_coordinator" in data:
-                tesla_coordinator = data["tesla_coordinator"]
+            if isinstance(data, dict):
+                is_sigenergy = data.get("is_sigenergy", False)
+                if "tesla_coordinator" in data:
+                    tesla_coordinator = data["tesla_coordinator"]
                 break
+
+        # Check if this is a Sigenergy setup - calendar history not available
+        if is_sigenergy:
+            _LOGGER.info("Calendar history not available for Sigenergy battery systems")
+            return web.json_response(
+                {
+                    "success": False,
+                    "error": "Calendar history is not available for Sigenergy battery systems",
+                    "reason": "sigenergy_not_supported"
+                },
+                status=200  # Return 200 with error in body so mobile app handles gracefully
+            )
 
         if not tesla_coordinator:
             _LOGGER.error("Tesla coordinator not available for HTTP endpoint")
@@ -1256,6 +1275,19 @@ class PowerwallSettingsView(HomeAssistantView):
             return web.json_response(
                 {"success": False, "error": "PowerSync not configured"},
                 status=503
+            )
+
+        # Check if this is a Sigenergy setup - Powerwall settings not applicable
+        is_sigenergy = bool(entry.data.get(CONF_SIGENERGY_STATION_ID))
+        if is_sigenergy:
+            _LOGGER.info("Powerwall settings not available for Sigenergy battery systems")
+            return web.json_response(
+                {
+                    "success": False,
+                    "error": "Powerwall settings are not available for Sigenergy battery systems",
+                    "reason": "sigenergy_not_supported"
+                },
+                status=200
             )
 
         try:
@@ -1806,10 +1838,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Check if this is a Sigenergy setup (no Tesla needed)
     is_sigenergy = bool(entry.data.get(CONF_SIGENERGY_STATION_ID))
     tesla_coordinator = None
+    sigenergy_coordinator = None
     token_getter = None  # Will be set for Tesla users
 
     if is_sigenergy:
         _LOGGER.info("Running in Sigenergy mode - Tesla credentials not required")
+
+        # Initialize Sigenergy Modbus coordinator if Modbus host is configured
+        sigenergy_modbus_host = entry.options.get(
+            CONF_SIGENERGY_MODBUS_HOST,
+            entry.data.get(CONF_SIGENERGY_MODBUS_HOST)
+        )
+        if sigenergy_modbus_host:
+            sigenergy_modbus_port = entry.options.get(
+                CONF_SIGENERGY_MODBUS_PORT,
+                entry.data.get(CONF_SIGENERGY_MODBUS_PORT, 502)
+            )
+            sigenergy_modbus_slave_id = entry.options.get(
+                CONF_SIGENERGY_MODBUS_SLAVE_ID,
+                entry.data.get(CONF_SIGENERGY_MODBUS_SLAVE_ID, 1)
+            )
+            _LOGGER.info(
+                "Initializing Sigenergy Modbus coordinator: %s:%s (slave %s)",
+                sigenergy_modbus_host, sigenergy_modbus_port, sigenergy_modbus_slave_id
+            )
+            sigenergy_coordinator = SigenergyEnergyCoordinator(
+                hass,
+                sigenergy_modbus_host,
+                port=sigenergy_modbus_port,
+                slave_id=sigenergy_modbus_slave_id,
+            )
+        else:
+            _LOGGER.warning("Sigenergy mode enabled but no Modbus host configured - energy sensors will be unavailable")
     else:
         # Get initial Tesla API token and provider
         # Use get_tesla_api_token() which fetches fresh from tesla_fleet if available
@@ -1845,6 +1905,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await amber_coordinator.async_config_entry_first_refresh()
     if tesla_coordinator:
         await tesla_coordinator.async_config_entry_first_refresh()
+    if sigenergy_coordinator:
+        try:
+            await sigenergy_coordinator.async_config_entry_first_refresh()
+            _LOGGER.info("Sigenergy Modbus coordinator initialized successfully")
+        except Exception as e:
+            _LOGGER.warning("Sigenergy Modbus coordinator failed to initialize: %s", e)
+            # Don't fail the entire setup - allow other features to work
+            sigenergy_coordinator = None
 
     # Initialize demand charge coordinator if enabled (Tesla only - requires grid power data)
     demand_charge_coordinator = None
@@ -1982,6 +2050,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "amber_coordinator": amber_coordinator,
         "tesla_coordinator": tesla_coordinator,
+        "sigenergy_coordinator": sigenergy_coordinator,  # For Sigenergy Modbus energy data
         "demand_charge_coordinator": demand_charge_coordinator,
         "aemo_spike_manager": aemo_spike_manager,
         "aemo_sensor_coordinator": aemo_sensor_coordinator,  # For Flow Power AEMO-only mode
@@ -1995,6 +2064,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "battery_health": battery_health,  # Restored from persistent storage (from mobile app TEDAPI scans)
         "store": store,  # Reference to Store for saving updates
         "token_getter": token_getter,  # Function to get fresh Tesla API token
+        "is_sigenergy": is_sigenergy,  # Track battery system type
     }
 
     # Helper function to update and persist cached export rule
