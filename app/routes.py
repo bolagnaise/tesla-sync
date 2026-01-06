@@ -4651,7 +4651,8 @@ def api_powerwall_settings(tesla_client, api_user=None):
             'operation_mode': site_info.get('default_real_mode', 'autonomous'),
             'grid_export_rule': export_rule,
             'grid_charging_enabled': not grid_settings.get('disallow_charge_from_grid_with_solar_installed', False) if grid_settings else True,
-            'solar_curtailment_enabled': user.solar_curtailment_enabled or False
+            'solar_curtailment_enabled': user.solar_curtailment_enabled or False,
+            'manual_export_override': getattr(user, 'manual_export_override', False) or False
         })
     except Exception as e:
         logger.error(f"Error getting Powerwall settings: {e}")
@@ -4753,12 +4754,49 @@ def api_set_grid_export(tesla_client, api_user=None):
         result = tesla_client.set_grid_export_rule(site_id, rule)
 
         if result:
-            logger.info(f"Set grid export rule to '{rule}' for {user.email}")
+            # If solar curtailment is enabled, mark this as a manual override
+            # so the 5-minute scheduler respects the user's choice
+            if getattr(user, 'solar_curtailment_enabled', False):
+                user.manual_export_override = True
+                user.manual_export_rule = rule
+                db.session.commit()
+                logger.info(f"Set grid export rule to '{rule}' for {user.email} (manual override enabled)")
+            else:
+                logger.info(f"Set grid export rule to '{rule}' for {user.email}")
             return jsonify({'success': True, 'grid_export_rule': rule})
         else:
             return jsonify({'success': False, 'error': 'Failed to set grid export rule'}), 500
     except Exception as e:
         logger.error(f"Error setting grid export rule: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@bp.route('/api/grid-export/auto', methods=['POST'])
+@login_required
+@require_tesla_client
+@require_tesla_site_id
+def api_set_grid_export_auto(tesla_client, api_user=None):
+    """
+    Clear manual export override and return to automatic control.
+
+    This allows the 5-minute solar curtailment scheduler to resume
+    automatic control of the grid export setting.
+
+    Returns JSON: {"success": true, "manual_override": false}
+    """
+    user = api_user or current_user
+    try:
+        user.manual_export_override = False
+        user.manual_export_rule = None
+        db.session.commit()
+        logger.info(f"Cleared manual export override for {user.email} - returning to auto control")
+        return jsonify({
+            'success': True,
+            'manual_override': False,
+            'message': 'Grid export returned to automatic control'
+        })
+    except Exception as e:
+        logger.error(f"Error clearing manual export override: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

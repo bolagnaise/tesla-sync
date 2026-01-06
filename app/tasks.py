@@ -2719,12 +2719,21 @@ def solar_curtailment_check():
             else:
                 logger.info(f"✅ NORMAL OPERATION: Export earnings {export_earnings:.2f}c/kWh (>=1c) for {user.email}")
 
-                # If currently curtailed, restore to battery_ok (allows both solar and battery export)
+                # If currently curtailed, restore based on user preference
                 if current_export_rule == 'never':
-                    logger.info(f"🔄 RESTORING FROM CURTAILMENT: 'never' → 'battery_ok' for {user.email}")
-                    result = tesla_client.set_grid_export_rule(user.tesla_energy_site_id, 'battery_ok')
+                    # Check if user has a manual override active
+                    if getattr(user, 'manual_export_override', False):
+                        # Respect user's manual selection (e.g., pv_only to prevent battery export)
+                        restore_rule = getattr(user, 'manual_export_rule', 'battery_ok') or 'battery_ok'
+                        logger.info(f"🔄 RESTORING FROM CURTAILMENT (manual override active): 'never' → '{restore_rule}' for {user.email}")
+                    else:
+                        # Default to battery_ok for auto mode
+                        restore_rule = 'battery_ok'
+                        logger.info(f"🔄 RESTORING FROM CURTAILMENT: 'never' → '{restore_rule}' for {user.email}")
+
+                    result = tesla_client.set_grid_export_rule(user.tesla_energy_site_id, restore_rule)
                     if not result:
-                        logger.error(f"❌ Failed to restore from curtailment (set export to 'battery_ok') for {user.email}")
+                        logger.error(f"❌ Failed to restore from curtailment (set export to '{restore_rule}') for {user.email}")
                         error_count += 1
                         continue
 
@@ -2734,14 +2743,14 @@ def solar_curtailment_check():
                     if verified_rule is None:
                         # API doesn't return this field - can't verify but not a failure
                         logger.info(f"ℹ️ Cannot verify restore (API returns None for export_rule) - operation reported success for {user.email}")
-                    elif verified_rule != 'battery_ok':
-                        logger.warning(f"⚠️ RESTORE VERIFICATION FAILED: Set returned success but read-back shows '{verified_rule}' (expected 'battery_ok') for {user.email}")
+                    elif verified_rule != restore_rule:
+                        logger.warning(f"⚠️ RESTORE VERIFICATION FAILED: Set returned success but read-back shows '{verified_rule}' (expected '{restore_rule}') for {user.email}")
                         logger.warning(f"Full verification response: {verify_settings}")
                     else:
                         logger.info(f"✓ Restore verified via read-back: export_rule='{verified_rule}'")
 
-                    logger.info(f"✅ CURTAILMENT REMOVED: Export restored 'never' → 'battery_ok' for {user.email}")
-                    user.current_export_rule = 'battery_ok'
+                    logger.info(f"✅ CURTAILMENT REMOVED: Export restored 'never' → '{restore_rule}' for {user.email}")
+                    user.current_export_rule = restore_rule
                     user.current_export_rule_updated = datetime.utcnow()
                     db.session.commit()
 
@@ -2754,7 +2763,7 @@ def solar_curtailment_check():
                         else:
                             _apply_inverter_curtailment(user, curtail=False)
 
-                    logger.info(f"📊 Action summary: Restored to normal (earnings: {export_earnings:.2f}c/kWh, export: 'battery_ok')")
+                    logger.info(f"📊 Action summary: Restored to normal (earnings: {export_earnings:.2f}c/kWh, export: '{restore_rule}')")
                     success_count += 1
                 else:
                     # Even if Tesla export rule unchanged, check if inverter needs restoring

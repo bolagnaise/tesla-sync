@@ -1356,6 +1356,10 @@ class PowerwallSettingsView(HomeAssistantView):
             else:
                 grid_export_rule = api_export_rule
 
+            # Check if manual export override is active
+            entry_data = self._hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+            manual_export_override = entry_data.get("manual_export_override", False)
+
             result = {
                 "success": True,
                 "backup_reserve": backup_reserve,
@@ -1363,9 +1367,10 @@ class PowerwallSettingsView(HomeAssistantView):
                 "grid_export_rule": grid_export_rule,
                 "grid_charging_enabled": not disallow_charge,
                 "solar_curtailment_enabled": solar_curtailment_enabled,
+                "manual_export_override": manual_export_override,
             }
 
-            _LOGGER.info(f"✅ Powerwall settings: reserve={backup_reserve}%, mode={operation_mode}, export={grid_export_rule}")
+            _LOGGER.info(f"✅ Powerwall settings: reserve={backup_reserve}%, mode={operation_mode}, export={grid_export_rule}, manual_override={manual_export_override}")
             return web.json_response(result)
 
         except Exception as e:
@@ -3238,14 +3243,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             else:
                 _LOGGER.info(f"✅ NORMAL OPERATION: Export earnings {export_earnings:.2f}c/kWh (>=1c)")
 
-                # If currently curtailed, restore to battery_ok
+                # If currently curtailed, restore to battery_ok (or manual override rule if set)
                 if current_export_rule == "never":
-                    _LOGGER.info(f"🔄 RESTORING FROM CURTAILMENT: 'never' → 'battery_ok'")
+                    # Check for manual override
+                    entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+                    manual_override = entry_data.get("manual_export_override", False)
+                    if manual_override:
+                        restore_rule = entry_data.get("manual_export_rule") or "battery_ok"
+                        _LOGGER.info(f"🔄 RESTORING FROM CURTAILMENT (manual override active): 'never' → '{restore_rule}'")
+                    else:
+                        restore_rule = "battery_ok"
+                        _LOGGER.info(f"🔄 RESTORING FROM CURTAILMENT: 'never' → '{restore_rule}'")
                     try:
                         async with session.post(
                             f"{api_base_url}/api/1/energy_sites/{entry.data[CONF_TESLA_ENERGY_SITE_ID]}/grid_import_export",
                             headers=headers,
-                            json={"customer_preferred_export_rule": "battery_ok"},
+                            json={"customer_preferred_export_rule": restore_rule},
                             timeout=aiohttp.ClientTimeout(total=30),
                         ) as response:
                             if response.status != 200:
@@ -3513,12 +3526,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.info(f"✅ NORMAL OPERATION: Export earnings {export_earnings:.2f}c/kWh (>=1c)")
 
                 if current_export_rule == "never":
-                    _LOGGER.info(f"🔄 RESTORING FROM CURTAILMENT: 'never' → 'battery_ok'")
+                    # Check for manual override
+                    entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+                    manual_override = entry_data.get("manual_export_override", False)
+                    if manual_override:
+                        restore_rule = entry_data.get("manual_export_rule") or "battery_ok"
+                        _LOGGER.info(f"🔄 RESTORING FROM CURTAILMENT (manual override active): 'never' → '{restore_rule}'")
+                    else:
+                        restore_rule = "battery_ok"
+                        _LOGGER.info(f"🔄 RESTORING FROM CURTAILMENT: 'never' → '{restore_rule}'")
                     try:
                         async with session.post(
                             f"{api_base_url}/api/1/energy_sites/{entry.data[CONF_TESLA_ENERGY_SITE_ID]}/grid_import_export",
                             headers=headers,
-                            json={"customer_preferred_export_rule": "battery_ok"},
+                            json={"customer_preferred_export_rule": restore_rule},
                             timeout=aiohttp.ClientTimeout(total=30),
                         ) as response:
                             if response.status != 200:
@@ -4448,12 +4469,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ) as response:
                 if response.status == 200:
                     _LOGGER.info(f"✅ Grid export rule set to {rule}")
+                    # If solar curtailment is enabled, mark this as a manual override
+                    solar_curtailment_enabled = entry.options.get(
+                        CONF_SOLAR_CURTAILMENT_ENABLED,
+                        entry.data.get(CONF_SOLAR_CURTAILMENT_ENABLED, False)
+                    )
+                    if solar_curtailment_enabled:
+                        entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})
+                        entry_data["manual_export_override"] = True
+                        entry_data["manual_export_rule"] = rule
+                        _LOGGER.info(f"📌 Manual export override enabled: {rule}")
                 else:
                     text = await response.text()
                     _LOGGER.error(f"Failed to set grid export rule: {response.status} - {text}")
 
         except Exception as e:
             _LOGGER.error(f"Error setting grid export rule: {e}", exc_info=True)
+
+    async def handle_set_grid_export_auto(call: ServiceCall) -> None:
+        """Clear manual export override and return to automatic control."""
+        _LOGGER.info("🔄 Clearing manual export override - returning to auto control")
+        try:
+            entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})
+            entry_data["manual_export_override"] = False
+            entry_data["manual_export_rule"] = None
+            _LOGGER.info("✅ Manual export override cleared")
+        except Exception as e:
+            _LOGGER.error(f"Error clearing manual export override: {e}", exc_info=True)
 
     async def handle_set_grid_charging(call: ServiceCall) -> None:
         """Enable or disable grid charging."""
@@ -4509,6 +4551,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.services.async_register(DOMAIN, SERVICE_SET_OPERATION_MODE, handle_set_operation_mode)
     hass.services.async_register(DOMAIN, SERVICE_SET_GRID_EXPORT, handle_set_grid_export)
     hass.services.async_register(DOMAIN, SERVICE_SET_GRID_CHARGING, handle_set_grid_charging)
+    hass.services.async_register(DOMAIN, "set_grid_export_auto", handle_set_grid_export_auto)
 
     _LOGGER.info("🔋 Force charge/discharge, restore, and Powerwall settings services registered")
 
