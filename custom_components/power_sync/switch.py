@@ -15,8 +15,6 @@ from homeassistant.helpers.event import async_track_time_interval
 from .const import (
     DOMAIN,
     CONF_AUTO_SYNC_ENABLED,
-    CONF_BATTERY_SYSTEM,
-    BATTERY_SYSTEM_TESLA,
     SWITCH_TYPE_AUTO_SYNC,
     SWITCH_TYPE_FORCE_DISCHARGE,
     SWITCH_TYPE_FORCE_CHARGE,
@@ -34,12 +32,14 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up PowerSync switch entities."""
-    # Get battery system type from config
-    battery_system = entry.options.get(
-        CONF_BATTERY_SYSTEM,
-        entry.data.get(CONF_BATTERY_SYSTEM, "")
+    # Detect Tesla by checking if tesla_energy_site_id is configured
+    from .const import CONF_TESLA_ENERGY_SITE_ID
+    tesla_site_id = entry.options.get(
+        CONF_TESLA_ENERGY_SITE_ID,
+        entry.data.get(CONF_TESLA_ENERGY_SITE_ID, "")
     )
-    is_tesla = battery_system == BATTERY_SYSTEM_TESLA
+    is_tesla = bool(tesla_site_id)
+    _LOGGER.info(f"🔋 Switch setup: tesla_site_id='{tesla_site_id}', is_tesla={is_tesla}")
 
     entities = [
         AutoSyncSwitch(
