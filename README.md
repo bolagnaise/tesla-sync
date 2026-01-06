@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/bolagnaise/PowerSync/main/logo.png" alt="PowerSync Logo" width="400"/>
+  <img src="https://raw.githubusercontent.com/bolagnaise/PowerSync/main/app/static/icon-512.png" alt="PowerSync Logo" width="200"/>
 
   # PowerSync
 
@@ -44,7 +44,7 @@ This is an unofficial integration and is not affiliated with or endorsed by Tesl
 
 **Connection Methods:**
 - 🔋 **Tesla Powerwall** - Fleet API or Teslemetry proxy
-- ⚡ **Sigenergy** - Sigenergy Cloud API + optional Modbus TCP for DC curtailment
+- ⚡ **Sigenergy** - Sigenergy Cloud API for tariff sync + Modbus TCP for real-time energy data
 
 ### Core Functionality
 - 🔋 **Automatic TOU Tariff Sync** - Updates your battery system with Amber Electric pricing every 5 minutes
@@ -263,8 +263,15 @@ Full support for Sigenergy DC-coupled battery systems as an alternative to Tesla
 
 **Features:**
 - **Tariff Sync via Cloud API** - Uploads Amber pricing to Sigenergy Cloud using the same 30-minute TOU format
+- **Real-Time Energy Data via Modbus** - Reads solar, battery, grid power and SOC from your inverter
 - **DC Solar Curtailment** - Controls DC solar via Modbus TCP during negative prices (load-following mode)
 - **Load-Following Curtailment** - Sets export limit to 0 instead of full PV shutdown, so solar continues to power house and charge battery
+
+**Connection Requirements:**
+| Connection | Purpose | Required |
+|------------|---------|----------|
+| **Cloud API** | Tariff sync to Sigenergy | ✅ Yes |
+| **Modbus TCP** | Real-time energy data + DC curtailment | ✅ Yes |
 
 **How DC Curtailment Works:**
 Unlike full solar shutdown, Sigenergy uses **load-following mode** (zero export):
@@ -287,12 +294,14 @@ This is smarter because:
 1. Select **Sigenergy** as your battery system (first step in config flow)
 2. Enter Sigenergy Cloud credentials (captured from browser dev tools)
 3. Select your Sigenergy station
-4. Optionally enable DC curtailment and enter Modbus IP address
+4. Enter your Sigenergy inverter's **Modbus IP address** (required for energy data)
+5. Optionally enable DC solar curtailment
 
 **Configuration (Flask Web App):**
 1. Go to Settings → Battery System → Select "Sigenergy"
 2. Follow the credential capture wizard (requires browser dev tools)
 3. Validate credentials and select your station
+4. Go to Amber Settings → Enter Sigenergy Modbus IP address, port, and slave ID
 
 **Note:** Sigenergy is a **DC-coupled** battery system. If you have an AC-coupled solar inverter from another brand (Sungrow, Fronius, etc.) connected to your Sigenergy system, you can configure AC-coupled inverter curtailment separately (see below).
 
