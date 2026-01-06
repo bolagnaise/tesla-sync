@@ -541,6 +541,16 @@ def api_inverter_status():
         # Convert state to dict for response
         state_dict = state.to_dict()
 
+        # Use tracked inverter_last_state as source of truth for is_curtailed
+        # This fixes Fronius simple mode where power_limit_enabled is False
+        # but the inverter is actually curtailed using soft export limit
+        if getattr(user, 'inverter_last_state', None) == 'curtailed':
+            state_dict['is_curtailed'] = True
+            if state_dict.get('status') == 'online':
+                state_dict['status'] = 'curtailed'
+        elif getattr(user, 'inverter_last_state', None) == 'online':
+            state_dict['is_curtailed'] = False
+
         # Check if it's nighttime for sleep detection
         import pytz
         is_night = False

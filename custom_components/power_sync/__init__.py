@@ -1582,6 +1582,18 @@ class InverterStatusView(HomeAssistantView):
             # Convert state to dict
             state_dict = state.to_dict()
 
+            # Use tracked inverter_last_state as source of truth for is_curtailed
+            # This fixes Fronius simple mode where power_limit_enabled is False
+            # but the inverter is actually curtailed using soft export limit
+            entry_data = self._hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+            inverter_last_state = entry_data.get("inverter_last_state")
+            if inverter_last_state == "curtailed":
+                state_dict["is_curtailed"] = True
+                if state_dict.get("status") == "online":
+                    state_dict["status"] = "curtailed"
+            elif inverter_last_state in ("normal", "running"):
+                state_dict["is_curtailed"] = False
+
             # Check if it's nighttime for sleep detection
             is_night = False
             try:
