@@ -118,18 +118,27 @@
         },
         "submit_button": "Next"
       },
-      "sigenergy_dc_curtailment": {
-        "title": "Sigenergy DC Solar Curtailment",
-        "description": "Configure DC solar curtailment for your Sigenergy system.\n\nWhen enabled, PowerSync can limit DC solar production during negative prices by setting the PV power limit via Modbus TCP.\n\n**Note:** This is for DC solar connected directly to your Sigenergy system. AC-coupled inverters from other brands can be configured separately.",
+      "sigenergy_modbus": {
+        "title": "Sigenergy Modbus Connection",
+        "description": "Configure the Modbus TCP connection to your Sigenergy system.\n\n**Required for energy data:** PowerSync reads real-time solar, battery, and grid power data from your Sigenergy system via Modbus.\n\nEnter the local IP address of your Sigenergy inverter.",
         "data": {
-          "sigenergy_dc_curtailment_enabled": "Enable DC Solar Curtailment",
           "sigenergy_modbus_host": "Sigenergy IP Address",
           "sigenergy_modbus_port": "Modbus Port",
           "sigenergy_modbus_slave_id": "Modbus Slave ID"
         },
         "data_description": {
-          "sigenergy_dc_curtailment_enabled": "Allow PowerSync to control DC solar production via Modbus",
-          "sigenergy_modbus_host": "Local IP address of your Sigenergy system"
+          "sigenergy_modbus_host": "Local IP address of your Sigenergy inverter (e.g., 192.168.1.100)"
+        },
+        "submit_button": "Next"
+      },
+      "sigenergy_dc_curtailment": {
+        "title": "Sigenergy DC Solar Curtailment",
+        "description": "Configure DC solar curtailment for your Sigenergy system.\n\nWhen enabled, PowerSync can limit DC solar production during negative prices by setting the PV power limit via Modbus.\n\n**Note:** This is for DC solar connected directly to your Sigenergy system. AC-coupled inverters from other brands can be configured separately.",
+        "data": {
+          "sigenergy_dc_curtailment_enabled": "Enable DC Solar Curtailment"
+        },
+        "data_description": {
+          "sigenergy_dc_curtailment_enabled": "Allow PowerSync to control DC solar production during negative prices"
         },
         "submit_button": "Finish"
       },

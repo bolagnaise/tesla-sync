@@ -677,8 +677,8 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Strip any whitespace
                 station_id = str(station_id).strip()
                 self._sigenergy_data[CONF_SIGENERGY_STATION_ID] = station_id
-                # Go to DC curtailment configuration
-                return await self.async_step_sigenergy_dc_curtailment()
+                # Go to Modbus connection configuration (required for energy data)
+                return await self.async_step_sigenergy_modbus()
             else:
                 errors["base"] = "no_station_selected"
 
@@ -711,44 +711,31 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_sigenergy_dc_curtailment(
+    async def async_step_sigenergy_modbus(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Configure Sigenergy DC solar curtailment via Modbus TCP."""
+        """Configure Sigenergy Modbus connection (required for energy data)."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            dc_enabled = user_input.get(CONF_SIGENERGY_DC_CURTAILMENT_ENABLED, False)
-            self._sigenergy_data[CONF_SIGENERGY_DC_CURTAILMENT_ENABLED] = dc_enabled
-
-            if dc_enabled:
-                # Validate and store Modbus settings
-                modbus_host = user_input.get(CONF_SIGENERGY_MODBUS_HOST, "").strip()
-                if not modbus_host:
-                    errors["base"] = "modbus_host_required"
-                else:
-                    self._sigenergy_data[CONF_SIGENERGY_MODBUS_HOST] = modbus_host
-                    self._sigenergy_data[CONF_SIGENERGY_MODBUS_PORT] = user_input.get(
-                        CONF_SIGENERGY_MODBUS_PORT, DEFAULT_SIGENERGY_MODBUS_PORT
-                    )
-                    self._sigenergy_data[CONF_SIGENERGY_MODBUS_SLAVE_ID] = user_input.get(
-                        CONF_SIGENERGY_MODBUS_SLAVE_ID, DEFAULT_SIGENERGY_MODBUS_SLAVE_ID
-                    )
-
-            if not errors:
-                return await self.async_step_finish_sigenergy()
+            modbus_host = user_input.get(CONF_SIGENERGY_MODBUS_HOST, "").strip()
+            if not modbus_host:
+                errors["base"] = "modbus_host_required"
+            else:
+                self._sigenergy_data[CONF_SIGENERGY_MODBUS_HOST] = modbus_host
+                self._sigenergy_data[CONF_SIGENERGY_MODBUS_PORT] = user_input.get(
+                    CONF_SIGENERGY_MODBUS_PORT, DEFAULT_SIGENERGY_MODBUS_PORT
+                )
+                self._sigenergy_data[CONF_SIGENERGY_MODBUS_SLAVE_ID] = user_input.get(
+                    CONF_SIGENERGY_MODBUS_SLAVE_ID, DEFAULT_SIGENERGY_MODBUS_SLAVE_ID
+                )
+                # Go to optional DC curtailment configuration
+                return await self.async_step_sigenergy_dc_curtailment()
 
         return self.async_show_form(
-            step_id="sigenergy_dc_curtailment",
+            step_id="sigenergy_modbus",
             data_schema=vol.Schema({
-                vol.Optional(
-                    CONF_SIGENERGY_DC_CURTAILMENT_ENABLED,
-                    default=False,
-                ): bool,
-                vol.Optional(
-                    CONF_SIGENERGY_MODBUS_HOST,
-                    default="",
-                ): str,
+                vol.Required(CONF_SIGENERGY_MODBUS_HOST): str,
                 vol.Optional(
                     CONF_SIGENERGY_MODBUS_PORT,
                     default=DEFAULT_SIGENERGY_MODBUS_PORT,
@@ -757,6 +744,28 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_SIGENERGY_MODBUS_SLAVE_ID,
                     default=DEFAULT_SIGENERGY_MODBUS_SLAVE_ID,
                 ): int,
+            }),
+            errors=errors,
+        )
+
+    async def async_step_sigenergy_dc_curtailment(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure Sigenergy DC solar curtailment (optional)."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            dc_enabled = user_input.get(CONF_SIGENERGY_DC_CURTAILMENT_ENABLED, False)
+            self._sigenergy_data[CONF_SIGENERGY_DC_CURTAILMENT_ENABLED] = dc_enabled
+            return await self.async_step_finish_sigenergy()
+
+        return self.async_show_form(
+            step_id="sigenergy_dc_curtailment",
+            data_schema=vol.Schema({
+                vol.Optional(
+                    CONF_SIGENERGY_DC_CURTAILMENT_ENABLED,
+                    default=False,
+                ): bool,
             }),
             errors=errors,
         )
