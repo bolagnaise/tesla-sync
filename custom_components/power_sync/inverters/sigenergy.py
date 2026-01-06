@@ -66,8 +66,9 @@ class SigenergyController(InverterController):
     ACTIVE_POWER_PCT_ZERO = 0     # 0% active power
 
     # Default Modbus settings
+    # Sigenergy uses Unit ID 247 for commands with feedback, or 0 for commands without
     DEFAULT_PORT = 502
-    DEFAULT_SLAVE_ID = 1
+    DEFAULT_SLAVE_ID = 247  # Changed from 1 - Sigenergy specific unit ID
     TIMEOUT_SECONDS = 10.0
 
     def __init__(

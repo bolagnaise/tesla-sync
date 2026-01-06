@@ -74,7 +74,7 @@ CONF_SIGENERGY_MODBUS_HOST = "sigenergy_modbus_host"
 CONF_SIGENERGY_MODBUS_PORT = "sigenergy_modbus_port"
 CONF_SIGENERGY_MODBUS_SLAVE_ID = "sigenergy_modbus_slave_id"
 DEFAULT_SIGENERGY_MODBUS_PORT = 502
-DEFAULT_SIGENERGY_MODBUS_SLAVE_ID = 1
+DEFAULT_SIGENERGY_MODBUS_SLAVE_ID = 247  # Sigenergy uses unit ID 247 (or 0)
 
 # Demand charge configuration
 CONF_DEMAND_CHARGE_ENABLED = "demand_charge_enabled"
