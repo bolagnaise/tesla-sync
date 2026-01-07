@@ -128,7 +128,7 @@
         },
         "data_description": {
           "sigenergy_modbus_host": "Local IP address of your Sigenergy inverter (e.g., 192.168.1.100)",
-          "sigenergy_modbus_slave_id": "Sigenergy uses Unit ID 247 (default). Try 0 if 247 doesn't work."
+          "sigenergy_modbus_slave_id": "Leave at 247 (default). PowerSync auto-detects the correct registers and slave ID."
         },
         "submit_button": "Next"
       },
