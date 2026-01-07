@@ -57,7 +57,7 @@ from .const import (
     SENSOR_TYPE_FLOW_POWER_EXPORT_PRICE,
     SENSOR_TYPE_BATTERY_HEALTH,
     SENSOR_TYPE_INVERTER_STATUS,
-    CONF_INVERTER_CURTAILMENT_ENABLED,
+    CONF_AC_INVERTER_CURTAILMENT_ENABLED,
     CONF_INVERTER_BRAND,
     CONF_INVERTER_MODEL,
     CONF_INVERTER_HOST,
@@ -387,8 +387,8 @@ async def async_setup_entry(
 
     # Add inverter status sensor if inverter curtailment is enabled
     inverter_enabled = entry.options.get(
-        CONF_INVERTER_CURTAILMENT_ENABLED,
-        entry.data.get(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+        CONF_AC_INVERTER_CURTAILMENT_ENABLED,
+        entry.data.get(CONF_AC_INVERTER_CURTAILMENT_ENABLED, False)
     )
     if inverter_enabled:
         entities.append(
@@ -867,7 +867,7 @@ class InverterStatusSensor(SensorEntity):
         """Poll the inverter to get current status."""
         from .inverters import get_inverter_controller
 
-        inverter_enabled = self._get_config_value(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+        inverter_enabled = self._get_config_value(CONF_AC_INVERTER_CURTAILMENT_ENABLED, False)
         if not inverter_enabled:
             _LOGGER.debug("Inverter curtailment not enabled - skipping poll")
             self._cached_state = "disabled"
@@ -983,7 +983,7 @@ class InverterStatusSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return additional attributes including register data."""
-        inverter_enabled = self._get_config_value(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+        inverter_enabled = self._get_config_value(CONF_AC_INVERTER_CURTAILMENT_ENABLED, False)
         inverter_brand = self._get_config_value(CONF_INVERTER_BRAND, "sungrow")
         inverter_host = self._get_config_value(CONF_INVERTER_HOST, "")
         inverter_model = self._get_config_value(CONF_INVERTER_MODEL, "")

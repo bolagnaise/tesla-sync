@@ -116,7 +116,7 @@ from .const import (
     # Alpha: Force tariff mode toggle
     CONF_FORCE_TARIFF_MODE_TOGGLE,
     # AC-Coupled Inverter Curtailment configuration
-    CONF_INVERTER_CURTAILMENT_ENABLED,
+    CONF_AC_INVERTER_CURTAILMENT_ENABLED,
     CONF_INVERTER_BRAND,
     CONF_INVERTER_MODEL,
     CONF_INVERTER_HOST,
@@ -1516,8 +1516,8 @@ class InverterStatusView(HomeAssistantView):
 
         # Check if inverter curtailment is enabled
         inverter_enabled = entry.options.get(
-            CONF_INVERTER_CURTAILMENT_ENABLED,
-            entry.data.get(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+            CONF_AC_INVERTER_CURTAILMENT_ENABLED,
+            entry.data.get(CONF_AC_INVERTER_CURTAILMENT_ENABLED, False)
         )
 
         if not inverter_enabled:
@@ -1710,8 +1710,8 @@ class ConfigView(HomeAssistantView):
                     entry.data.get(CONF_BATTERY_CURTAILMENT_ENABLED, False)
                 ),
                 "inverter_control": entry.options.get(
-                    CONF_INVERTER_CURTAILMENT_ENABLED,
-                    entry.data.get(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+                    CONF_AC_INVERTER_CURTAILMENT_ENABLED,
+                    entry.data.get(CONF_AC_INVERTER_CURTAILMENT_ENABLED, False)
                 ),
                 "spike_protection": entry.options.get(
                     CONF_SPIKE_PROTECTION_ENABLED,
@@ -2335,8 +2335,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             True if operation succeeded, False otherwise
         """
         inverter_enabled = entry.options.get(
-            CONF_INVERTER_CURTAILMENT_ENABLED,
-            entry.data.get(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+            CONF_AC_INVERTER_CURTAILMENT_ENABLED,
+            entry.data.get(CONF_AC_INVERTER_CURTAILMENT_ENABLED, False)
         )
 
         if not inverter_enabled:
@@ -4599,8 +4599,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info(f"🔴 Manual inverter curtailment requested (mode: {mode})")
 
         inverter_enabled = entry.options.get(
-            CONF_INVERTER_CURTAILMENT_ENABLED,
-            entry.data.get(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+            CONF_AC_INVERTER_CURTAILMENT_ENABLED,
+            entry.data.get(CONF_AC_INVERTER_CURTAILMENT_ENABLED, False)
         )
 
         if not inverter_enabled:
@@ -4698,8 +4698,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info("🟢 Manual inverter restore requested")
 
         inverter_enabled = entry.options.get(
-            CONF_INVERTER_CURTAILMENT_ENABLED,
-            entry.data.get(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+            CONF_AC_INVERTER_CURTAILMENT_ENABLED,
+            entry.data.get(CONF_AC_INVERTER_CURTAILMENT_ENABLED, False)
         )
 
         if not inverter_enabled:
@@ -5135,8 +5135,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             # Check if AC curtailment is enabled
             inverter_curtailment_enabled = entry.options.get(
-                CONF_INVERTER_CURTAILMENT_ENABLED,
-                entry.data.get(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+                CONF_AC_INVERTER_CURTAILMENT_ENABLED,
+                entry.data.get(CONF_AC_INVERTER_CURTAILMENT_ENABLED, False)
             )
             if not inverter_curtailment_enabled:
                 return
