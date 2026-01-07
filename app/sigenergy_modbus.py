@@ -16,18 +16,21 @@ logger = logging.getLogger(__name__)
 class SigenergyModbusClient:
     """Client for reading Sigenergy inverter data via Modbus TCP."""
 
-    # Modbus register addresses (documentation addresses - 40001 for pymodbus)
-    # Holding registers (read/write) - base 40001
-    REG_GRID_EXPORT_LIMIT = 37  # 40038 - Grid export limit (U32, gain 1000)
-    REG_ESS_MAX_CHARGE_LIMIT = 31    # 40032 - Max charge rate (U32, gain 1000, kW)
-    REG_ESS_MAX_DISCHARGE_LIMIT = 33  # 40034 - Max discharge rate (U32, gain 1000, kW)
+    # Modbus register addresses - use FULL addresses (pymodbus handles protocol details)
+    # Reference: https://github.com/TypQxQ/Sigenergy-Local-Modbus
 
-    # Input registers (read-only) - base 30001
-    REG_PV_POWER = 34           # 30035 - PV power (S32, gain 1000, kW)
-    REG_ACTIVE_POWER = 30       # 30031 - Active power (S32, gain 1000, kW)
-    REG_ESS_SOC = 13            # 30014 - Battery SOC (U16, gain 10, %)
-    REG_GRID_SENSOR_POWER = 4   # 30005 - Grid sensor active power (S32, gain 1000, kW)
-    REG_EMS_WORK_MODE = 2       # 30003 - EMS work mode (U16)
+    # Holding registers (read/write)
+    REG_GRID_EXPORT_LIMIT = 40038         # Grid export limit (U32, gain 1000)
+    REG_ESS_MAX_CHARGE_LIMIT = 40032      # Max charge rate (U32, gain 1000, kW)
+    REG_ESS_MAX_DISCHARGE_LIMIT = 40034   # Max discharge rate (U32, gain 1000, kW)
+
+    # Input registers (read-only)
+    REG_PV_POWER = 30035                  # PV power (S32, gain 1000, kW)
+    REG_ACTIVE_POWER = 30031              # Active power (S32, gain 1000, kW)
+    REG_ESS_SOC = 30014                   # Battery SOC (U16, gain 10, %)
+    REG_ESS_POWER = 30037                 # Battery power (S32, gain 1000, kW) - positive=discharge, negative=charge
+    REG_GRID_SENSOR_POWER = 30005         # Grid sensor active power (S32, gain 1000, kW)
+    REG_EMS_WORK_MODE = 30003             # EMS work mode (U16)
 
     # Constants
     GAIN_POWER = 1000  # kW → scaled value
@@ -403,40 +406,23 @@ class SigenergyModbusClient:
             else:
                 result['percentage_charged'] = 0
 
-            # Read active power (S32, 2 registers) - total system power
-            # This can help derive battery power
-            active_regs = self._read_input_registers(self.REG_ACTIVE_POWER, 2)
-            if active_regs and len(active_regs) >= 2:
-                active_power_kw = self._to_signed32(active_regs[0], active_regs[1]) / self.GAIN_POWER
-                active_power_w = active_power_kw * 1000
+            # Read battery power (S32, 2 registers) - positive = discharging, negative = charging
+            battery_regs = self._read_input_registers(self.REG_ESS_POWER, 2)
+            if battery_regs and len(battery_regs) >= 2:
+                battery_power_kw = self._to_signed32(battery_regs[0], battery_regs[1]) / self.GAIN_POWER
+                result['battery_power'] = battery_power_kw * 1000  # Convert to W
             else:
-                active_power_w = 0
+                result['battery_power'] = 0
 
-            # Calculate battery power from energy balance:
-            # Solar + Battery + Grid = Load
-            # Battery = Load - Solar - Grid (but we need to derive load)
-            # Active power is typically the inverter output which equals load
-            # Battery = Active - Solar - Grid (when active is load)
-            # Or we can derive: Load = Solar + Grid - Battery
-
-            # For Sigenergy, active_power seems to be inverter AC output
-            # Let's calculate battery as: Battery = Grid + Solar - Load
-            # where Load ~= Active Power (home consumption through inverter)
-
-            # Simplified: Battery Power = -(Grid + Solar - Active)
-            # Positive = discharging, Negative = charging
+            # Calculate home load from energy balance:
+            # Load = Solar + Grid + Battery (with proper signs)
+            # Solar: positive = generating
+            # Grid: positive = importing, negative = exporting
+            # Battery: positive = discharging, negative = charging
             solar_w = result.get('solar_power', 0)
             grid_w = result.get('grid_power', 0)
-
-            # Load power is what the home consumes
-            # Load = Solar - Grid export + Grid import + Battery discharge
-            # Approximation: Load = Active power (inverter output to home)
-            result['load_power'] = abs(active_power_w) if active_power_w else abs(solar_w - grid_w)
-
-            # Battery power: positive = discharging, negative = charging
-            # Energy balance: Solar + Grid_import + Battery_discharge = Load + Grid_export
-            # Battery = Load - Solar + Grid (where grid is positive for import, negative for export)
-            result['battery_power'] = result['load_power'] - solar_w + grid_w
+            battery_w = result.get('battery_power', 0)
+            result['load_power'] = solar_w + grid_w + battery_w
 
             # Check if export is curtailed (export limit set to 0 or very low)
             export_regs = self._read_holding_registers(self.REG_GRID_EXPORT_LIMIT, 2)
