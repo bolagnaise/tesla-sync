@@ -2575,7 +2575,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         Converts Amber forecast data to Sigenergy's expected format and uploads
         buy/sell prices via the Sigenergy Cloud API.
         """
-        from .sigenergy_api import SigenergyAPIClient, convert_amber_prices_to_sigenergy
+        _LOGGER.info(f"🔷 _sync_tariff_to_sigenergy called with {len(forecast_data) if forecast_data else 0} forecast items")
+
+        try:
+            from .sigenergy_api import SigenergyAPIClient, convert_amber_prices_to_sigenergy
+        except ImportError as e:
+            _LOGGER.error(f"❌ Failed to import sigenergy_api: {e}")
+            return
 
         # Get Sigenergy credentials from config entry
         station_id = entry.data.get(CONF_SIGENERGY_STATION_ID)
