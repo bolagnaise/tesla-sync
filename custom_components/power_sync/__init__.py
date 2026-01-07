@@ -2611,7 +2611,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             # Get forecast type from options (same as Tesla sync)
             forecast_type = entry.options.get(
-                CONF_FORECAST_TYPE, entry.data.get(CONF_FORECAST_TYPE, "predicted")
+                CONF_AMBER_FORECAST_TYPE, entry.data.get(CONF_AMBER_FORECAST_TYPE, "predicted")
             )
             _LOGGER.info(f"🔷 Step 3: Forecast type = {forecast_type}")
 
