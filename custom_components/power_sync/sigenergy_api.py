@@ -373,19 +373,28 @@ def convert_amber_prices_to_sigenergy(
     amber_prices: list[dict],
     price_type: str = "buy",
     forecast_type: str = "predicted",
+    current_actual_interval: Optional[dict] = None,
 ) -> list[dict]:
     """Convert Amber price data to Sigenergy timeRange format.
 
     Uses same price extraction logic as Tesla tariff converter for consistency.
+    Optionally injects live 5-min ActualInterval price for current period to catch spikes.
 
     Args:
         amber_prices: List of Amber price intervals with nemTime/startTime/endTime and perKwh
         price_type: 'buy' for import prices, 'sell' for export prices
         forecast_type: Amber forecast type to use ('predicted', 'low', 'high')
+        current_actual_interval: Dict with 'general' and 'feedIn' ActualInterval data (optional)
+                                If provided, uses this for the current 30-min period instead of averaging
 
     Returns:
         List of {timeRange: "HH:MM-HH:MM", price: float} in cents
     """
+    # Calculate current 30-min slot for ActualInterval injection
+    now = datetime.now()
+    current_slot_minute = 0 if now.minute < 30 else 30
+    current_slot_key = f"{now.hour:02d}:{current_slot_minute:02d}"
+
     # Group prices by 30-minute slots
     slots = {}
 
@@ -457,6 +466,27 @@ def convert_amber_prices_to_sigenergy(
                 end_hour = (hour + 1) % 24
 
             time_range = f"{hour:02d}:{minute:02d}-{end_hour:02d}:{end_minute:02d}"
+
+            # SPECIAL CASE: Use ActualInterval for current period if available
+            # This captures short-term (5-min) price spikes that would otherwise be averaged out
+            if slot_key == current_slot_key and current_actual_interval:
+                # Determine which channel to use based on price_type
+                channel_key = "general" if price_type == "buy" else "feedIn"
+                interval_data = current_actual_interval.get(channel_key)
+
+                if interval_data:
+                    actual_price = interval_data.get("perKwh", 0)
+                    # For sell prices, negate (Amber feedIn is negative)
+                    if price_type == "sell":
+                        actual_price = -actual_price
+                    _LOGGER.info(
+                        f"Using ActualInterval for current {price_type} period {time_range}: {actual_price:.2f}c/kWh"
+                    )
+                    result.append({
+                        "timeRange": time_range,
+                        "price": round(actual_price, 4),
+                    })
+                    continue
 
             # Get average price for this slot, default to 0 if no data
             if slot_key in slots and slots[slot_key]:

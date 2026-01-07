@@ -2569,7 +2569,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """
         await handle_sync_rest_api_check(check_name="legacy fallback")
 
-    async def _sync_tariff_to_sigenergy(forecast_data: list, sync_mode: str) -> None:
+    async def _sync_tariff_to_sigenergy(forecast_data: list, sync_mode: str, current_actual_interval: dict = None) -> None:
         """Sync Amber prices to Sigenergy Cloud API.
 
         Converts Amber forecast data to Sigenergy's expected format and uploads
@@ -2602,8 +2602,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         general_prices = [p for p in forecast_data if p.get("channelType") == "general"]
         feedin_prices = [p for p in forecast_data if p.get("channelType") == "feedIn"]
 
-        buy_prices = convert_amber_prices_to_sigenergy(general_prices, price_type="buy", forecast_type=forecast_type)
-        sell_prices = convert_amber_prices_to_sigenergy(feedin_prices, price_type="sell", forecast_type=forecast_type)
+        # Pass current_actual_interval for live 5-min price injection (catches spikes)
+        buy_prices = convert_amber_prices_to_sigenergy(
+            general_prices, price_type="buy", forecast_type=forecast_type,
+            current_actual_interval=current_actual_interval
+        )
+        sell_prices = convert_amber_prices_to_sigenergy(
+            feedin_prices, price_type="sell", forecast_type=forecast_type,
+            current_actual_interval=current_actual_interval
+        )
 
         if not buy_prices:
             _LOGGER.warning("No buy prices converted for Sigenergy sync")
@@ -2852,7 +2859,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Route to appropriate battery system for tariff sync
         if battery_system == "sigenergy":
             # Sigenergy-specific tariff sync via Cloud API
-            await _sync_tariff_to_sigenergy(forecast_data, sync_mode)
+            # Pass current_actual_interval for live 5-min price injection
+            await _sync_tariff_to_sigenergy(forecast_data, sync_mode, current_actual_interval)
             return
 
         # Convert prices to Tesla tariff format
