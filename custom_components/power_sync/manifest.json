@@ -5,10 +5,10 @@
   "config_flow": true,
   "dependencies": [],
   "after_dependencies": ["tesla_fleet"],
-  "documentation": "https://github.com/bolagnaise/tesla-sync",
+  "documentation": "https://github.com/bolagnaise/PowerSync",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/bolagnaise/tesla-sync/issues",
+  "issue_tracker": "https://github.com/bolagnaise/PowerSync/issues",
   "requirements": ["aiohttp>=3.9.0", "aemo-to-tariff>=0.7.8"],
   "version": "2.2.0"
 }
