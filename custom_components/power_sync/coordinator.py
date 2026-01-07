@@ -1043,11 +1043,21 @@ class SigenergyEnergyCoordinator(DataUpdateCoordinator):
 
             # Map Sigenergy data to standard format (same as Tesla)
             # Power values in kW from Modbus, we keep them in kW for sensors
+            solar_kw = attrs.get("pv_power_kw", 0)
+            grid_kw = attrs.get("grid_power_kw", 0)  # Positive = importing, negative = exporting
+            battery_kw = attrs.get("battery_power_kw", 0)  # Positive = discharging, negative = charging
+
+            # Calculate home load from energy balance:
+            # Load = Solar + Battery_Discharge + Grid_Import
+            # With sign convention: Load = Solar - Battery_Charging + Grid (where grid negative = export)
+            # Simplified: Load = Solar + Grid + Battery (all with proper signs)
+            load_kw = solar_kw + grid_kw + battery_kw
+
             energy_data = {
-                "solar_power": attrs.get("pv_power_kw", 0),  # kW
-                "grid_power": attrs.get("grid_power_kw", 0),  # kW, positive = importing
-                "battery_power": 0,  # Sigenergy doesn't separate battery power easily
-                "load_power": 0,  # Calculate from other values if needed
+                "solar_power": solar_kw,  # kW
+                "grid_power": grid_kw,  # kW, positive = importing, negative = exporting
+                "battery_power": battery_kw,  # kW, positive = discharging, negative = charging
+                "load_power": load_kw,  # kW, calculated from energy balance
                 "battery_level": attrs.get("battery_soc", 0),  # %
                 "last_update": dt_util.utcnow(),
                 # Extra Sigenergy-specific data
@@ -1057,21 +1067,13 @@ class SigenergyEnergyCoordinator(DataUpdateCoordinator):
                 "is_curtailed": status.is_curtailed,
             }
 
-            # Calculate load power: load = solar - grid_export + grid_import - battery_charge + battery_discharge
-            # Simplified: if we have active power and PV power, we can estimate
-            solar_kw = attrs.get("pv_power_kw", 0)
-            grid_kw = attrs.get("grid_power_kw", 0)  # Positive = importing, negative = exporting
-
-            # Home load approximation (this may need refinement based on actual Sigenergy data)
-            # If grid is negative (exporting), load = solar + grid (where grid is negative)
-            # If grid is positive (importing), load = solar + grid
-            energy_data["load_power"] = solar_kw + grid_kw
-
             _LOGGER.debug(
-                "Sigenergy data: solar=%.2f kW, grid=%.2f kW, battery=%.0f%%, curtailed=%s",
+                "Sigenergy data: solar=%.2f kW, grid=%.2f kW, battery=%.2f kW (%.0f%%), load=%.2f kW, curtailed=%s",
                 energy_data["solar_power"],
                 energy_data["grid_power"],
+                energy_data["battery_power"],
                 energy_data["battery_level"],
+                energy_data["load_power"],
                 energy_data["is_curtailed"],
             )
 
