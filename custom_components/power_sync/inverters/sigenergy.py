@@ -32,38 +32,35 @@ class SigenergyController(InverterController):
     for DC solar curtailment control.
     """
 
-    # Modbus register addresses (documentation addresses - base for pymodbus)
-    # Two register sets: Plant-level (30001/40001 base) and Inverter-level (30501/31001 base)
+    # Modbus register addresses - use FULL addresses (pymodbus handles protocol details)
+    # Reference: https://github.com/TypQxQ/Sigenergy-Local-Modbus
 
-    # === PLANT-LEVEL REGISTERS ===
-    # Holding registers (read/write) - base 40001
-    # Register 40036 → pymodbus address 35
-    REG_PV_MAX_POWER_LIMIT = 35           # 40036 - PV max power limit (U32, gain 1000, kW)
-    REG_ACTIVE_POWER_PCT_TARGET = 4       # 40005 - Active power % target (S16, gain 100)
-    REG_ACTIVE_POWER_FIXED_TARGET = 0     # 40001 - Active power fixed target (S32, gain 1000, kW)
-    REG_GRID_EXPORT_LIMIT = 37            # 40038 - Grid export limit (U32, gain 1000)
-    REG_PCS_EXPORT_LIMIT = 41             # 40042 - PCS export limit (U32, gain 1000)
-    REG_ESS_MAX_CHARGE_LIMIT = 31         # 40032 - ESS max charging (U32, gain 1000, kW)
-    REG_ESS_MAX_DISCHARGE_LIMIT = 33      # 40034 - ESS max discharging (U32, gain 1000, kW)
+    # === PLANT-LEVEL REGISTERS (slave ID 247) ===
+    # Holding registers (read/write)
+    REG_PV_MAX_POWER_LIMIT = 40036        # PV max power limit (U32, gain 1000, kW)
+    REG_ACTIVE_POWER_PCT_TARGET = 40005   # Active power % target (S16, gain 100)
+    REG_ACTIVE_POWER_FIXED_TARGET = 40001 # Active power fixed target (S32, gain 1000, kW)
+    REG_GRID_EXPORT_LIMIT = 40038         # Grid export limit (U32, gain 1000)
+    REG_PCS_EXPORT_LIMIT = 40042          # PCS export limit (U32, gain 1000)
+    REG_ESS_MAX_CHARGE_LIMIT = 40032      # ESS max charging (U32, gain 1000, kW)
+    REG_ESS_MAX_DISCHARGE_LIMIT = 40034   # ESS max discharging (U32, gain 1000, kW)
 
-    # Input registers (read-only) - base 30001
-    # Register 30035 → pymodbus address 34
-    REG_PV_POWER = 34                     # 30035 - PV power (S32, gain 1000, kW)
-    REG_ACTIVE_POWER = 30                 # 30031 - Active power (S32, gain 1000, kW)
-    REG_ESS_SOC = 13                      # 30014 - Battery SOC (U16, gain 10, %)
-    REG_ESS_POWER = 36                    # 30037 - Battery power (S32, gain 1000, kW)
-    REG_RUNNING_STATE = 50                # 30051 - Plant running state (U16)
-    REG_GRID_SENSOR_POWER = 4             # 30005 - Grid sensor active power (S32, gain 1000, kW)
-    REG_EMS_WORK_MODE = 2                 # 30003 - EMS work mode (U16)
+    # Input registers (read-only)
+    REG_PV_POWER = 30035                  # PV power (S32, gain 1000, kW)
+    REG_ACTIVE_POWER = 30031              # Active power (S32, gain 1000, kW)
+    REG_ESS_SOC = 30014                   # Battery SOC (U16, gain 10, %)
+    REG_ESS_POWER = 30037                 # Battery power (S32, gain 1000, kW)
+    REG_RUNNING_STATE = 30051             # Plant running state (U16)
+    REG_GRID_SENSOR_POWER = 30005         # Grid sensor active power (S32, gain 1000, kW)
+    REG_EMS_WORK_MODE = 30003             # EMS work mode (U16)
 
-    # === INVERTER-LEVEL REGISTERS (fallback if plant registers don't work) ===
-    # Some Sigenergy systems only expose inverter-level registers
-    # Input registers - base 30001 but offset by 500+ for inverter
-    REG_INV_SOC = 600                     # 30601 - Inverter battery SOC (U16, gain 10, %)
-    REG_INV_SOH = 601                     # 30602 - Inverter battery SOH (U16, gain 10, %)
-    REG_INV_ACTIVE_POWER = 586            # 30587 - Inverter active power (S32, gain 1000, kW)
-    REG_INV_ESS_POWER = 598               # 30599 - Inverter battery power (S32, gain 1000, kW)
-    REG_INV_PV_POWER = 1034               # 31035 - Inverter PV power (S32, gain 1000, kW)
+    # === INVERTER-LEVEL REGISTERS (slave ID 1) ===
+    # Fallback if plant registers don't work
+    REG_INV_SOC = 30601                   # Inverter battery SOC (U16, gain 10, %)
+    REG_INV_SOH = 30602                   # Inverter battery SOH (U16, gain 10, %)
+    REG_INV_ACTIVE_POWER = 30587          # Inverter active power (S32, gain 1000, kW)
+    REG_INV_ESS_POWER = 30599             # Inverter battery power (S32, gain 1000, kW)
+    REG_INV_PV_POWER = 31035              # Inverter PV power (S32, gain 1000, kW)
 
     # Constants
     GAIN_POWER = 1000  # kW → scaled value (multiply to write, divide to read)
