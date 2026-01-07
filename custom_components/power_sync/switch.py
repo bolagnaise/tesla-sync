@@ -110,6 +110,13 @@ class AutoSyncSwitch(SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
+        # Log context to help debug if triggered by automation vs user
+        context = kwargs.get("context")
+        if context:
+            _LOGGER.info("Auto-sync switch activated (context: user_id=%s, parent_id=%s)",
+                        context.user_id, context.parent_id)
+        else:
+            _LOGGER.info("Auto-sync switch activated (no context - likely UI action)")
         _LOGGER.info("Enabling automatic TOU schedule syncing")
         self._attr_is_on = True
 
@@ -188,6 +195,13 @@ class ForceDischargeSwitch(SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on force discharge mode."""
+        # Log context to help debug if triggered by automation vs user
+        context = kwargs.get("context")
+        if context:
+            _LOGGER.info("Force discharge switch activated (context: user_id=%s, parent_id=%s)",
+                        context.user_id, context.parent_id)
+        else:
+            _LOGGER.info("Force discharge switch activated (no context - likely UI action)")
         _LOGGER.info("Activating force discharge mode for %d minutes", self._duration_minutes)
 
         # Get the duration from service call data if provided

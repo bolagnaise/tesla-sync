@@ -3660,6 +3660,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Force discharge mode - switches to autonomous with high export tariff."""
         from homeassistant.util import dt as dt_util
 
+        # Log call context for debugging (helps identify if called by automation)
+        context = call.context
+        _LOGGER.info(f"🔋 Force discharge service called (context: user_id={context.user_id}, parent_id={context.parent_id})")
+
         duration = call.data.get("duration", DEFAULT_DISCHARGE_DURATION)
         # Convert to int if string (from HA service selector)
         try:
@@ -3917,6 +3921,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def handle_force_charge(call: ServiceCall) -> None:
         """Force charge mode - switches to autonomous with free import tariff."""
         from homeassistant.util import dt as dt_util
+
+        # Log call context for debugging (helps identify if called by automation)
+        context = call.context
+        _LOGGER.info(f"🔌 Force charge service called (context: user_id={context.user_id}, parent_id={context.parent_id})")
 
         duration = call.data.get("duration", DEFAULT_DISCHARGE_DURATION)
         # Convert to int if string (from HA service selector)
@@ -4206,6 +4214,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def handle_restore_normal(call: ServiceCall) -> None:
         """Restore normal operation - restore saved tariff or trigger Amber sync."""
+        # Log call context for debugging (helps identify if called by automation)
+        context = call.context
+        _LOGGER.info(f"🔄 Restore normal service called (context: user_id={context.user_id}, parent_id={context.parent_id})")
         _LOGGER.info("🔄 RESTORE NORMAL: Restoring normal operation")
 
         # Cancel any pending expiry timers (discharge and charge)
