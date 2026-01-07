@@ -2605,6 +2605,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             general_prices = [p for p in forecast_data if p.get("channelType") == "general"]
             feedin_prices = [p for p in forecast_data if p.get("channelType") == "feedIn"]
 
+            # Debug: Log sample data structure for each channel to diagnose price extraction
+            if general_prices:
+                sample_general = general_prices[0]
+                _LOGGER.debug(f"Sample general interval: type={sample_general.get('type')}, "
+                             f"perKwh={sample_general.get('perKwh')}, "
+                             f"advancedPrice={sample_general.get('advancedPrice')}")
+            if feedin_prices:
+                sample_feedin = feedin_prices[0]
+                _LOGGER.debug(f"Sample feedIn interval: type={sample_feedin.get('type')}, "
+                             f"perKwh={sample_feedin.get('perKwh')}, "
+                             f"advancedPrice={sample_feedin.get('advancedPrice')}")
+
             buy_prices = convert_amber_prices_to_sigenergy(
                 general_prices, price_type="buy", forecast_type=forecast_type,
                 current_actual_interval=current_actual_interval
@@ -2617,6 +2629,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if not buy_prices:
                 _LOGGER.warning("No buy prices converted for Sigenergy sync")
                 return
+
+            # Debug: Log price ranges to diagnose buy/sell mismatch
+            buy_values = [p["price"] for p in buy_prices]
+            sell_values = [p["price"] for p in sell_prices] if sell_prices else []
+            _LOGGER.debug(f"Buy prices range: {min(buy_values):.1f} to {max(buy_values):.1f} c/kWh")
+            if sell_values:
+                _LOGGER.debug(f"Sell prices range: {min(sell_values):.1f} to {max(sell_values):.1f} c/kWh")
 
             # Create Sigenergy client and upload tariff
             client = SigenergyAPIClient(
