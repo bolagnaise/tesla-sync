@@ -323,7 +323,7 @@ async def validate_sigenergy_credentials(
 class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for PowerSync."""
 
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         """Initialize the config flow."""

@@ -971,6 +971,39 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
 
         _LOGGER.info("Migration to version 2 complete")
 
+    if config_entry.version == 2:
+        # Migrate from version 2 to version 3
+        # Changes:
+        #   - solar_curtailment_enabled -> battery_curtailment_enabled
+        #   - inverter_curtailment_enabled -> ac_inverter_curtailment_enabled
+        new_data = {**config_entry.data}
+        new_options = {**config_entry.options}
+
+        # Migrate data keys
+        if "solar_curtailment_enabled" in new_data:
+            new_data["battery_curtailment_enabled"] = new_data.pop("solar_curtailment_enabled")
+            _LOGGER.info("Migrated solar_curtailment_enabled to battery_curtailment_enabled (data)")
+
+        if "inverter_curtailment_enabled" in new_data:
+            new_data["ac_inverter_curtailment_enabled"] = new_data.pop("inverter_curtailment_enabled")
+            _LOGGER.info("Migrated inverter_curtailment_enabled to ac_inverter_curtailment_enabled (data)")
+
+        # Migrate options keys
+        if "solar_curtailment_enabled" in new_options:
+            new_options["battery_curtailment_enabled"] = new_options.pop("solar_curtailment_enabled")
+            _LOGGER.info("Migrated solar_curtailment_enabled to battery_curtailment_enabled (options)")
+
+        if "inverter_curtailment_enabled" in new_options:
+            new_options["ac_inverter_curtailment_enabled"] = new_options.pop("inverter_curtailment_enabled")
+            _LOGGER.info("Migrated inverter_curtailment_enabled to ac_inverter_curtailment_enabled (options)")
+
+        # Update the config entry with new data, options, and version
+        hass.config_entries.async_update_entry(
+            config_entry, data=new_data, options=new_options, version=3
+        )
+
+        _LOGGER.info("Migration to version 3 complete")
+
     return True
 
 
