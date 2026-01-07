@@ -2857,9 +2857,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         export_min_price = entry.options.get(CONF_EXPORT_MIN_PRICE, 0) or 0 if export_boost_enabled else 0
 
         # Route to appropriate battery system for tariff sync
+        _LOGGER.info(f"🔀 Routing tariff sync: battery_system={battery_system}")
         if battery_system == "sigenergy":
             # Sigenergy-specific tariff sync via Cloud API
             # Pass current_actual_interval for live 5-min price injection
+            _LOGGER.info("🔀 Using Sigenergy Cloud API for tariff sync")
             await _sync_tariff_to_sigenergy(forecast_data, sync_mode, current_actual_interval)
             return
 
