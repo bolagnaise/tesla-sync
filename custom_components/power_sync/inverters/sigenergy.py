@@ -79,9 +79,12 @@ class SigenergyController(InverterController):
     ACTIVE_POWER_PCT_ZERO = 0     # 0% active power
 
     # Default Modbus settings
-    # Sigenergy uses Unit ID 247 for commands with feedback, or 0 for commands without
+    # Sigenergy uses different slave IDs for different register levels:
+    # - Plant-level registers (30001-30099): Slave ID 247
+    # - Inverter-level registers (30500+): Slave ID 1 (or specific inverter address)
     DEFAULT_PORT = 502
-    DEFAULT_SLAVE_ID = 247  # Changed from 1 - Sigenergy specific unit ID
+    DEFAULT_SLAVE_ID = 247  # Plant address - will auto-switch to 1 for inverter registers
+    DEFAULT_INVERTER_SLAVE_ID = 1  # Default inverter address
     TIMEOUT_SECONDS = 10.0
 
     def __init__(
@@ -104,6 +107,7 @@ class SigenergyController(InverterController):
         self._lock = asyncio.Lock()
         self._original_pv_limit: Optional[int] = None  # Store original limit for restore
         self._use_inverter_registers: Optional[bool] = None  # None=unknown, True=inverter, False=plant
+        self._inverter_slave_id = self.DEFAULT_INVERTER_SLAVE_ID  # Slave ID for inverter-level registers
 
     async def connect(self) -> bool:
         """Connect to the Sigenergy system via Modbus TCP."""
@@ -210,12 +214,13 @@ class SigenergyController(InverterController):
             _LOGGER.debug(f"Error reading holding register {address}: {e}")
             return None
 
-    async def _read_input_registers(self, address: int, count: int = 1) -> Optional[list]:
+    async def _read_input_registers(self, address: int, count: int = 1, slave_id: Optional[int] = None) -> Optional[list]:
         """Read values from input registers.
 
         Args:
             address: Starting register address (0-indexed)
             count: Number of registers to read
+            slave_id: Optional slave ID override (default: self.slave_id)
 
         Returns:
             List of register values or None on error
@@ -228,11 +233,11 @@ class SigenergyController(InverterController):
             result = await self._client.read_input_registers(
                 address=address,
                 count=count,
-                **{_SLAVE_PARAM: self.slave_id},
+                **{_SLAVE_PARAM: slave_id if slave_id is not None else self.slave_id},
             )
 
             if result.isError():
-                _LOGGER.debug(f"Modbus read error at input register {address}: {result}")
+                _LOGGER.debug(f"Modbus read error at input register {address} (slave {slave_id or self.slave_id}): {result}")
                 return None
 
             return result.registers
@@ -424,12 +429,16 @@ class SigenergyController(InverterController):
         return attrs
 
     async def _read_inverter_registers(self) -> dict:
-        """Try to read inverter-level registers (fallback)."""
+        """Try to read inverter-level registers (fallback).
+
+        Uses inverter slave ID (default: 1) instead of plant slave ID (247).
+        """
         attrs = {}
         success_count = 0
+        inv_slave = self._inverter_slave_id
 
         # Read inverter PV power (S32, 2 registers)
-        pv_power_regs = await self._read_input_registers(self.REG_INV_PV_POWER, 2)
+        pv_power_regs = await self._read_input_registers(self.REG_INV_PV_POWER, 2, slave_id=inv_slave)
         if pv_power_regs and len(pv_power_regs) >= 2:
             pv_power_kw = self._to_signed32(pv_power_regs[0], pv_power_regs[1]) / self.GAIN_POWER
             attrs["pv_power_kw"] = round(pv_power_kw, 2)
@@ -437,20 +446,20 @@ class SigenergyController(InverterController):
             success_count += 1
 
         # Read inverter battery SOC (U16)
-        soc_regs = await self._read_input_registers(self.REG_INV_SOC, 1)
+        soc_regs = await self._read_input_registers(self.REG_INV_SOC, 1, slave_id=inv_slave)
         if soc_regs:
             attrs["battery_soc"] = round(soc_regs[0] / self.GAIN_SOC, 1)
             success_count += 1
 
         # Read inverter active power (S32, 2 registers) - use as grid proxy
-        active_power_regs = await self._read_input_registers(self.REG_INV_ACTIVE_POWER, 2)
+        active_power_regs = await self._read_input_registers(self.REG_INV_ACTIVE_POWER, 2, slave_id=inv_slave)
         if active_power_regs and len(active_power_regs) >= 2:
             active_power_kw = self._to_signed32(active_power_regs[0], active_power_regs[1]) / self.GAIN_POWER
             attrs["active_power_kw"] = round(active_power_kw, 2)
             success_count += 1
 
         # Read inverter battery power (S32, 2 registers)
-        ess_power_regs = await self._read_input_registers(self.REG_INV_ESS_POWER, 2)
+        ess_power_regs = await self._read_input_registers(self.REG_INV_ESS_POWER, 2, slave_id=inv_slave)
         if ess_power_regs and len(ess_power_regs) >= 2:
             ess_power_kw = self._to_signed32(ess_power_regs[0], ess_power_regs[1]) / self.GAIN_POWER
             attrs["battery_power_kw"] = round(ess_power_kw, 2)
@@ -458,6 +467,7 @@ class SigenergyController(InverterController):
 
         attrs["_success_count"] = success_count
         attrs["_register_level"] = "inverter"
+        attrs["_inverter_slave_id"] = inv_slave
         return attrs
 
     async def get_status(self) -> InverterState:
@@ -487,12 +497,12 @@ class SigenergyController(InverterController):
                     self._use_inverter_registers = False
                     _LOGGER.info("Sigenergy: Using plant-level registers")
                 else:
-                    # Try inverter-level registers
+                    # Try inverter-level registers with inverter slave ID
                     inv_attrs = await self._read_inverter_registers()
                     if inv_attrs.get("_success_count", 0) >= 2:
                         attrs = inv_attrs
                         self._use_inverter_registers = True
-                        _LOGGER.info("Sigenergy: Using inverter-level registers (plant registers unavailable)")
+                        _LOGGER.info(f"Sigenergy: Using inverter-level registers with slave ID {self._inverter_slave_id} (plant registers unavailable)")
                     else:
                         # Neither worked - return what we have
                         attrs = plant_attrs if plant_attrs.get("_success_count", 0) > inv_attrs.get("_success_count", 0) else inv_attrs
