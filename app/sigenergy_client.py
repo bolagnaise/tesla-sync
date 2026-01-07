@@ -438,7 +438,11 @@ def convert_amber_prices_to_sigenergy(
         slots[slot_key].append(per_kwh_cents)
 
     # Build the timeRange array (48 slots for 24 hours)
+    # Track last valid price for fallback when forecast data is missing
+    # (matches Tesla tariff converter behavior)
+    last_valid_price: Optional[float] = None
     result = []
+
     for hour in range(24):
         for minute in [0, 30]:
             slot_key = f"{hour:02d}:{minute:02d}"
@@ -473,17 +477,30 @@ def convert_amber_prices_to_sigenergy(
                     logger.info(
                         f"Using ActualInterval for current {price_type} period {time_range}: {actual_price:.2f}c/kWh"
                     )
+                    last_valid_price = actual_price  # Track for fallback
                     result.append({
                         "timeRange": time_range,
                         "price": round(actual_price, 2),
                     })
                     continue
 
-            # Get average price for this slot, default to 0 if no data
+            # Get average price for this slot
             if slot_key in slots and slots[slot_key]:
                 avg_price = sum(slots[slot_key]) / len(slots[slot_key])
+                last_valid_price = avg_price  # Track for fallback
+            elif last_valid_price is not None:
+                # No data for this slot - use last valid price as fallback
+                # This handles cases where feedIn forecast doesn't extend as far as general
+                avg_price = last_valid_price
+                logger.debug(
+                    f"Using fallback {price_type} price for {time_range}: {avg_price:.2f}c/kWh"
+                )
             else:
+                # No data and no fallback available - use 0
                 avg_price = 0.0
+                logger.warning(
+                    f"No {price_type} price data for {time_range}, defaulting to 0"
+                )
 
             result.append({
                 "timeRange": time_range,
