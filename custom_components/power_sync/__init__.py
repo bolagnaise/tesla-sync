@@ -2575,79 +2575,55 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         Converts Amber forecast data to Sigenergy's expected format and uploads
         buy/sell prices via the Sigenergy Cloud API.
         """
-        _LOGGER.info(f"🔷 _sync_tariff_to_sigenergy called with {len(forecast_data) if forecast_data else 0} forecast items")
-
         try:
             from .sigenergy_api import SigenergyAPIClient, convert_amber_prices_to_sigenergy
-            _LOGGER.debug("🔷 sigenergy_api imported successfully")
         except ImportError as e:
-            _LOGGER.error(f"❌ Failed to import sigenergy_api: {e}")
-            return
-        except Exception as e:
-            _LOGGER.error(f"❌ Unexpected error importing sigenergy_api: {e}", exc_info=True)
+            _LOGGER.error(f"Failed to import sigenergy_api: {e}")
             return
 
         try:
             # Get Sigenergy credentials from config entry
-            _LOGGER.debug(f"🔷 Fetching credentials from entry.data, available keys: {list(entry.data.keys())}")
             station_id = entry.data.get(CONF_SIGENERGY_STATION_ID)
             username = entry.data.get(CONF_SIGENERGY_USERNAME)
             pass_enc = entry.data.get(CONF_SIGENERGY_PASS_ENC)
             device_id = entry.data.get(CONF_SIGENERGY_DEVICE_ID)
 
-            _LOGGER.info(f"🔷 Sigenergy credentials: station_id={bool(station_id)}, username={bool(username)}, pass_enc={bool(pass_enc)}, device_id={bool(device_id)}")
-
             if not all([station_id, username, pass_enc, device_id]):
-                _LOGGER.error(f"Missing Sigenergy credentials for tariff sync: station_id={station_id}, username={username}, pass_enc={'***' if pass_enc else None}, device_id={device_id}")
+                _LOGGER.error("Missing Sigenergy Cloud credentials for tariff sync")
                 return
-
-            _LOGGER.info("🔷 Step 1: Credentials validated")
 
             if not forecast_data:
                 _LOGGER.warning("No forecast data available for Sigenergy tariff sync")
                 return
 
-            _LOGGER.info(f"🔷 Step 2: Forecast data has {len(forecast_data)} items")
-
-            # Get forecast type from options (same as Tesla sync)
+            # Get forecast type from options
             forecast_type = entry.options.get(
                 CONF_AMBER_FORECAST_TYPE, entry.data.get(CONF_AMBER_FORECAST_TYPE, "predicted")
             )
-            _LOGGER.info(f"🔷 Step 3: Forecast type = {forecast_type}")
 
-            # Convert Amber forecast to Sigenergy format using existing converter
-            # Filter by channel type for buy/sell prices
+            # Convert Amber forecast to Sigenergy format
             general_prices = [p for p in forecast_data if p.get("channelType") == "general"]
             feedin_prices = [p for p in forecast_data if p.get("channelType") == "feedIn"]
-            _LOGGER.info(f"🔷 Step 4: Price data: {len(general_prices)} general, {len(feedin_prices)} feedIn")
 
-            # Pass current_actual_interval for live 5-min price injection (catches spikes)
-            _LOGGER.info("🔷 Step 5: Converting buy prices...")
             buy_prices = convert_amber_prices_to_sigenergy(
                 general_prices, price_type="buy", forecast_type=forecast_type,
                 current_actual_interval=current_actual_interval
             )
-            _LOGGER.info(f"🔷 Step 6: Buy prices converted: {len(buy_prices) if buy_prices else 0}")
-
             sell_prices = convert_amber_prices_to_sigenergy(
                 feedin_prices, price_type="sell", forecast_type=forecast_type,
                 current_actual_interval=current_actual_interval
             )
-            _LOGGER.info(f"🔷 Step 7: Sell prices converted: {len(sell_prices) if sell_prices else 0}")
 
             if not buy_prices:
                 _LOGGER.warning("No buy prices converted for Sigenergy sync")
                 return
 
             # Create Sigenergy client and upload tariff
-            _LOGGER.info("🔷 Step 8: Creating Sigenergy API client...")
             client = SigenergyAPIClient(
                 username=username,
                 pass_enc=pass_enc,
                 device_id=device_id,
             )
-
-            _LOGGER.info(f"🔷 Step 9: Syncing {len(buy_prices)} price periods to Sigenergy station {station_id}")
 
             result = await client.set_tariff_rate(
                 station_id=station_id,
