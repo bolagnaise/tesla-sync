@@ -2601,45 +2601,53 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.error(f"Missing Sigenergy credentials for tariff sync: station_id={station_id}, username={username}, pass_enc={'***' if pass_enc else None}, device_id={device_id}")
                 return
 
+            _LOGGER.info("🔷 Step 1: Credentials validated")
+
             if not forecast_data:
                 _LOGGER.warning("No forecast data available for Sigenergy tariff sync")
                 return
+
+            _LOGGER.info(f"🔷 Step 2: Forecast data has {len(forecast_data)} items")
 
             # Get forecast type from options (same as Tesla sync)
             forecast_type = entry.options.get(
                 CONF_FORECAST_TYPE, entry.data.get(CONF_FORECAST_TYPE, "predicted")
             )
-            _LOGGER.info(f"Sigenergy sync using forecast type: {forecast_type}")
+            _LOGGER.info(f"🔷 Step 3: Forecast type = {forecast_type}")
 
             # Convert Amber forecast to Sigenergy format using existing converter
             # Filter by channel type for buy/sell prices
             general_prices = [p for p in forecast_data if p.get("channelType") == "general"]
             feedin_prices = [p for p in forecast_data if p.get("channelType") == "feedIn"]
-            _LOGGER.debug(f"🔷 Price data: {len(general_prices)} general, {len(feedin_prices)} feedIn")
+            _LOGGER.info(f"🔷 Step 4: Price data: {len(general_prices)} general, {len(feedin_prices)} feedIn")
 
             # Pass current_actual_interval for live 5-min price injection (catches spikes)
+            _LOGGER.info("🔷 Step 5: Converting buy prices...")
             buy_prices = convert_amber_prices_to_sigenergy(
                 general_prices, price_type="buy", forecast_type=forecast_type,
                 current_actual_interval=current_actual_interval
             )
+            _LOGGER.info(f"🔷 Step 6: Buy prices converted: {len(buy_prices) if buy_prices else 0}")
+
             sell_prices = convert_amber_prices_to_sigenergy(
                 feedin_prices, price_type="sell", forecast_type=forecast_type,
                 current_actual_interval=current_actual_interval
             )
-            _LOGGER.debug(f"🔷 Converted prices: {len(buy_prices) if buy_prices else 0} buy, {len(sell_prices) if sell_prices else 0} sell")
+            _LOGGER.info(f"🔷 Step 7: Sell prices converted: {len(sell_prices) if sell_prices else 0}")
 
             if not buy_prices:
                 _LOGGER.warning("No buy prices converted for Sigenergy sync")
                 return
 
             # Create Sigenergy client and upload tariff
+            _LOGGER.info("🔷 Step 8: Creating Sigenergy API client...")
             client = SigenergyAPIClient(
                 username=username,
                 pass_enc=pass_enc,
                 device_id=device_id,
             )
 
-            _LOGGER.info(f"Syncing {len(buy_prices)} price periods to Sigenergy station {station_id}")
+            _LOGGER.info(f"🔷 Step 9: Syncing {len(buy_prices)} price periods to Sigenergy station {station_id}")
 
             result = await client.set_tariff_rate(
                 station_id=station_id,
