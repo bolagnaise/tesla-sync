@@ -359,6 +359,20 @@
           "inverter_token": "Enphase JWT token for firmware 7.x+. Get from https://entrez.enphaseenergy.com/",
           "inverter_restore_soc": "Restore inverter when battery drops below this %. Ensures battery stays topped up before evening peak. Default: 98%"
         }
+      },
+      "curtailment_options": {
+        "title": "Solar Curtailment Settings",
+        "description": "Configure automatic solar curtailment during negative feed-in prices.\n\nWhen enabled, PowerSync will automatically stop solar export when the feed-in tariff goes negative, preventing you from paying to export power.",
+        "data": {
+          "solar_curtailment_enabled": "Enable Solar Curtailment",
+          "inverter_curtailment_enabled": "Enable AC-Coupled Inverter Control",
+          "sigenergy_dc_curtailment_enabled": "Enable DC Solar Curtailment via Modbus"
+        },
+        "data_description": {
+          "solar_curtailment_enabled": "Automatically curtail solar export when feed-in price goes negative. This is the main toggle that must be enabled for curtailment to work.",
+          "inverter_curtailment_enabled": "Control AC-coupled solar inverter (Fronius, Sungrow, GoodWe, etc.) during negative prices. Requires inverter configuration in the next step.",
+          "sigenergy_dc_curtailment_enabled": "Limit DC solar production via Sigenergy Modbus during negative prices"
+        }
       }
     }
   },

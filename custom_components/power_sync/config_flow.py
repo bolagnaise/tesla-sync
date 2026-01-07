@@ -1469,13 +1469,6 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
         is_tesla = battery_system != BATTERY_SYSTEM_SIGENERGY
 
         if user_input is not None:
-            # Check if solar curtailment is being disabled
-            was_curtailment_enabled = self._get_option(CONF_SOLAR_CURTAILMENT_ENABLED, False)
-            new_curtailment_enabled = user_input.get(CONF_SOLAR_CURTAILMENT_ENABLED, False)
-
-            if was_curtailment_enabled and not new_curtailment_enabled:
-                await self._restore_export_rule()
-
             # Store amber options temporarily
             self._amber_options = user_input
             self._amber_options[CONF_ELECTRICITY_PROVIDER] = "amber"
@@ -1484,15 +1477,8 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
             if not is_tesla:
                 self._amber_options[CONF_FORCE_TARIFF_MODE_TOGGLE] = False
 
-            # Check if AC-coupled inverter curtailment needs configuration
-            # Route to inverter setup if:
-            # 1. User is enabling inverter curtailment now, OR
-            # 2. Inverter curtailment is already enabled (for editing)
-            if user_input.get(CONF_INVERTER_CURTAILMENT_ENABLED, False):
-                return await self.async_step_inverter_brand()
-
-            # No inverter curtailment - save and exit
-            return self.async_create_entry(title="", data=self._amber_options)
+            # Route to curtailment options page
+            return await self.async_step_curtailment_options()
 
         # Build schema dict - conditionally include force mode toggle for Tesla only
         schema_dict = {
@@ -1508,10 +1494,6 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                 "low": "Low (Aggressive)",
                 "high": "High (Conservative)"
             }),
-            vol.Optional(
-                CONF_SOLAR_CURTAILMENT_ENABLED,
-                default=self._get_option(CONF_SOLAR_CURTAILMENT_ENABLED, False),
-            ): bool,
             vol.Optional(
                 CONF_SPIKE_PROTECTION_ENABLED,
                 default=self._get_option(CONF_SPIKE_PROTECTION_ENABLED, False),
@@ -1611,15 +1593,80 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                 CONF_MONTHLY_SUPPLY_CHARGE,
                 default=self._get_option(CONF_MONTHLY_SUPPLY_CHARGE, 0.0),
             ): vol.Coerce(float),
-            # AC-Coupled Inverter Curtailment toggle (configuration in separate steps)
-            vol.Optional(
-                CONF_INVERTER_CURTAILMENT_ENABLED,
-                default=self._get_option(CONF_INVERTER_CURTAILMENT_ENABLED, False),
-            ): bool,
         })
 
         return self.async_show_form(
             step_id="amber_options",
+            data_schema=vol.Schema(schema_dict),
+        )
+
+    async def async_step_curtailment_options(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Dedicated step for Solar Curtailment configuration."""
+        battery_system = self.config_entry.data.get(CONF_BATTERY_SYSTEM, BATTERY_SYSTEM_TESLA)
+        is_sigenergy = battery_system == BATTERY_SYSTEM_SIGENERGY
+
+        if user_input is not None:
+            # Check if solar curtailment is being disabled
+            was_curtailment_enabled = self._get_option(CONF_SOLAR_CURTAILMENT_ENABLED, False)
+            new_curtailment_enabled = user_input.get(CONF_SOLAR_CURTAILMENT_ENABLED, False)
+
+            if was_curtailment_enabled and not new_curtailment_enabled:
+                await self._restore_export_rule()
+
+            # Store curtailment settings
+            self._curtailment_options = {
+                CONF_SOLAR_CURTAILMENT_ENABLED: new_curtailment_enabled,
+            }
+
+            if is_sigenergy:
+                # Sigenergy DC curtailment - save DC settings to config entry data
+                dc_enabled = user_input.get(CONF_SIGENERGY_DC_CURTAILMENT_ENABLED, False)
+                new_data = dict(self.config_entry.data)
+                new_data[CONF_SIGENERGY_DC_CURTAILMENT_ENABLED] = dc_enabled
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data=new_data
+                )
+                # Combine with previous options and save
+                final_data = {**getattr(self, '_amber_options', {}), **self._curtailment_options}
+                return self.async_create_entry(title="", data=final_data)
+            else:
+                # Tesla - check if AC inverter curtailment needs configuration
+                ac_enabled = user_input.get(CONF_INVERTER_CURTAILMENT_ENABLED, False)
+                self._curtailment_options[CONF_INVERTER_CURTAILMENT_ENABLED] = ac_enabled
+
+                if ac_enabled:
+                    # Route to AC inverter brand selection
+                    return await self.async_step_inverter_brand()
+
+                # No AC inverter - combine options and save
+                final_data = {**getattr(self, '_amber_options', {}), **self._curtailment_options}
+                return self.async_create_entry(title="", data=final_data)
+
+        # Build schema based on battery system
+        schema_dict: dict[vol.Marker, Any] = {
+            vol.Optional(
+                CONF_SOLAR_CURTAILMENT_ENABLED,
+                default=self._get_option(CONF_SOLAR_CURTAILMENT_ENABLED, False),
+            ): bool,
+        }
+
+        if is_sigenergy:
+            # Sigenergy DC curtailment option
+            schema_dict[vol.Optional(
+                CONF_SIGENERGY_DC_CURTAILMENT_ENABLED,
+                default=self.config_entry.data.get(CONF_SIGENERGY_DC_CURTAILMENT_ENABLED, False),
+            )] = bool
+        else:
+            # Tesla AC inverter curtailment option
+            schema_dict[vol.Optional(
+                CONF_INVERTER_CURTAILMENT_ENABLED,
+                default=self._get_option(CONF_INVERTER_CURTAILMENT_ENABLED, False),
+            )] = bool
+
+        return self.async_show_form(
+            step_id="curtailment_options",
             data_schema=vol.Schema(schema_dict),
         )
 
@@ -1652,8 +1699,9 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Step for configuring inverter-specific settings."""
         if user_input is not None:
-            # Combine amber options with inverter config
-            final_data = {**self._amber_options}
+            # Combine amber options, curtailment options, and inverter config
+            final_data = {**getattr(self, '_amber_options', {})}
+            final_data.update(getattr(self, '_curtailment_options', {}))
             final_data[CONF_INVERTER_BRAND] = self._inverter_brand
             final_data[CONF_INVERTER_MODEL] = user_input.get(CONF_INVERTER_MODEL)
             final_data[CONF_INVERTER_HOST] = user_input.get(CONF_INVERTER_HOST, "")
@@ -1744,13 +1792,6 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Step 2b: Flow Power specific options."""
         if user_input is not None:
-            # Check if solar curtailment is being disabled
-            was_curtailment_enabled = self._get_option(CONF_SOLAR_CURTAILMENT_ENABLED, False)
-            new_curtailment_enabled = user_input.get(CONF_SOLAR_CURTAILMENT_ENABLED, False)
-
-            if was_curtailment_enabled and not new_curtailment_enabled:
-                await self._restore_export_rule()
-
             # Parse combined tariff selection (format: "distributor:code")
             combined = user_input.get(CONF_NETWORK_TARIFF_COMBINED)
             if combined and ":" in combined:
@@ -1772,9 +1813,10 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                     user_input[CONF_AEMO_SENSOR_30MIN]
                 )
 
-            # Add provider to the data
+            # Store flow power options and route to curtailment page
             user_input[CONF_ELECTRICITY_PROVIDER] = "flow_power"
-            return self.async_create_entry(title="", data=user_input)
+            self._amber_options = user_input
+            return await self.async_step_curtailment_options()
 
         # Build current combined tariff value from stored options
         current_distributor = self._get_option(CONF_NETWORK_DISTRIBUTOR, "energex")
@@ -1869,10 +1911,6 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         CONF_AUTO_SYNC_ENABLED,
                         default=self._get_option(CONF_AUTO_SYNC_ENABLED, True),
-                    ): bool,
-                    vol.Optional(
-                        CONF_SOLAR_CURTAILMENT_ENABLED,
-                        default=self._get_option(CONF_SOLAR_CURTAILMENT_ENABLED, False),
                     ): bool,
                     vol.Optional(
                         CONF_DEMAND_CHARGE_ENABLED,
