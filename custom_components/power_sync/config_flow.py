@@ -1360,6 +1360,22 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                 new_data[CONF_SIGENERGY_DC_CURTAILMENT_ENABLED] = user_input.get(
                     CONF_SIGENERGY_DC_CURTAILMENT_ENABLED, False
                 )
+
+                # Update Sigenergy Cloud API credentials if provided
+                sigen_username = user_input.get(CONF_SIGENERGY_USERNAME, "").strip()
+                sigen_pass_enc = user_input.get(CONF_SIGENERGY_PASS_ENC, "").strip()
+                sigen_device_id = user_input.get(CONF_SIGENERGY_DEVICE_ID, "").strip()
+                sigen_station_id = user_input.get(CONF_SIGENERGY_STATION_ID, "").strip()
+
+                if sigen_username:
+                    new_data[CONF_SIGENERGY_USERNAME] = sigen_username
+                if sigen_pass_enc:
+                    new_data[CONF_SIGENERGY_PASS_ENC] = sigen_pass_enc
+                if sigen_device_id:
+                    new_data[CONF_SIGENERGY_DEVICE_ID] = sigen_device_id
+                if sigen_station_id:
+                    new_data[CONF_SIGENERGY_STATION_ID] = sigen_station_id
+
                 self.hass.config_entries.async_update_entry(
                     self.config_entry, data=new_data
                 )
@@ -1377,6 +1393,12 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
         current_modbus_port = self._get_option(CONF_SIGENERGY_MODBUS_PORT, DEFAULT_SIGENERGY_MODBUS_PORT)
         current_modbus_slave_id = self._get_option(CONF_SIGENERGY_MODBUS_SLAVE_ID, DEFAULT_SIGENERGY_MODBUS_SLAVE_ID)
         current_dc_curtailment = self._get_option(CONF_SIGENERGY_DC_CURTAILMENT_ENABLED, False)
+
+        # Get current Sigenergy Cloud credentials (for display, show empty if not set)
+        current_sigen_username = self.config_entry.data.get(CONF_SIGENERGY_USERNAME, "")
+        current_sigen_device_id = self.config_entry.data.get(CONF_SIGENERGY_DEVICE_ID, "")
+        current_sigen_station_id = self.config_entry.data.get(CONF_SIGENERGY_STATION_ID, "")
+        # Don't show current pass_enc for security - user must re-enter if changing
 
         return self.async_show_form(
             step_id="init_sigenergy",
@@ -1402,6 +1424,26 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                         CONF_SIGENERGY_DC_CURTAILMENT_ENABLED,
                         default=current_dc_curtailment,
                     ): bool,
+                    # Sigenergy Cloud API credentials for tariff sync
+                    vol.Optional(
+                        CONF_SIGENERGY_USERNAME,
+                        default=current_sigen_username,
+                        description={"suggested_value": current_sigen_username},
+                    ): str,
+                    vol.Optional(
+                        CONF_SIGENERGY_PASS_ENC,
+                        description={"suggested_value": ""},
+                    ): str,
+                    vol.Optional(
+                        CONF_SIGENERGY_DEVICE_ID,
+                        default=current_sigen_device_id,
+                        description={"suggested_value": current_sigen_device_id},
+                    ): str,
+                    vol.Optional(
+                        CONF_SIGENERGY_STATION_ID,
+                        default=current_sigen_station_id,
+                        description={"suggested_value": current_sigen_station_id},
+                    ): str,
                 }
             ),
             errors=errors,
