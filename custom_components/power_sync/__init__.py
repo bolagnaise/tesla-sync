@@ -2658,6 +2658,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 CONF_AMBER_FORECAST_TYPE, entry.data.get(CONF_AMBER_FORECAST_TYPE, "predicted")
             )
 
+            # Get NEM region for timezone selection (SA1 = Adelaide, QLD1 = Brisbane, etc.)
+            nem_region = entry.options.get(
+                CONF_AEMO_REGION, entry.data.get(CONF_AEMO_REGION)
+            )
+
             # Convert Amber forecast to Sigenergy format
             general_prices = [p for p in forecast_data if p.get("channelType") == "general"]
             feedin_prices = [p for p in forecast_data if p.get("channelType") == "feedIn"]
@@ -2676,11 +2681,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             buy_prices = convert_amber_prices_to_sigenergy(
                 general_prices, price_type="buy", forecast_type=forecast_type,
-                current_actual_interval=current_actual_interval
+                current_actual_interval=current_actual_interval, nem_region=nem_region
             )
             sell_prices = convert_amber_prices_to_sigenergy(
                 feedin_prices, price_type="sell", forecast_type=forecast_type,
-                current_actual_interval=current_actual_interval
+                current_actual_interval=current_actual_interval, nem_region=nem_region
             )
 
             if not buy_prices:

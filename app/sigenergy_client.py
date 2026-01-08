@@ -355,6 +355,7 @@ def convert_amber_prices_to_sigenergy(
     price_type: str = "buy",
     forecast_type: str = "predicted",
     current_actual_interval: Optional[dict] = None,
+    nem_region: Optional[str] = None,
 ) -> list[dict]:
     """Convert Amber price data to Sigenergy timeRange format.
 
@@ -367,18 +368,28 @@ def convert_amber_prices_to_sigenergy(
         forecast_type: Amber forecast type to use ('predicted', 'low', 'high')
         current_actual_interval: Dict with 'general' and 'feedIn' ActualInterval data (optional)
                                 If provided, uses this for the current 30-min period instead of averaging
+        nem_region: NEM region code (NSW1, VIC1, QLD1, SA1, TAS1) for timezone selection
 
     Returns:
         List of {timeRange: "HH:MM-HH:MM", price: float} in cents
     """
     from zoneinfo import ZoneInfo
 
+    # NEM region to timezone mapping
     # CRITICAL: Use proper timezone that handles DST, NOT the offset from Amber data
     # Amber provides timestamps with fixed offsets (e.g., +10:00 even during AEDT +11:00)
-    # This causes prices to be 1 hour off during daylight savings
-    # Solution: Always use Australia/Sydney which correctly handles DST transitions
-    detected_tz = ZoneInfo("Australia/Sydney")
-    logger.debug(f"Using timezone: {detected_tz}")
+    NEM_REGION_TIMEZONES = {
+        "NSW1": "Australia/Sydney",
+        "VIC1": "Australia/Melbourne",
+        "QLD1": "Australia/Brisbane",      # No DST
+        "SA1": "Australia/Adelaide",       # UTC+9:30/+10:30
+        "TAS1": "Australia/Hobart",
+    }
+
+    # Get timezone from NEM region, default to Sydney
+    tz_name = NEM_REGION_TIMEZONES.get(nem_region, "Australia/Sydney")
+    detected_tz = ZoneInfo(tz_name)
+    logger.debug(f"Using timezone: {detected_tz} (NEM region: {nem_region or 'default'})")
 
     # Calculate current 30-min slot for ActualInterval injection (using local time)
     now = datetime.now(detected_tz)

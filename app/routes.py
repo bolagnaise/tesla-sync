@@ -1038,12 +1038,15 @@ def api_sigenergy_tariff(api_user=None, **kwargs):
         general_prices = [p for p in forecast_data if p.get('channelType') == 'general']
         feedin_prices = [p for p in forecast_data if p.get('channelType') == 'feedIn']
 
+        # Get NEM region for timezone selection
+        nem_region = user.aemo_region
+
         # Convert to Sigenergy format
         buy_prices = convert_amber_prices_to_sigenergy(
-            general_prices, price_type='buy', forecast_type=forecast_type
+            general_prices, price_type='buy', forecast_type=forecast_type, nem_region=nem_region
         )
         sell_prices = convert_amber_prices_to_sigenergy(
-            feedin_prices, price_type='sell', forecast_type=forecast_type
+            feedin_prices, price_type='sell', forecast_type=forecast_type, nem_region=nem_region
         )
 
         return jsonify({
