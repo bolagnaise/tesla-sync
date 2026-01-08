@@ -22,6 +22,7 @@ from aiohttp import web
 from .const import (
     DOMAIN,
     CONF_AMBER_API_TOKEN,
+    CONF_AMBER_SITE_ID,
     CONF_AMBER_FORECAST_TYPE,
     CONF_AUTO_SYNC_ENABLED,
     CONF_TESLEMETRY_API_TOKEN,
