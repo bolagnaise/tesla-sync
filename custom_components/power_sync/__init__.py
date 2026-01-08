@@ -1702,6 +1702,63 @@ class InverterStatusView(HomeAssistantView):
             })
 
 
+class SigenergyTariffView(HomeAssistantView):
+    """HTTP view to get current Sigenergy tariff schedule for mobile app."""
+
+    url = "/api/power_sync/sigenergy_tariff"
+    name = "api:power_sync:sigenergy_tariff"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant):
+        """Initialize the view."""
+        self._hass = hass
+
+    async def get(self, request: web.Request) -> web.Response:
+        """Handle GET request for Sigenergy tariff schedule."""
+        _LOGGER.debug("📊 Sigenergy tariff HTTP request")
+
+        # Find the power_sync entry and data
+        entry = None
+        entry_data = None
+        for config_entry in self._hass.config_entries.async_entries(DOMAIN):
+            entry = config_entry
+            entry_data = self._hass.data.get(DOMAIN, {}).get(config_entry.entry_id, {})
+            break
+
+        if not entry:
+            return web.json_response(
+                {"success": False, "error": "PowerSync not configured"},
+                status=503
+            )
+
+        # Check if this is a Sigenergy system
+        battery_system = entry.data.get(CONF_BATTERY_SYSTEM, "tesla")
+        if battery_system != "sigenergy":
+            return web.json_response({
+                "success": False,
+                "error": "Not a Sigenergy system",
+                "battery_system": battery_system
+            })
+
+        # Get stored tariff data
+        tariff_data = entry_data.get("sigenergy_tariff")
+        if not tariff_data:
+            return web.json_response({
+                "success": True,
+                "message": "No tariff synced yet",
+                "buy_prices": [],
+                "sell_prices": [],
+            })
+
+        return web.json_response({
+            "success": True,
+            "buy_prices": tariff_data.get("buy_prices", []),
+            "sell_prices": tariff_data.get("sell_prices", []),
+            "synced_at": tariff_data.get("synced_at"),
+            "sync_mode": tariff_data.get("sync_mode"),
+        })
+
+
 class ConfigView(HomeAssistantView):
     """HTTP view to get backend configuration for mobile app auto-detection."""
 
@@ -2653,6 +2710,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             if result.get("success"):
                 _LOGGER.info(f"✅ Sigenergy tariff synced successfully ({sync_mode})")
+                # Store tariff data for mobile app API
+                hass.data[DOMAIN][entry.entry_id]["sigenergy_tariff"] = {
+                    "buy_prices": buy_prices,
+                    "sell_prices": sell_prices if sell_prices else buy_prices,
+                    "synced_at": datetime.now().isoformat(),
+                    "sync_mode": sync_mode,
+                }
             else:
                 error = result.get("error", "Unknown error")
                 _LOGGER.error(f"❌ Sigenergy tariff sync failed: {error}")
@@ -4995,6 +5059,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register HTTP endpoint for Inverter status (for mobile app Solar controls)
     hass.http.register_view(InverterStatusView(hass))
     _LOGGER.info("☀️ Inverter status HTTP endpoint registered at /api/power_sync/inverter_status")
+
+    # Register HTTP endpoint for Sigenergy tariff (for mobile app dashboard)
+    hass.http.register_view(SigenergyTariffView(hass))
+    _LOGGER.info("📊 Sigenergy tariff HTTP endpoint registered at /api/power_sync/sigenergy_tariff")
 
     # Register HTTP endpoint for Config (for mobile app auto-detection)
     hass.http.register_view(ConfigView(hass))

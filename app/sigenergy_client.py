@@ -551,6 +551,11 @@ def convert_amber_prices_to_sigenergy(
             f"peak at {peak_slot['timeRange']} ({peak_slot['price']:.1f}c)"
         )
 
+        # Log full pricing schedule for debugging/app display
+        # Format: "00:00=15.2, 00:30=14.8, 01:00=13.5, ..."
+        slot_str = ", ".join([f"{p['timeRange'].split('-')[0]}={p['price']:.1f}" for p in result])
+        logger.debug(f"Sigenergy {price_type} schedule: {slot_str}")
+
     return result
 
 

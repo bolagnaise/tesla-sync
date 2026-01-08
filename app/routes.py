@@ -994,6 +994,68 @@ def api_sigenergy_status():
         return jsonify({'success': False, 'error': str(e)})
 
 
+@bp.route('/api/sigenergy/tariff', methods=['GET'])
+@login_required
+def api_sigenergy_tariff():
+    """Get current Sigenergy tariff schedule (buy/sell prices for all 48 half-hour slots).
+
+    Returns the tariff that would be synced to Sigenergy, useful for mobile app dashboard display.
+    """
+    from app.sigenergy_client import convert_amber_prices_to_sigenergy
+    from app.api_clients import AmberAPIClient
+
+    try:
+        # Check if user has Sigenergy configured
+        if current_user.battery_system != 'sigenergy':
+            return jsonify({
+                'success': False,
+                'error': 'Not a Sigenergy system',
+                'battery_system': current_user.battery_system
+            })
+
+        # Get Amber forecast data
+        amber_client = AmberAPIClient(current_user.amber_api_token)
+        forecast_data = amber_client.get_prices(
+            current_user.amber_site_id,
+            resolution=30  # 30-min intervals for tariff
+        )
+
+        if not forecast_data:
+            return jsonify({
+                'success': True,
+                'message': 'No Amber price data available',
+                'buy_prices': [],
+                'sell_prices': []
+            })
+
+        # Get forecast type preference
+        forecast_type = current_user.amber_forecast_type or 'predicted'
+
+        # Split by channel type
+        general_prices = [p for p in forecast_data if p.get('channelType') == 'general']
+        feedin_prices = [p for p in forecast_data if p.get('channelType') == 'feedIn']
+
+        # Convert to Sigenergy format
+        buy_prices = convert_amber_prices_to_sigenergy(
+            general_prices, price_type='buy', forecast_type=forecast_type
+        )
+        sell_prices = convert_amber_prices_to_sigenergy(
+            feedin_prices, price_type='sell', forecast_type=forecast_type
+        )
+
+        return jsonify({
+            'success': True,
+            'buy_prices': buy_prices,
+            'sell_prices': sell_prices if sell_prices else buy_prices,
+            'forecast_type': forecast_type,
+            'generated_at': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting Sigenergy tariff: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @bp.route('/api/aemo-price')
 @login_required
 @cache.cached(timeout=60, key_prefix=lambda: f'aemo_price_{current_user.id}')
