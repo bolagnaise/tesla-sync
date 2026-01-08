@@ -995,28 +995,31 @@ def api_sigenergy_status():
 
 
 @bp.route('/api/sigenergy/tariff', methods=['GET'])
-@login_required
-def api_sigenergy_tariff():
+@api_auth_required
+def api_sigenergy_tariff(api_user=None, **kwargs):
     """Get current Sigenergy tariff schedule (buy/sell prices for all 48 half-hour slots).
 
     Returns the tariff that would be synced to Sigenergy, useful for mobile app dashboard display.
+    Supports both session login and Bearer token authentication.
     """
     from app.sigenergy_client import convert_amber_prices_to_sigenergy
     from app.api_clients import AmberAPIClient
 
+    user = api_user or current_user
+
     try:
         # Check if user has Sigenergy configured
-        if current_user.battery_system != 'sigenergy':
+        if user.battery_system != 'sigenergy':
             return jsonify({
                 'success': False,
                 'error': 'Not a Sigenergy system',
-                'battery_system': current_user.battery_system
+                'battery_system': user.battery_system
             })
 
         # Get Amber forecast data
-        amber_client = AmberAPIClient(current_user.amber_api_token)
+        amber_client = AmberAPIClient(user.amber_api_token)
         forecast_data = amber_client.get_prices(
-            current_user.amber_site_id,
+            user.amber_site_id,
             resolution=30  # 30-min intervals for tariff
         )
 
@@ -1029,7 +1032,7 @@ def api_sigenergy_tariff():
             })
 
         # Get forecast type preference
-        forecast_type = current_user.amber_forecast_type or 'predicted'
+        forecast_type = user.amber_forecast_type or 'predicted'
 
         # Split by channel type
         general_prices = [p for p in forecast_data if p.get('channelType') == 'general']
