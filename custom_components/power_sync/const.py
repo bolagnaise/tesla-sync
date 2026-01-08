@@ -52,7 +52,8 @@ CONF_FLEET_API_CLIENT_SECRET = "fleet_api_client_secret"
 
 # Sigenergy Cloud API configuration
 CONF_SIGENERGY_USERNAME = "sigenergy_username"
-CONF_SIGENERGY_PASS_ENC = "sigenergy_pass_enc"
+CONF_SIGENERGY_PASSWORD = "sigenergy_password"  # Plain password (will be encoded)
+CONF_SIGENERGY_PASS_ENC = "sigenergy_pass_enc"  # Encoded password (backwards compat)
 CONF_SIGENERGY_DEVICE_ID = "sigenergy_device_id"
 CONF_SIGENERGY_STATION_ID = "sigenergy_station_id"
 CONF_SIGENERGY_ACCESS_TOKEN = "sigenergy_access_token"

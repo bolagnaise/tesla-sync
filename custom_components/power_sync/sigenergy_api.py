@@ -5,11 +5,14 @@ Async implementation using aiohttp for Home Assistant compatibility.
 Based on https://github.com/Talie5in/amber2sigen
 """
 
+import base64
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Callable, Awaitable
 
 import aiohttp
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives import padding
 
 from .const import (
     SIGENERGY_API_BASE_URL,
@@ -20,6 +23,35 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Sigenergy password encryption constants
+_SIGENERGY_AES_KEY = b"sigensigensigenp"  # 16 bytes for AES-128
+_SIGENERGY_AES_IV = b"sigensigensigenp"  # Same as key
+
+
+def encode_sigenergy_password(plain_password: str) -> str:
+    """Encode a plain password to Sigenergy's encrypted format.
+
+    Sigenergy uses AES-128-CBC with PKCS7 padding, then Base64 encodes the result.
+    Key and IV are both "sigensigensigenp".
+
+    Args:
+        plain_password: The plain text password
+
+    Returns:
+        Base64-encoded encrypted password (pass_enc format)
+    """
+    # PKCS7 padding to 16-byte block size
+    padder = padding.PKCS7(128).padder()
+    padded_data = padder.update(plain_password.encode("utf-8")) + padder.finalize()
+
+    # AES-128-CBC encryption
+    cipher = Cipher(algorithms.AES(_SIGENERGY_AES_KEY), modes.CBC(_SIGENERGY_AES_IV))
+    encryptor = cipher.encryptor()
+    encrypted = encryptor.update(padded_data) + encryptor.finalize()
+
+    # Base64 encode
+    return base64.b64encode(encrypted).decode("utf-8")
 
 
 class SigenergyAPIClient:
@@ -32,7 +64,9 @@ class SigenergyAPIClient:
         device_id: Optional[str] = None,
         access_token: Optional[str] = None,
         refresh_token: Optional[str] = None,
+        token_expires_at: Optional[datetime] = None,
         session: Optional[aiohttp.ClientSession] = None,
+        on_token_refresh: Optional[Callable[[dict], Awaitable[None]]] = None,
     ):
         """Initialize Sigenergy client.
 
@@ -42,16 +76,19 @@ class SigenergyAPIClient:
             device_id: 13-digit device identifier
             access_token: OAuth access token (if already authenticated)
             refresh_token: OAuth refresh token (for token refresh)
+            token_expires_at: Token expiration datetime (if known)
             session: Optional aiohttp session to reuse
+            on_token_refresh: Async callback when tokens are refreshed (for persistence)
         """
         self.username = username
         self.pass_enc = pass_enc
         self.device_id = device_id or "1756353655250"  # Default device ID
         self.access_token = access_token
         self.refresh_token = refresh_token
-        self.token_expires_at: Optional[datetime] = None
+        self.token_expires_at = token_expires_at
         self._session = session
         self._own_session = False
+        self._on_token_refresh = on_token_refresh
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create an aiohttp session."""
@@ -116,12 +153,22 @@ class SigenergyAPIClient:
                 self.token_expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
 
                 _LOGGER.info("Sigenergy authentication successful")
-                return {
+
+                token_info = {
                     "access_token": self.access_token,
                     "refresh_token": self.refresh_token,
                     "expires_in": expires_in,
                     "expires_at": self.token_expires_at.isoformat(),
                 }
+
+                # Notify callback of new tokens (for persistence)
+                if self._on_token_refresh:
+                    try:
+                        await self._on_token_refresh(token_info)
+                    except Exception as e:
+                        _LOGGER.warning(f"Token refresh callback failed: {e}")
+
+                return token_info
 
         except aiohttp.ClientError as e:
             _LOGGER.error(f"Sigenergy auth error: {e}")
@@ -173,11 +220,22 @@ class SigenergyAPIClient:
                 self.token_expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
 
                 _LOGGER.info("Token refresh successful")
-                return {
+
+                token_info = {
                     "access_token": self.access_token,
                     "refresh_token": self.refresh_token,
                     "expires_in": expires_in,
+                    "expires_at": self.token_expires_at.isoformat(),
                 }
+
+                # Notify callback of refreshed tokens (for persistence)
+                if self._on_token_refresh:
+                    try:
+                        await self._on_token_refresh(token_info)
+                    except Exception as e:
+                        _LOGGER.warning(f"Token refresh callback failed: {e}")
+
+                return token_info
 
         except Exception as e:
             _LOGGER.error(f"Token refresh error: {e}")

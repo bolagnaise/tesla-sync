@@ -136,6 +136,9 @@ from .const import (
     CONF_SIGENERGY_MODBUS_HOST,
     CONF_SIGENERGY_MODBUS_PORT,
     CONF_SIGENERGY_MODBUS_SLAVE_ID,
+    CONF_SIGENERGY_ACCESS_TOKEN,
+    CONF_SIGENERGY_REFRESH_TOKEN,
+    CONF_SIGENERGY_TOKEN_EXPIRES_AT,
     # Battery system selection
     CONF_BATTERY_SYSTEM,
 )
@@ -2810,11 +2813,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if sell_values:
                 _LOGGER.debug(f"Sell prices range: {min(sell_values):.1f} to {max(sell_values):.1f} c/kWh")
 
-            # Create Sigenergy client and upload tariff
+            # Get stored tokens to avoid re-authentication
+            stored_access_token = entry.data.get(CONF_SIGENERGY_ACCESS_TOKEN)
+            stored_refresh_token = entry.data.get(CONF_SIGENERGY_REFRESH_TOKEN)
+            stored_expires_at = entry.data.get(CONF_SIGENERGY_TOKEN_EXPIRES_AT)
+
+            # Parse expires_at if stored as string
+            token_expires_at = None
+            if stored_expires_at:
+                try:
+                    if isinstance(stored_expires_at, str):
+                        token_expires_at = datetime.fromisoformat(stored_expires_at)
+                    else:
+                        token_expires_at = stored_expires_at
+                except (ValueError, TypeError):
+                    _LOGGER.debug("Could not parse stored token expiration, will re-authenticate if needed")
+
+            # Callback to persist refreshed tokens to config entry
+            async def _persist_sigenergy_tokens(token_info: dict) -> None:
+                """Persist refreshed Sigenergy tokens to config entry."""
+                try:
+                    new_data = {**entry.data}
+                    new_data[CONF_SIGENERGY_ACCESS_TOKEN] = token_info.get("access_token")
+                    new_data[CONF_SIGENERGY_REFRESH_TOKEN] = token_info.get("refresh_token")
+                    new_data[CONF_SIGENERGY_TOKEN_EXPIRES_AT] = token_info.get("expires_at")
+                    hass.config_entries.async_update_entry(entry, data=new_data)
+                    _LOGGER.debug("Persisted refreshed Sigenergy tokens to config entry")
+                except Exception as e:
+                    _LOGGER.warning(f"Failed to persist Sigenergy tokens: {e}")
+
+            # Create Sigenergy client with stored tokens and refresh callback
             client = SigenergyAPIClient(
                 username=username,
                 pass_enc=pass_enc,
                 device_id=device_id,
+                access_token=stored_access_token,
+                refresh_token=stored_refresh_token,
+                token_expires_at=token_expires_at,
+                on_token_refresh=_persist_sigenergy_tokens,
             )
 
             result = await client.set_tariff_rate(

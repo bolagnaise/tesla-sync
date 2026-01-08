@@ -104,11 +104,16 @@
       },
       "sigenergy_credentials": {
         "title": "Sigenergy Credentials",
-        "description": "Enter your Sigenergy Cloud API credentials.\n\n**How to get credentials:**\n1. Open browser dev tools (F12)\n2. Go to Network tab\n3. Login to web-aus.sigencloud.com\n4. Find 'token' request and copy from Payload:\n   - username → Email\n   - password → Encrypted Password\n   - userDeviceId → Device ID",
+        "description": "Enter your Sigenergy Cloud API credentials.\n\n**Password:** Enter your Sigenergy account password.\n\n**Device ID:** To find this:\n1. Open browser dev tools (F12)\n2. Go to Network tab\n3. Login to web-aus.sigencloud.com\n4. Find 'token' request → userDeviceId",
         "data": {
           "sigenergy_username": "Sigenergy Email",
-          "sigenergy_pass_enc": "Encrypted Password",
-          "sigenergy_device_id": "Device ID (13 digits)"
+          "sigenergy_password": "Password",
+          "sigenergy_device_id": "Device ID (13 digits)",
+          "sigenergy_pass_enc": "Encrypted Password (Advanced)"
+        },
+        "data_description": {
+          "sigenergy_password": "Your Sigenergy account password",
+          "sigenergy_pass_enc": "Leave blank unless you have a pre-encoded password"
         },
         "submit_button": "Validate"
       },
@@ -234,7 +239,8 @@
           "sigenergy_modbus_slave_id": "Modbus Slave ID",
           "sigenergy_dc_curtailment_enabled": "Enable DC Solar Curtailment",
           "sigenergy_username": "Sigenergy Cloud Email",
-          "sigenergy_pass_enc": "Encrypted Password",
+          "sigenergy_password": "Password",
+          "sigenergy_pass_enc": "Encrypted Password (Advanced)",
           "sigenergy_device_id": "Device ID",
           "sigenergy_station_id": "Station ID"
         },
@@ -242,7 +248,8 @@
           "sigenergy_modbus_host": "Local IP address of your Sigenergy inverter (e.g., 192.168.1.100)",
           "sigenergy_dc_curtailment_enabled": "Allow PowerSync to limit DC solar production during negative prices",
           "sigenergy_username": "Your Sigenergy Cloud account email address",
-          "sigenergy_pass_enc": "Encrypted password from browser dev tools (leave blank to keep existing)",
+          "sigenergy_password": "Your Sigenergy account password (leave blank to keep existing)",
+          "sigenergy_pass_enc": "Pre-encoded password - leave blank unless you know what this is",
           "sigenergy_device_id": "13-digit device identifier from browser dev tools",
           "sigenergy_station_id": "Your Sigenergy station ID (numeric)"
         }

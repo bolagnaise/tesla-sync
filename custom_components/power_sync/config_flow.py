@@ -46,6 +46,7 @@ from .const import (
     BATTERY_SYSTEMS,
     # Sigenergy configuration
     CONF_SIGENERGY_USERNAME,
+    CONF_SIGENERGY_PASSWORD,
     CONF_SIGENERGY_PASS_ENC,
     CONF_SIGENERGY_DEVICE_ID,
     CONF_SIGENERGY_STATION_ID,
@@ -635,28 +636,46 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_sigenergy_credentials(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle Sigenergy credential entry."""
+        """Handle Sigenergy credential entry.
+
+        Supports both plain password (recommended) and pre-encoded pass_enc (advanced).
+        If plain password is provided, it's encoded automatically.
+        """
+        from .sigenergy_api import encode_sigenergy_password
+
         errors: dict[str, str] = {}
 
         if user_input is not None:
             username = user_input.get(CONF_SIGENERGY_USERNAME, "").strip()
+            plain_password = user_input.get(CONF_SIGENERGY_PASSWORD, "").strip()
             pass_enc = user_input.get(CONF_SIGENERGY_PASS_ENC, "").strip()
             device_id = user_input.get(CONF_SIGENERGY_DEVICE_ID, "").strip()
 
-            if not username or not pass_enc or not device_id:
+            # Determine which password to use
+            # Priority: pass_enc (explicit override) > password (encode it)
+            if pass_enc:
+                # Advanced user provided pre-encoded password
+                final_pass_enc = pass_enc
+            elif plain_password:
+                # Normal user provided plain password - encode it
+                final_pass_enc = encode_sigenergy_password(plain_password)
+            else:
+                final_pass_enc = ""
+
+            if not username or not final_pass_enc or not device_id:
                 errors["base"] = "missing_credentials"
             elif len(device_id) != 13 or not device_id.isdigit():
                 errors["base"] = "invalid_device_id"
             else:
                 # Validate credentials
                 validation_result = await validate_sigenergy_credentials(
-                    self.hass, username, pass_enc, device_id
+                    self.hass, username, final_pass_enc, device_id
                 )
 
                 if validation_result["success"]:
                     self._sigenergy_data = {
                         CONF_SIGENERGY_USERNAME: username,
-                        CONF_SIGENERGY_PASS_ENC: pass_enc,
+                        CONF_SIGENERGY_PASS_ENC: final_pass_enc,  # Always store encoded
                         CONF_SIGENERGY_DEVICE_ID: device_id,
                         CONF_SIGENERGY_ACCESS_TOKEN: validation_result.get("access_token"),
                         CONF_SIGENERGY_REFRESH_TOKEN: validation_result.get("refresh_token"),
@@ -671,12 +690,13 @@ class TeslaAmberSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="sigenergy_credentials",
             data_schema=vol.Schema({
                 vol.Required(CONF_SIGENERGY_USERNAME): str,
-                vol.Required(CONF_SIGENERGY_PASS_ENC): str,
+                vol.Required(CONF_SIGENERGY_PASSWORD): str,
                 vol.Required(CONF_SIGENERGY_DEVICE_ID): str,
+                vol.Optional(CONF_SIGENERGY_PASS_ENC): str,  # Advanced: pre-encoded
             }),
             errors=errors,
             description_placeholders={
-                "credentials_help": "Capture credentials from browser dev tools when logging into Sigenergy web portal",
+                "credentials_help": "Enter your Sigenergy account password. Device ID is from browser dev tools.",
             },
         )
 
@@ -1352,7 +1372,12 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init_sigenergy(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Step 1 for Sigenergy users: Configure Modbus connection and DC curtailment."""
+        """Step 1 for Sigenergy users: Configure Modbus connection and DC curtailment.
+
+        Supports both plain password (recommended) and pre-encoded pass_enc (advanced).
+        """
+        from .sigenergy_api import encode_sigenergy_password
+
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -1379,14 +1404,23 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
 
                 # Update Sigenergy Cloud API credentials if provided
                 sigen_username = user_input.get(CONF_SIGENERGY_USERNAME, "").strip()
+                sigen_password = user_input.get(CONF_SIGENERGY_PASSWORD, "").strip()
                 sigen_pass_enc = user_input.get(CONF_SIGENERGY_PASS_ENC, "").strip()
                 sigen_device_id = user_input.get(CONF_SIGENERGY_DEVICE_ID, "").strip()
                 sigen_station_id = user_input.get(CONF_SIGENERGY_STATION_ID, "").strip()
 
+                # Determine final pass_enc: explicit pass_enc > encoded password
+                if sigen_pass_enc:
+                    final_pass_enc = sigen_pass_enc
+                elif sigen_password:
+                    final_pass_enc = encode_sigenergy_password(sigen_password)
+                else:
+                    final_pass_enc = ""
+
                 if sigen_username:
                     new_data[CONF_SIGENERGY_USERNAME] = sigen_username
-                if sigen_pass_enc:
-                    new_data[CONF_SIGENERGY_PASS_ENC] = sigen_pass_enc
+                if final_pass_enc:
+                    new_data[CONF_SIGENERGY_PASS_ENC] = final_pass_enc
                 if sigen_device_id:
                     new_data[CONF_SIGENERGY_DEVICE_ID] = sigen_device_id
                 if sigen_station_id:
@@ -1414,7 +1448,7 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
         current_sigen_username = self.config_entry.data.get(CONF_SIGENERGY_USERNAME, "")
         current_sigen_device_id = self.config_entry.data.get(CONF_SIGENERGY_DEVICE_ID, "")
         current_sigen_station_id = self.config_entry.data.get(CONF_SIGENERGY_STATION_ID, "")
-        # Don't show current pass_enc for security - user must re-enter if changing
+        # Don't show current password for security - user must re-enter if changing
 
         return self.async_show_form(
             step_id="init_sigenergy",
@@ -1447,7 +1481,11 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                         description={"suggested_value": current_sigen_username},
                     ): str,
                     vol.Optional(
-                        CONF_SIGENERGY_PASS_ENC,
+                        CONF_SIGENERGY_PASSWORD,  # Plain password (recommended)
+                        description={"suggested_value": ""},
+                    ): str,
+                    vol.Optional(
+                        CONF_SIGENERGY_PASS_ENC,  # Advanced: pre-encoded
                         description={"suggested_value": ""},
                     ): str,
                     vol.Optional(

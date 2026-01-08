@@ -5,12 +5,46 @@ Handles authentication and tariff synchronization with Sigenergy battery systems
 Based on https://github.com/Talie5in/amber2sigen
 """
 
+import base64
+import hashlib
 import logging
 import requests
 from datetime import datetime, timedelta
 from typing import Optional
 
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives import padding
+
 logger = logging.getLogger(__name__)
+
+# Sigenergy password encryption constants
+_SIGENERGY_AES_KEY = b"sigensigensigenp"  # 16 bytes for AES-128
+_SIGENERGY_AES_IV = b"sigensigensigenp"  # Same as key
+
+
+def encode_sigenergy_password(plain_password: str) -> str:
+    """Encode a plain password to Sigenergy's encrypted format.
+
+    Sigenergy uses AES-128-CBC with PKCS7 padding, then Base64 encodes the result.
+    Key and IV are both "sigensigensigenp".
+
+    Args:
+        plain_password: The plain text password
+
+    Returns:
+        Base64-encoded encrypted password (pass_enc format)
+    """
+    # PKCS7 padding to 16-byte block size
+    padder = padding.PKCS7(128).padder()
+    padded_data = padder.update(plain_password.encode("utf-8")) + padder.finalize()
+
+    # AES-128-CBC encryption
+    cipher = Cipher(algorithms.AES(_SIGENERGY_AES_KEY), modes.CBC(_SIGENERGY_AES_IV))
+    encryptor = cipher.encryptor()
+    encrypted = encryptor.update(padded_data) + encryptor.finalize()
+
+    # Base64 encode
+    return base64.b64encode(encrypted).decode("utf-8")
 
 
 class SigenergyClient:

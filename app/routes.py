@@ -942,17 +942,31 @@ def api_inverter_restore():
 @bp.route('/api/sigenergy/validate', methods=['POST'])
 @login_required
 def api_sigenergy_validate():
-    """Validate Sigenergy credentials and get stations list."""
-    from app.sigenergy_client import SigenergyClient
+    """Validate Sigenergy credentials and get stations list.
+
+    Accepts both plain password (preferred) and pre-encoded pass_enc (backwards compatible).
+    If plain password is provided, it's encoded automatically.
+    """
+    from app.sigenergy_client import SigenergyClient, encode_sigenergy_password
     from app.utils import encrypt_token
 
     data = request.get_json() or {}
     username = data.get('username')
-    pass_enc = data.get('pass_enc')
+    password = data.get('password')  # Plain password (preferred)
+    pass_enc = data.get('pass_enc')  # Pre-encoded (backwards compat)
     device_id = data.get('device_id')
 
-    if not username or not pass_enc:
-        return jsonify({'success': False, 'error': 'Username and encrypted password are required'})
+    # Determine which password to use
+    # Priority: pass_enc (explicit override) > password (encode it)
+    if pass_enc:
+        final_pass_enc = pass_enc
+    elif password:
+        final_pass_enc = encode_sigenergy_password(password)
+    else:
+        final_pass_enc = None
+
+    if not username or not final_pass_enc:
+        return jsonify({'success': False, 'error': 'Username and password are required'})
 
     if device_id and len(device_id) != 13:
         return jsonify({'success': False, 'error': 'Device ID must be exactly 13 digits'})

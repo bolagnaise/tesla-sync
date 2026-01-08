@@ -778,20 +778,33 @@
                                        placeholder="your@email.com"
                                        style="width: 100%; font-size: 0.9em; margin-bottom: 0.5em;">
 
-                                <label for="sigenergy_pass_enc_input" style="font-size: 0.85em;">
-                                    Encrypted Password
-                                    <small>The long base64 string from the password field</small>
+                                <label for="sigenergy_password_input" style="font-size: 0.85em;">
+                                    Password
+                                    <small>Your Sigenergy account password</small>
                                 </label>
                                 <div style="display: flex; align-items: center; gap: 0.5em; margin-bottom: 0.5em; width: 100%;">
-                                    <input type="password" id="sigenergy_pass_enc_input"
-                                           placeholder="Paste from dev tools"
+                                    <input type="password" id="sigenergy_password_input"
+                                           placeholder="Enter your password"
                                            style="flex: 1; min-width: 0; width: 100%; font-size: 0.9em;">
-                                    <button type="button" onclick="toggleVisibility('sigenergy_pass_enc_input', this)"
+                                    <button type="button" onclick="toggleVisibility('sigenergy_password_input', this)"
                                             style="background: none; border: none; cursor: pointer; padding: 0.25em;
                                                    font-size: 1.1em; color: var(--muted-color); flex-shrink: 0; width: 2em;">
                                         👁️
                                     </button>
                                 </div>
+
+                                <details style="margin-bottom: 0.5em;">
+                                    <summary style="font-size: 0.8em; cursor: pointer; color: var(--muted-color);">
+                                        Advanced: Use pre-encoded password
+                                    </summary>
+                                    <label for="sigenergy_pass_enc_input" style="font-size: 0.85em; margin-top: 0.5em; display: block;">
+                                        Encrypted Password (optional)
+                                        <small>Only use if you have a pre-encoded password</small>
+                                    </label>
+                                    <input type="password" id="sigenergy_pass_enc_input"
+                                           placeholder="Leave blank to use plain password above"
+                                           style="width: 100%; font-size: 0.9em;">
+                                </details>
 
                                 <label for="sigenergy_device_id_input" style="font-size: 0.85em;">
                                     Device ID
@@ -854,12 +867,14 @@
         async function validateSigenergyCredentials() {
             const status = document.getElementById('sigenergy-validate-status');
             const username = document.getElementById('sigenergy_username_input').value;
+            const password = document.getElementById('sigenergy_password_input').value;
             const passEnc = document.getElementById('sigenergy_pass_enc_input').value;
             const deviceId = document.getElementById('sigenergy_device_id_input').value;
 
-            if (!username || !passEnc || !deviceId) {
+            // Require username and (password OR pass_enc) and deviceId
+            if (!username || (!password && !passEnc) || !deviceId) {
                 status.style.display = 'block';
-                status.innerHTML = '<span style="color: #ff6b6b;">Please fill in all fields</span>';
+                status.innerHTML = '<span style="color: #ff6b6b;">Please fill in username, password, and device ID</span>';
                 return;
             }
 
@@ -873,11 +888,14 @@
             status.innerHTML = '<span style="color: #fcc419;">Validating credentials...</span>';
 
             try {
+                // Send both password (plain) and pass_enc (pre-encoded)
+                // Server will use pass_enc if provided, otherwise encode password
                 const response = await fetch('/api/sigenergy/validate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         username: username,
+                        password: password,
                         pass_enc: passEnc,
                         device_id: deviceId
                     })
