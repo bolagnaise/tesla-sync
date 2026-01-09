@@ -541,7 +541,7 @@ def api_curtailment_status():
                     if price.get('channelType') == 'feedIn':
                         feedin_price = price.get('perKwh')
                         if feedin_price is not None:
-                            export_earnings = -feedin_price
+                            export_earnings = feedin_price  # positive = you earn, negative = you pay
                         break
 
     # Determine curtailment status based on CURRENT price conditions
