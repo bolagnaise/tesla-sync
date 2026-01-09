@@ -1799,13 +1799,15 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
             # Combine amber options, curtailment options, and inverter config
             final_data = {**getattr(self, '_amber_options', {})}
             final_data.update(getattr(self, '_curtailment_options', {}))
-            final_data[CONF_INVERTER_BRAND] = self._inverter_brand
+            # Get brand from instance variable or existing config
+            inverter_brand = getattr(self, '_inverter_brand', None) or self._get_option(CONF_INVERTER_BRAND, "sungrow")
+            final_data[CONF_INVERTER_BRAND] = inverter_brand
             final_data[CONF_INVERTER_MODEL] = user_input.get(CONF_INVERTER_MODEL)
             final_data[CONF_INVERTER_HOST] = user_input.get(CONF_INVERTER_HOST, "")
             final_data[CONF_INVERTER_PORT] = user_input.get(CONF_INVERTER_PORT, DEFAULT_INVERTER_PORT)
 
             # Only include slave ID for Modbus brands (not Enphase/Zeversolar which use HTTP)
-            if self._inverter_brand not in ("enphase", "zeversolar"):
+            if inverter_brand not in ("enphase", "zeversolar"):
                 final_data[CONF_INVERTER_SLAVE_ID] = user_input.get(
                     CONF_INVERTER_SLAVE_ID, DEFAULT_INVERTER_SLAVE_ID
                 )
@@ -1813,11 +1815,11 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
                 final_data[CONF_INVERTER_SLAVE_ID] = 1  # Default for HTTP-based inverters
 
             # Include JWT token for Enphase (required for firmware 7.x+)
-            if self._inverter_brand == "enphase":
+            if inverter_brand == "enphase":
                 final_data[CONF_INVERTER_TOKEN] = user_input.get(CONF_INVERTER_TOKEN, "")
 
             # Fronius-specific: load following mode (for users without 0W export profile)
-            if self._inverter_brand == "fronius":
+            if inverter_brand == "fronius":
                 final_data[CONF_FRONIUS_LOAD_FOLLOWING] = user_input.get(
                     CONF_FRONIUS_LOAD_FOLLOWING, False
                 )
@@ -1830,7 +1832,8 @@ class TeslaAmberSyncOptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=final_data)
 
         # Get brand-specific models and defaults
-        brand = self._inverter_brand
+        # Fall back to existing config if _inverter_brand not set (options flow)
+        brand = getattr(self, '_inverter_brand', None) or self._get_option(CONF_INVERTER_BRAND, "sungrow")
         models = get_models_for_brand(brand)
         defaults = get_brand_defaults(brand)
 
