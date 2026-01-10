@@ -8,6 +8,7 @@ Based on https://github.com/Talie5in/amber2sigen
 import base64
 import hashlib
 import logging
+import random
 import requests
 from datetime import datetime, timedelta
 from typing import Optional
@@ -78,7 +79,8 @@ class SigenergyClient:
         """
         self.username = username
         self.pass_enc = pass_enc
-        self.device_id = device_id or "1756353655250"  # Default device ID
+        # Generate random 13-digit device ID if not provided
+        self.device_id = device_id or str(random.randint(1000000000000, 9999999999999))
         self.access_token = access_token
         self.refresh_token = refresh_token
         self.token_expires_at: Optional[datetime] = None

@@ -2305,14 +2305,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             return True
 
-        # PRIORITY CHECK 2: If actually exporting at negative price, ALWAYS curtail
-        # This takes precedence over battery restore - we don't want to lose money!
+        # PRIORITY CHECK 2: If exporting at negative price - but allow if battery absorbing
+        # When battery is charging AND has room (SOC < 90%), small exports are OK
+        # The value of charging the battery (for later peak discharge) exceeds small export losses
         if is_exporting and export_earnings is not None and export_earnings < 0:
-            _LOGGER.info(
-                f"🔌 AC-COUPLED: Exporting {abs(grid_power):.0f}W at negative price ({export_earnings:.2f}c/kWh) "
-                f"- should curtail (even though battery charging at {abs(battery_power):.0f}W)"
-            )
-            return True
+            # Check if battery is absorbing the solar and has room
+            battery_has_room = battery_soc is not None and battery_soc < 90
+            if battery_is_charging and battery_has_room:
+                # Battery is actively charging and has capacity - allow inverter to run
+                # Small negative export is acceptable while battery absorbs solar
+                _LOGGER.info(
+                    f"🔋 AC-COUPLED: Exporting {abs(grid_power):.0f}W at negative price ({export_earnings:.2f}c/kWh) "
+                    f"BUT battery charging at {abs(battery_power):.0f}W with room (SOC={battery_soc:.0f}%) "
+                    f"- allowing inverter to run (battery value exceeds export loss)"
+                )
+                return False
+            else:
+                # Battery full or not charging - curtail to stop negative export
+                _LOGGER.info(
+                    f"🔌 AC-COUPLED: Exporting {abs(grid_power):.0f}W at negative price ({export_earnings:.2f}c/kWh) "
+                    f"- should curtail (battery not absorbing or full, SOC={battery_soc}%)"
+                )
+                return True
 
         # RESTORE CHECK: If battery SOC < restore threshold, allow inverter to run
         # This ensures battery stays topped up before evening peak
