@@ -544,8 +544,18 @@ class SungrowController(InverterController):
 
             success = False
 
-            if power_limit_toggle_reg and power_limit_percent_reg:
-                # Use power limiting - enable limit and set percentage
+            if target_percent == 0:
+                # Full shutdown - use RUN_MODE_SHUTDOWN for true 0% output
+                # Power limiting to 0% doesn't fully stop some models (e.g., SG5.0RS)
+                _LOGGER.debug("Using run mode shutdown for 0% output")
+                success = await self._write_register(
+                    self.REGISTER_RUN_MODE,
+                    self.RUN_MODE_SHUTDOWN,
+                )
+                if success:
+                    _LOGGER.debug(f"Run mode shutdown (wrote {self.RUN_MODE_SHUTDOWN} to {self.REGISTER_RUN_MODE})")
+            elif power_limit_toggle_reg and power_limit_percent_reg:
+                # Use power limiting for load-following (>0%)
                 # First enable power limiting
                 toggle_success = await self._write_register(
                     power_limit_toggle_reg[0],
