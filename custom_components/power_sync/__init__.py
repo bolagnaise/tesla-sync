@@ -3382,17 +3382,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # Wait briefly
                             await asyncio.sleep(5)
 
-                            # Switch back to autonomous
-                            async with session.post(
-                                f"{api_base}/api/1/energy_sites/{site_id}/operation",
-                                headers=headers,
-                                json={"default_real_mode": "autonomous"},
-                                timeout=aiohttp.ClientTimeout(total=30),
-                            ) as response:
-                                if response.status == 200:
-                                    _LOGGER.info("🔄 Force mode toggle complete - switched back to autonomous")
-                                else:
-                                    _LOGGER.warning(f"Could not switch back to autonomous: {response.status}")
+                            # Switch back to autonomous (with retries - critical to not stay in self_consumption)
+                            switched_back = False
+                            for attempt in range(3):
+                                try:
+                                    async with session.post(
+                                        f"{api_base}/api/1/energy_sites/{site_id}/operation",
+                                        headers=headers,
+                                        json={"default_real_mode": "autonomous"},
+                                        timeout=aiohttp.ClientTimeout(total=30),
+                                    ) as response:
+                                        if response.status == 200:
+                                            _LOGGER.info("🔄 Force mode toggle complete - switched back to autonomous")
+                                            switched_back = True
+                                            break
+                                        else:
+                                            resp_text = await response.text()
+                                            _LOGGER.warning(f"Could not switch back to autonomous: {response.status} {resp_text} (attempt {attempt+1}/3)")
+                                except Exception as e:
+                                    _LOGGER.warning(f"Switch back to autonomous failed: {e} (attempt {attempt+1}/3)")
+
+                                if attempt < 2:  # Don't sleep after last attempt
+                                    await asyncio.sleep(3)
+
+                            if not switched_back:
+                                _LOGGER.error("❌ CRITICAL: Failed to switch back to autonomous after 3 attempts - system may be stuck in self_consumption mode!")
                 except Exception as e:
                     _LOGGER.warning(f"Force mode toggle failed: {e}")
 
